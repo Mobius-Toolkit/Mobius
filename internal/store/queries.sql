@@ -1020,10 +1020,17 @@ ON CONFLICT (repository, number) DO NOTHING;
 
 -- The row has no number until the send of its create writes it.
 -- name: AddWorkstreamToCreate :one
-INSERT INTO workstreams (repository, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
+INSERT INTO workstreams (repository, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills, creator_workstream)
 VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(created_at), 0, 0,
-        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
+        CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN),
+        sqlc.narg(creator_workstream))
 RETURNING id;
+
+-- name: GetOpenCreatorOfWorkstream :one
+SELECT CAST(creator.number AS INTEGER) AS number, child.title AS title
+FROM workstreams child
+JOIN workstreams creator ON creator.repository = child.repository AND creator.number = child.creator_workstream
+WHERE child.repository = ? AND child.number = CAST(sqlc.arg(number) AS INTEGER) AND creator.state = 'open';
 
 -- name: ListWaitingWorkstreams :many
 SELECT id, repository, title, CAST(evergreen AS BOOLEAN) AS evergreen

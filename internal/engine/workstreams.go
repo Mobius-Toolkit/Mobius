@@ -60,7 +60,7 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()
-	if err := e.handleWorkstreamClose(ctx, repository, number); err != nil {
+	if err := e.handleWorkstreamClose(ctx, repository, number, closedCompleted); err != nil {
 		return err
 	}
 	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream.")
@@ -127,23 +127,18 @@ func (e *Engine) setTitle(ctx context.Context, repository github.Repository, num
 }
 
 // handleWorkstreamClose closes the Workstream number of repository in workstreams, removes its tasks and copied tree,
-// writes its state to GitHub, stops its work, and starts a Curator. When the row is already closed and no earlier
-// closeWorkstream failed, it stops.
-func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Repository, number int64) error {
+// writes its state to GitHub, stops its work, and starts a Curator. The creator Lead gets a close event with reason.
+// When the row is already closed and no earlier closeWorkstream failed, it stops.
+func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Repository, number int64, reason string) error {
 	var changeID int64
-	closed := false
-	err := e.inTx(ctx, func(q *store.Queries) error {
-		updated, err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository.FullName, Number: number})
-		if err != nil || updated == 0 {
-			return err
-		}
-		closed = true
+	closed, err := e.closeWorkstreamRow(ctx, repository.FullName, number, reason, func(q *store.Queries) error {
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
 			return err
 		}
+		var err error
 		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
 		return err
 	})
@@ -188,11 +183,68 @@ func (e *Engine) retryWorkstreamCloses(ctx context.Context, repository github.Re
 		if e.IsClosing(repository.FullName, number) {
 			continue
 		}
-		if err := e.handleWorkstreamClose(ctx, repository, number); err != nil {
+		if err := e.handleWorkstreamClose(ctx, repository, number, ""); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+const (
+	closedCompleted  = "completed"
+	closedNotPlanned = "not planned"
+)
+
+// closeReason gives the close reason of the closed issue of a Workstream.
+func closeReason(issue *gh.Issue) string {
+	if reason := issue.GetStateReason(); reason == "not_planned" || reason == "duplicate" {
+		return closedNotPlanned
+	}
+	return closedCompleted
+}
+
+// closeWorkstreamRow sets the row of the Workstream number of repository to closed and runs write in the same
+// transaction. When the row was open and its creator Workstream is open, the transaction also adds a close event for
+// the creator Lead, and the Lead gets it after the commit. It tells if the row was open.
+func (e *Engine) closeWorkstreamRow(ctx context.Context, repository string, number int64, reason string, write func(*store.Queries) error) (bool, error) {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	closed := false
+	creator := int64(0)
+	var message store.ChatMessage
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		updated, err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository, Number: number})
+		if err != nil || updated == 0 {
+			return err
+		}
+		closed = true
+		if err := write(q); err != nil {
+			return err
+		}
+		row, err := q.GetOpenCreatorOfWorkstream(ctx, store.GetOpenCreatorOfWorkstreamParams{Repository: repository, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		creator = row.Number
+		text := fmt.Sprintf("%s close of Workstream #%d \"%s\" that you created: %s.", time.Now().UTC().Format(timeFormat), number, row.Title, reason)
+		message, _, err = e.storeLeadEvent(ctx, q, repository, creator, "", sql.NullInt64{}, "workstream_closed", text, now(), commentRef{})
+		return err
+	})
+	if err != nil || !closed {
+		return false, err
+	}
+	if creator != 0 {
+		if err := e.announceChatMessage(ctx, leadChat(repository, creator), eventAuthor, message); err != nil {
+			return true, err
+		}
+		if err := e.sendEvents(ctx, repository, creator); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
 
 // reopenWorkstream reopens the Workstream of issue when its row is closed (filling title, body and created_at from the
@@ -619,7 +671,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 			return err
 		}
 	}
-	if err := e.closeCopiedWorkstream(ctx, repository, number); err != nil {
+	if err := e.closeCopiedWorkstream(ctx, repository, number, closedNotPlanned); err != nil {
 		return err
 	}
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {

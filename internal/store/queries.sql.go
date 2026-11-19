@@ -1588,20 +1588,22 @@ func (q *Queries) AddWorkstreamMcpServer(ctx context.Context, arg AddWorkstreamM
 }
 
 const addWorkstreamToCreate = `-- name: AddWorkstreamToCreate :one
-INSERT INTO workstreams (repository, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills)
+INSERT INTO workstreams (repository, title, body, state, created_at, autopilot, auto_merge, evergreen, maintenance, skills, creator_workstream)
 VALUES (?1, ?2, ?3, 'open', ?4, 0, 0,
-        CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN), CAST(?7 AS BOOLEAN))
+        CAST(?5 AS BOOLEAN), CAST(?6 AS BOOLEAN), CAST(?7 AS BOOLEAN),
+        ?8)
 RETURNING id
 `
 
 type AddWorkstreamToCreateParams struct {
-	Repository  string
-	Title       string
-	Body        string
-	CreatedAt   string
-	Evergreen   bool
-	Maintenance bool
-	Skills      bool
+	Repository        string
+	Title             string
+	Body              string
+	CreatedAt         string
+	Evergreen         bool
+	Maintenance       bool
+	Skills            bool
+	CreatorWorkstream sql.NullInt64
 }
 
 // The row has no number until the send of its create writes it.
@@ -1614,6 +1616,7 @@ func (q *Queries) AddWorkstreamToCreate(ctx context.Context, arg AddWorkstreamTo
 		arg.Evergreen,
 		arg.Maintenance,
 		arg.Skills,
+		arg.CreatorWorkstream,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -4368,6 +4371,30 @@ func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (C
 		&i.EndedAt,
 		&i.IssueRow,
 	)
+	return i, err
+}
+
+const getOpenCreatorOfWorkstream = `-- name: GetOpenCreatorOfWorkstream :one
+SELECT CAST(creator.number AS INTEGER) AS number, child.title AS title
+FROM workstreams child
+JOIN workstreams creator ON creator.repository = child.repository AND creator.number = child.creator_workstream
+WHERE child.repository = ? AND child.number = CAST(?2 AS INTEGER) AND creator.state = 'open'
+`
+
+type GetOpenCreatorOfWorkstreamParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetOpenCreatorOfWorkstreamRow struct {
+	Number int64
+	Title  string
+}
+
+func (q *Queries) GetOpenCreatorOfWorkstream(ctx context.Context, arg GetOpenCreatorOfWorkstreamParams) (GetOpenCreatorOfWorkstreamRow, error) {
+	row := q.db.QueryRowContext(ctx, getOpenCreatorOfWorkstream, arg.Repository, arg.Number)
+	var i GetOpenCreatorOfWorkstreamRow
+	err := row.Scan(&i.Number, &i.Title)
 	return i, err
 }
 
