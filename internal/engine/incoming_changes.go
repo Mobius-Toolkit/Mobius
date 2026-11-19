@@ -194,7 +194,11 @@ func (e *Engine) applyWorkstreamChange(ctx context.Context, repository github.Re
 	case change.Change == reopenedChange && trusted:
 		return e.reopenWorkstreamFromChange(ctx, repository, change)
 	case change.Change == closedChange && trusted:
-		return e.handleWorkstreamClose(ctx, repository, change.Number)
+		issue, err := repository.Issue(ctx, change.Number)
+		if err != nil {
+			return err
+		}
+		return e.handleWorkstreamClose(ctx, repository, change.Number, closeReason(issue))
 	case !stored:
 		return nil
 	case !trusted:

@@ -22,6 +22,7 @@ import (
 func (e *Engine) addWorkstreamToCreate(ctx context.Context, repository github.Repository, input workstreamInput, action int64, approved bool) (int64, int64, error) {
 	var workstream, change int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
+		var creator sql.NullInt64
 		if approved {
 			row, err := q.GetPendingAction(ctx, action)
 			if err != nil {
@@ -32,17 +33,21 @@ func (e *Engine) addWorkstreamToCreate(ctx context.Context, repository github.Re
 				change, err = q.GetCreateChange(ctx, sql.NullInt64{Int64: workstream, Valid: true})
 				return err
 			}
+			if row.Role == "lead" {
+				creator = sql.NullInt64{Int64: row.Workstream, Valid: true}
+			}
 		}
 		maintenance := slices.Contains(input.Labels, maintenanceLabel)
 		var err error
 		workstream, err = q.AddWorkstreamToCreate(ctx, store.AddWorkstreamToCreateParams{
-			Repository:  repository.FullName,
-			Title:       input.Title,
-			Body:        input.Brief,
-			CreatedAt:   now(),
-			Evergreen:   slices.Contains(input.Labels, evergreenLabel) || maintenance,
-			Maintenance: maintenance,
-			Skills:      slices.Contains(input.Labels, skillsLabel),
+			Repository:        repository.FullName,
+			Title:             input.Title,
+			Body:              input.Brief,
+			CreatedAt:         now(),
+			Evergreen:         slices.Contains(input.Labels, evergreenLabel) || maintenance,
+			Maintenance:       maintenance,
+			Skills:            slices.Contains(input.Labels, skillsLabel),
+			CreatorWorkstream: creator,
 		})
 		if err != nil {
 			return err
