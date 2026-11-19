@@ -323,11 +323,13 @@ func TestAnOpenBucketThatGitHubRefusesEachOpenIssueStaysAndTheNextPollsMakeNoNew
 
 	fake.RefuseOpenBucketAdds(false)
 
-	// A poll that runs while the refusal ends can refuse its first moves and make the later ones, so the test does not
-	// expect the oldest issues.
-	waitForThirtyDirectSubIssues(t, fake)
+	// A poll that runs while the refusal ends refuses its first moves and makes the later ones. When that poll moves
+	// two or more issues, the Workstream has 50 or fewer direct sub-issues and the next polls move no more, so the test
+	// expects neither the oldest issues nor 30 direct sub-issues.
+	testkit.WaitFor(t, func() bool { return len(fake.SubIssueNumbers(shop, 151)) > 0 })
+	waitForPolls(t, fake)
 	got := sorted(fake.SubIssueNumbers(shop, 151))
-	if len(got) != 22 || got[0] < 100 || got[len(got)-1] > 150 || fake.HasIssue(shop, 152) {
+	if len(got) > 22 || got[0] < 100 || got[len(got)-1] > 150 || fake.HasIssue(shop, 152) {
 		t.Errorf("sub-issues of #151 = %v, #152 = %t", got, fake.HasIssue(shop, 152))
 	}
 }
