@@ -918,6 +918,16 @@ DELETE FROM blockers WHERE issue IN (
 UPDATE issues SET workstream = NULL, parent = NULL
 WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?);
 
+-- The tree of a Workstream with a pending close stays, because the close reads it.
+-- name: DeleteCopiedBlockersOfSettledTrees :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+);
+
+-- name: DetachCopiedSettledTrees :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0);
+
 -- name: DeleteCopiedWorkstream :execrows
 DELETE FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
@@ -1139,11 +1149,24 @@ JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
 ORDER BY i.number, i.id;
+
+-- name: ListOpenBlockedIssues :many
+SELECT DISTINCT b.issue FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: GetDispatchIssue :one
+SELECT i.kind, i.metadata,
+    EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
+FROM issues i
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetCopiedIssueTitle :one
 SELECT title FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);

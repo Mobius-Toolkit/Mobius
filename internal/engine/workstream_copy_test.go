@@ -592,9 +592,7 @@ func TestAClosedWorkstreamGetsTheStateClosedAndKeepsItsSettingsAndItsTreeGoes(t 
 	if got := settingsOf(t, server, 12); !slices.Equal(got, want) {
 		t.Errorf("settings of #12 = %+v, want %+v", got, want)
 	}
-	if got := issueNumbers(t, server); len(got) != 0 {
-		t.Errorf("issues = %v", got)
-	}
+	testkit.WaitFor(t, func() bool { return len(issueNumbers(t, server)) == 0 })
 }
 
 // Even when a tree copy fails, events close or delete the Workstream row at once, and a later full copy fixes the failed tree.
@@ -638,9 +636,7 @@ func TestAClosedWorkstreamIsRemovedWithItsTree(t *testing.T) {
 	fake.CloseIssue(shop, 12)
 
 	testkit.WaitFor(t, func() bool { return len(workstreamNumbers(t, server)) == 0 })
-	if got := issueNumbers(t, server); len(got) != 0 {
-		t.Errorf("issues = %v", got)
-	}
+	testkit.WaitFor(t, func() bool { return len(issueNumbers(t, server)) == 0 })
 	if got := copiedLabels(t, server, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
 	}

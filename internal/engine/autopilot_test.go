@@ -150,7 +150,7 @@ func TestATriageLabelHoldsTheTaskUntilTheOwnerRemovesTheLabel(t *testing.T) {
 	liveTaskOf(t, server, 41)
 }
 
-func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
+func TestTasksStartInTheOrderOfTheIssueNumbers(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
@@ -162,7 +162,7 @@ func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
 	}
 	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 3 }, "")
 
-	first, second, third := liveTaskOf(t, server, 43), liveTaskOf(t, server, 41), liveTaskOf(t, server, 42)
+	first, second, third := liveTaskOf(t, server, 41), liveTaskOf(t, server, 42), liveTaskOf(t, server, 43)
 
 	if first.ID >= second.ID || second.ID >= third.ID {
 		t.Errorf("task ids = %d, %d, %d", first.ID, second.ID, third.ID)

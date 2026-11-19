@@ -92,9 +92,11 @@ func parseMetadata(metadata string) (issueGitHub, error) {
 	return parsed.GitHub, err
 }
 
+const projectKind = "project"
+
 func issueKind(labels []string) string {
 	if slices.Contains(labels, projectLabel) {
-		return "project"
+		return projectKind
 	}
 	return "task"
 }
@@ -187,7 +189,7 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			continue
 		}
 		err := e.inTx(ctx, func(q *store.Queries) error {
-			if err := detachTrees(ctx, q, name); err != nil {
+			if err := detachAllTrees(ctx, q, name); err != nil {
 				return err
 			}
 			if err := q.DeleteUnusedIssues(ctx); err != nil {
@@ -207,9 +209,18 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
-// detachTrees takes the issues out of the trees of all Workstreams of repository and removes their blockers. An issue
-// that stays in a tree gets its row back, with the same id, when addTree adds the tree again.
+// detachTrees takes the issues out of the trees of the Workstreams of repository and removes their blockers. The tree
+// of a Workstream with a pending close stays. An issue that stays in a tree gets its row back, with the same id, when
+// addTree adds the tree again.
 func detachTrees(ctx context.Context, q *store.Queries, repository string) error {
+	if err := q.DeleteCopiedBlockersOfSettledTrees(ctx, repository); err != nil {
+		return err
+	}
+	return q.DetachCopiedSettledTrees(ctx, repository)
+}
+
+// detachAllTrees is detachTrees with the trees of the Workstreams with a pending close.
+func detachAllTrees(ctx context.Context, q *store.Queries, repository string) error {
 	if err := q.DeleteCopiedBlockersOfTrees(ctx, repository); err != nil {
 		return err
 	}
@@ -1067,8 +1078,8 @@ func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, reposit
 	return added, nil
 }
 
-// closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks, MCP servers,
-// and copied tree, and publishes the Workstreams change.
+// closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks and MCP
+// servers, and publishes the Workstreams change. The tree stays until removeClosedWorkstreamTree.
 func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64) error {
 	closed := false
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -1080,12 +1091,22 @@ func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Re
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}
-		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
-			return err
-		}
-		return removeClosedTree(ctx, q, repository.FullName, number)
+		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
 	})
 	if err != nil || !closed {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+// removeClosedWorkstreamTree takes the tree of the closed Workstream number of repository out of issues. closeWorkstream
+// reads the tree, so it runs first, and a retry of a failed closeWorkstream still finds the tree.
+func (e *Engine) removeClosedWorkstreamTree(ctx context.Context, repository string, number int64) error {
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		return removeClosedTree(ctx, q, repository, number)
+	})
+	if err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
