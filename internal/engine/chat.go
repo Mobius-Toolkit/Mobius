@@ -1457,10 +1457,11 @@ func quietEventsText(events []store.LeadEvent) string {
 	return quietEventsHeading + "\n\n" + strings.Join(payloads, "\n\n") + "\n\n"
 }
 
-// itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event or for an Operator
-// message goes only to the Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses
-// tell_owner to write to the Owner. After a tell_owner call, the reply text of a turn for a message goes only to the
-// Transcript. quiet holds the quiet events of the prompt.
+// itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event, for an Operator
+// message or for a Changelog message goes only to the Transcript, and a stop does not cancel that turn: the Owner
+// cannot see it. The Lead uses tell_owner to write to the Owner. The Coordinator uses it only in a turn for a Changelog
+// message. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript. quiet holds the
+// quiet events of the prompt.
 func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image, quiet []store.LeadEvent) error {
 	if current.message != nil {
 		cancelled, err := e.messageCancelled(c.ctx, current.message.ID)
