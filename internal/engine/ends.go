@@ -536,7 +536,21 @@ func afterReview(state string) bool {
 // and gives the Lead an end event.
 func (e *Engine) endPullRequest(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) error {
 	if pullRequest.GetMerged() && issue.GetState() == "open" {
+		ownWrite, err := addOwnWrite(ctx, e.queries, task.Repository, task.Issue, stateField, "", closedChange)
+		if err != nil {
+			return err
+		}
 		if _, err := repository.CloseIssue(ctx, task.Issue, "completed"); err != nil {
+			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+				return errors.Join(err, delErr)
+			}
+			return err
+		}
+		if _, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      "closed",
+			Repository: task.Repository,
+			Number:     task.Issue,
+		}); err != nil {
 			return err
 		}
 	}
@@ -801,8 +815,22 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err := repository.RemoveLabel(ctx, input.N, readyLabel); err != nil {
 		return "", err
 	}
+	ownWrite, err := addOwnWrite(ctx, e.queries, repository.FullName, input.N, stateField, "", closedChange)
+	if err != nil {
+		return "", err
+	}
 	closed, err := repository.CloseIssue(ctx, input.N, "not_planned")
 	if err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return "", errors.Join(err, delErr)
+		}
+		return "", err
+	}
+	if _, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+		State:      "closed",
+		Repository: repository.FullName,
+		Number:     input.N,
+	}); err != nil {
 		return "", err
 	}
 	if err := e.changeCopiedLabels(ctx, repository.FullName, input.N, nil, []string{readyLabel}); err != nil {

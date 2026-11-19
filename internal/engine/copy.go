@@ -105,8 +105,8 @@ func issueKind(labels []string) string {
 
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
-// When the database already holds tree issues for repository, it refreshes only their title, body, state, author,
-// kind and GitHub labels, and keeps the parent, Workstream and blockers of each existing row unchanged.
+// When the database already holds tree issues for repository, it refreshes only their author and GitHub metadata,
+// and keeps the title, body, state, kind, parent, Workstream and blockers of each existing row unchanged.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
@@ -214,11 +214,7 @@ func refreshCopiedTrees(ctx context.Context, q *store.Queries, repository string
 				return err
 			}
 			if err := q.RefreshCopiedTreeIssue(ctx, store.RefreshCopiedTreeIssueParams{
-				Title:      issue.GetTitle(),
-				Body:       copied.body,
-				State:      issue.GetState(),
 				Author:     issue.GetUser().GetLogin(),
-				Kind:       issueKind(labels),
 				GithubID:   issue.GetID(),
 				Labels:     string(labelsText),
 				Repository: copied.repository,
@@ -288,8 +284,8 @@ func detachAllTrees(ctx context.Context, q *store.Queries, repository string) er
 	return q.DetachCopiedTrees(ctx, repository)
 }
 
-// updateCopy applies the change of the title, body, state, author or labels of one issue of repository to its row in
-// issues, and tells if the copy changed.
+// updateCopy applies the change of the author or labels of one issue of repository to its row in issues, and tells if
+// the copy changed.
 func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, changes copyCounts) (bool, error) {
 	return e.updateCopiedIssue(ctx, issue, repository.FullName, changes)
 }
@@ -1048,10 +1044,9 @@ func (e *Engine) copiedWorkstreamOf(ctx context.Context, repository string, numb
 	return workstream, err == nil, err
 }
 
-// updateCopiedIssue changes the copied row of the issue of repository. It gives false when the copy has the same values.
-// It keeps the labels or the body of the copy when a local change changed them after labelChangeCount gave changes,
-// because the issue can have the old values. In the label case, a closed issue of the copy also stays closed, because
-// the issue can be open on GitHub from before the close that Mobius made.
+// updateCopiedIssue changes the author and labels of the copied row of the issue of repository. It gives false when the
+// copy has the same values. It keeps the labels of the copy when a local change changed them after labelChangeCount
+// gave changes, because the issue can have the old values.
 func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes copyCounts) (bool, error) {
 	changed := false
 	number := int64(issue.GetNumber())
@@ -1061,7 +1056,6 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 	defer e.labelChangeMu.Unlock()
 	ref := lowerRef(repository, number)
 	keepLabels := e.labelChangedAt[ref] > changes.labels
-	keepBody := e.bodyChangedAt[ref] > changes.body
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		row, err := q.GetCopiedIssue(ctx, store.GetCopiedIssueParams{Repository: repository, Number: number})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1070,22 +1064,7 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 		if err != nil {
 			return err
 		}
-		state := issue.GetState()
-		if keepLabels && state == "open" && row.State == "closed" {
-			state = row.State
-		}
-		body := withoutWriteMarker(issue.GetBody())
-		workstream, err := q.GetCopiedIssueWorkstreamOf(ctx, store.GetCopiedIssueWorkstreamOfParams{Repository: repository, Number: number})
-		if err == nil {
-			body = e.WithoutChatLink(workstream.Repository, workstream.Number, body)
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
 		updated, err := q.UpdateCopiedIssue(ctx, store.UpdateCopiedIssueParams{
-			Title:      issue.GetTitle(),
-			KeepBody:   keepBody,
-			Body:       body,
-			State:      state,
 			Author:     issue.GetUser().GetLogin(),
 			Repository: repository,
 			Number:     number,
@@ -1114,7 +1093,7 @@ func setIssueLabels(ctx context.Context, q *store.Queries, repository string, nu
 	if err != nil {
 		return err
 	}
-	return q.SetCopiedIssueLabels(ctx, store.SetCopiedIssueLabelsParams{Labels: string(text), Kind: issueKind(labels), Repository: repository, Number: number})
+	return q.SetCopiedIssueLabels(ctx, store.SetCopiedIssueLabelsParams{Labels: string(text), Repository: repository, Number: number})
 }
 
 // changeCopiedLabels adds and removes labels on the copied row of the issue number of repositoryName, and publishes the change.
@@ -1161,12 +1140,10 @@ type issueRef struct {
 
 type copyCounts struct {
 	labels int
-	body   int
 }
 
 type copySnapshots struct {
 	labels   map[issueRef]int
-	body     map[issueRef]int
 	blockers map[issueRef]int
 }
 
@@ -1174,7 +1151,7 @@ func (e *Engine) labelChangeCount(repository string) copyCounts {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
 	repo := strings.ToLower(repository)
-	return copyCounts{labels: e.labelChanges[repo], body: e.bodyChanges[repo]}
+	return copyCounts{labels: e.labelChanges[repo]}
 }
 
 // labelChangesNow gives the change counts of all issues. A read of GitHub that starts after it gives at least these
@@ -1184,13 +1161,12 @@ func (e *Engine) labelChangesNow() copySnapshots {
 	defer e.labelChangeMu.Unlock()
 	return copySnapshots{
 		labels:   maps.Clone(e.labelChangedAt),
-		body:     maps.Clone(e.bodyChangedAt),
 		blockers: maps.Clone(e.blockerChangedAt),
 	}
 }
 
 // writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that a local change changed
-// after labelChangesNow gave before keeps its copied labels, closed state, body, or blockers, because the read can have
+// after labelChangesNow gave before keeps its copied labels, closed state, or blockers, because the read can have
 // the old values.
 func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []copiedTree, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
@@ -1202,9 +1178,8 @@ func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []co
 				issue := copied.issue
 				ref := lowerRef(copied.repository, int64(issue.GetNumber()))
 				labelsChanged := e.labelChangedAt[ref] != before.labels[ref]
-				bodyChanged := e.bodyChangedAt[ref] != before.body[ref]
 				blockersChanged := e.blockerChangedAt[ref] != before.blockers[ref]
-				if !labelsChanged && !bodyChanged && !blockersChanged {
+				if !labelsChanged && !blockersChanged {
 					continue
 				}
 				row, err := q.GetCopiedIssue(ctx, store.GetCopiedIssueParams{Repository: copied.repository, Number: int64(issue.GetNumber())})
@@ -1226,9 +1201,6 @@ func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []co
 					if issue.GetState() == "open" && row.State == "closed" {
 						issue.State = &row.State
 					}
-				}
-				if bodyChanged {
-					copied.body = row.Body
 				}
 				if blockersChanged {
 					saved, err := q.ListBlockersOfIssue(ctx, row.ID)

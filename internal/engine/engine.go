@@ -75,15 +75,13 @@ type Engine struct {
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and the writes of single issues
 	// of the copy take turns.
 	copyWrite sync.Mutex
-	// labelChanges, bodyChanges, and blockerChanges count the local changes of each repository. The *ChangedAt maps
+	// labelChanges and blockerChanges count the local changes of each repository. The *ChangedAt maps
 	// hold, for each changed issue, the count of its repository after its newest change. labelChangeMu makes a change
 	// with its count, and the check of the count with the write of a tree that GitHub reads gave, take turns.
 	// Else a tree or issue read that GitHub gave before the local change can replace the change.
 	labelChangeMu    sync.Mutex
 	labelChanges     map[string]int
 	labelChangedAt   map[issueRef]int
-	bodyChanges      map[string]int
-	bodyChangedAt    map[issueRef]int
 	blockerChanges   map[string]int
 	blockerChangedAt map[issueRef]int
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
@@ -287,8 +285,6 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		checkedWorkstreams: map[string]string{},
 		labelChanges:       map[string]int{},
 		labelChangedAt:     map[issueRef]int{},
-		bodyChanges:        map[string]int{},
-		bodyChangedAt:      map[issueRef]int{},
 		blockerChanges:     map[string]int{},
 		blockerChangedAt:   map[issueRef]int{},
 		quiet:              map[int64]quietItem{},

@@ -143,7 +143,7 @@ type NewestBodyEdit struct {
 
 // IssueNewestBodyEdit gives the newest edit of the body of the issue number, or nil when the issue has no edit.
 func (r Repository) IssueNewestBodyEdit(ctx context.Context, number int64) (*NewestBodyEdit, error) {
-	const query = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { page: userContentEdits(first: 1) { nodes { id editedAt editor { login } } } } } }`
+	const query = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { page: userContentEdits(first: 1) { nodes { id editedAt editor { __typename login } } } } } }`
 	var data struct {
 		Repository struct {
 			Issue struct {
@@ -151,9 +151,7 @@ func (r Repository) IssueNewestBodyEdit(ctx context.Context, number int64) (*New
 					Nodes []struct {
 						ID       string    `json:"id"`
 						EditedAt time.Time `json:"editedAt"`
-						Editor   *struct {
-							Login string `json:"login"`
-						} `json:"editor"`
+						Editor   *actor    `json:"editor"`
 					} `json:"nodes"`
 				} `json:"page"`
 			} `json:"issue"`
@@ -169,7 +167,7 @@ func (r Repository) IssueNewestBodyEdit(ctx context.Context, number int64) (*New
 	}
 	edit := &NewestBodyEdit{ID: nodes[0].ID, EditedAt: nodes[0].EditedAt}
 	if nodes[0].Editor != nil {
-		edit.Editor = nodes[0].Editor.Login
+		edit.Editor = nodes[0].Editor.login()
 	}
 	return edit, nil
 }

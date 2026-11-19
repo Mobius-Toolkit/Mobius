@@ -40,6 +40,7 @@ const (
 	createField            = "create"
 	blockersField          = "blockers"
 	parentField            = "parent"
+	kindField              = "kind"
 )
 
 // settingLabels gives the label of each field of an outgoing change that writes a setting of a Workstream.
@@ -640,8 +641,8 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 }
 
 // sendIssue writes the field of the tree issue from issues to the issue on GitHub when GitHub differs: the create, the
-// parent, the body or the blockers. An issue with no row or no Workstream is refused. A field other than create
-// waits when the row has no number yet.
+// parent, the blockers, the title, the body, the state or the kind. An issue with no row or no Workstream is refused.
+// A field other than create waits when the row has no number yet.
 func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
 	row, err := e.queries.GetIssueByID(ctx, change.Issue.Int64)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -665,32 +666,52 @@ func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, ch
 	switch change.Field {
 	case parentField:
 		return e.sendIssueParent(ctx, repository, change, row)
-	case bodyField:
-		issue, err := repository.Issue(ctx, number)
-		if err != nil {
-			return e.failed(ctx, repository, change, err)
-		}
-		if issue == nil {
-			return false, e.refuse(ctx, change)
-		}
-		body := e.withChatLink(github.Repository{FullName: row.WorkstreamRepository.String}, row.WorkstreamNumber.Int64, row.Body)
-		if issue.GetBody() != body {
-			if _, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(number), gh.UpdateIssueRequest{Body: &body}); err != nil {
-				return e.failed(ctx, repository, change, err)
-			}
-		}
-		e.labelChangeMu.Lock()
-		repo := strings.ToLower(row.Repository)
-		e.bodyChanges[repo]++
-		e.bodyChangedAt[lowerRef(row.Repository, number)] = e.bodyChanges[repo]
-		err = e.markSent(ctx, change)
-		e.labelChangeMu.Unlock()
-		return false, err
 	case blockersField:
 		return e.sendIssueBlockers(ctx, repository, change, row)
+	case titleField, bodyField, stateField, kindField:
+		return e.sendIssueFields(ctx, repository, change, row, number)
 	}
 	log.Printf("write the %s of %s#%d: unknown issue field", change.Field, change.Repository, number)
 	return false, e.refuse(ctx, change)
+}
+
+func (e *Engine) sendIssueFields(ctx context.Context, repository github.Repository, change store.OutgoingChange, row store.GetIssueByIDRow, number int64) (bool, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return e.failed(ctx, repository, change, err)
+	}
+	if issue == nil {
+		return false, e.refuse(ctx, change)
+	}
+	update := func(request gh.UpdateIssueRequest) error {
+		_, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(number), request)
+		return err
+	}
+	switch change.Field {
+	case kindField:
+		return e.sendLabel(ctx, repository, change, issue, projectLabel, row.Kind == projectKind)
+	case bodyField:
+		body := e.withChatLink(github.Repository{FullName: row.WorkstreamRepository.String}, row.WorkstreamNumber.Int64, row.Body)
+		if issue.GetBody() != body {
+			return e.sendWrite(ctx, repository, change, "", editedChange, func() error { return update(gh.UpdateIssueRequest{Body: &body}) })
+		}
+	case titleField:
+		if issue.GetTitle() != row.Title {
+			return e.sendWrite(ctx, repository, change, "", renamedChange, func() error { return update(gh.UpdateIssueRequest{Title: &row.Title}) })
+		}
+	case stateField:
+		switch {
+		case issue.GetState() == row.State:
+		case row.State == "closed":
+			return e.sendWrite(ctx, repository, change, "", closedChange, func() error {
+				_, err := repository.CloseIssue(ctx, number, "completed")
+				return err
+			})
+		default:
+			return e.sendWrite(ctx, repository, change, "", reopenedChange, func() error { return update(gh.UpdateIssueRequest{State: new("open")}) })
+		}
+	}
+	return false, e.markSent(ctx, change)
 }
 
 // sendParentRemoval removes a sub-issue link on GitHub when an untrusted user added an issue with no tree row below

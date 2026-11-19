@@ -852,6 +852,9 @@ RETURNING id;
 -- name: HasOwnWrite :one
 SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ?);
 
+-- name: HasFieldOwnWrite :one
+SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ? AND field = ?);
+
 -- name: ListTreeOwnWrites :many
 SELECT DISTINCT repository, number FROM own_writes
 WHERE field IN ('parent', 'blockers')
@@ -865,6 +868,7 @@ DELETE FROM own_writes
 WHERE id = (
     SELECT o.id FROM own_writes o
     WHERE o.repository = sqlc.arg(repository) AND o.number = sqlc.arg(number)
+      AND o.field = sqlc.arg(field)
       AND json_extract(o.metadata, '$.label') = CAST(sqlc.arg(label) AS TEXT)
       AND json_extract(o.metadata, '$.change') = CAST(sqlc.arg(change) AS TEXT)
     ORDER BY o.id LIMIT 1
@@ -1119,20 +1123,13 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
-    title = excluded.title,
-    body = CASE
-        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE excluded.body
-    END,
-    state = excluded.state, author = excluded.author,
+    author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE
         WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'parent' AND c.status = 'pending')
         THEN issues.parent
         ELSE excluded.parent
     END,
-    kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id;
 
@@ -1251,38 +1248,16 @@ WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 
 UPDATE workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN), auto_merge = CAST(sqlc.arg(auto_merge) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- The labels in the metadata are a copy of GitHub. The change of the title, the body, the state or the author gives
--- the number of changed rows.
+-- The labels in the metadata are a copy of GitHub. The change of the author gives the number of changed rows.
 -- name: UpdateCopiedIssue :execrows
 UPDATE issues
-SET title = sqlc.arg(title),
-    body = CASE
-        WHEN CAST(sqlc.arg(keep_body) AS BOOLEAN)
-          OR EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE sqlc.arg(body)
-    END,
-    state = sqlc.arg(state),
-    author = sqlc.arg(author)
+SET author = sqlc.arg(author)
 WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER)
-  AND (
-      issues.title != sqlc.arg(title)
-      OR (NOT CAST(sqlc.arg(keep_body) AS BOOLEAN) AND issues.body != sqlc.arg(body) AND NOT EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending'))
-      OR issues.state != sqlc.arg(state)
-      OR issues.author != sqlc.arg(author)
-  );
+  AND issues.author != sqlc.arg(author);
 
 -- name: RefreshCopiedTreeIssue :exec
 UPDATE issues
-SET title = sqlc.arg(title),
-    body = CASE
-        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE sqlc.arg(body)
-    END,
-    state = sqlc.arg(state),
-    author = sqlc.arg(author),
-    kind = sqlc.arg(kind),
+SET author = sqlc.arg(author),
     metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
         '$.id', CAST(sqlc.arg(github_id) AS INTEGER), '$.labels', json(CAST(sqlc.arg(labels) AS TEXT)))))
 WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER);
@@ -1298,7 +1273,7 @@ LEFT JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -1331,8 +1306,21 @@ SELECT EXISTS (
   WHERE c.field = 'parent' AND c.status = 'pending' AND i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER)
 );
 
+-- name: SetIssueTitle :execrows
+UPDATE issues SET title = sqlc.arg(title) WHERE id = sqlc.arg(id) AND title != sqlc.arg(title);
+
 -- name: SetIssueBody :execrows
-UPDATE issues SET body = ? WHERE id = ?;
+UPDATE issues SET body = sqlc.arg(body) WHERE id = sqlc.arg(id) AND body != sqlc.arg(body);
+
+-- name: SetIssueState :execrows
+UPDATE issues SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state != sqlc.arg(state);
+
+-- name: SetIssueStateByRepoNumber :execrows
+UPDATE issues SET state = sqlc.arg(state)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != sqlc.arg(state);
+
+-- name: SetIssueKind :execrows
+UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
 
 -- name: ListBlockersOfIssue :many
 SELECT bi.id, bi.repository, bi.number, bi.state, bi.metadata
@@ -1350,7 +1338,7 @@ WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER) AND bi.s
 ORDER BY bi.repository, bi.number;
 
 -- name: SetCopiedIssueLabels :exec
-UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(sqlc.arg(labels) AS TEXT))), kind = sqlc.arg(kind)
+UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(sqlc.arg(labels) AS TEXT)))
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetCopiedIssueWorkstreamOf :one

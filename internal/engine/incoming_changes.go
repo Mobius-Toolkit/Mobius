@@ -40,20 +40,23 @@ type blockerMetadata struct {
 	Blocker           int64  `json:"blocker"`
 }
 
-// changeEvent is an event of the Workstream issue number.
+// changeEvent is an event of an issue number.
 type changeEvent struct {
 	number int64
 	event  *gh.IssueEvent
 }
 
 // eventField gives the field of the event and the metadata of its incoming change. It tells false for an event that is
-// no change of a field of a Workstream.
+// no change of a field of a Workstream or of a tree issue.
 func eventField(event *gh.IssueEvent) (string, map[string]string, bool) {
 	switch event.GetEvent() {
 	case labeledChange, unlabeledChange:
 		label := event.GetLabel().GetName()
 		if label == workstreamLabel {
 			return workstreamField, map[string]string{"label": label}, true
+		}
+		if label == projectLabel {
+			return kindField, map[string]string{"label": label}, true
 		}
 		field, setting := settingField(label)
 		return field, map[string]string{"label": label}, setting
@@ -128,12 +131,12 @@ func addBlockerOwnWrite(ctx context.Context, q *store.Queries, repository string
 	})
 }
 
-// addEventChanges adds an incoming change for each event of a field of a Workstream that the poll did not read before.
-// The row keeps the id of the event, so a second read of the event does nothing. An event of the Mobius App that
-// matches an own write deletes the oldest matching own write, and its row is done, so no handler applies it. The
-// changes of the setting labels come after the other changes, because a person can add a setting label before the
-// label mobius:workstream, and the handler of the setting needs the row that the add of the Workstream makes. The
-// other changes keep their order.
+// addEventChanges adds an incoming change for each event of a field of a Workstream or a tree issue that the poll did
+// not read before. The row keeps the id of the event, so a second read of the event does nothing. An event of the
+// Mobius App that matches an own write deletes the oldest matching own write, and its row is done, so no handler
+// applies it. The changes of the setting labels come after the other changes, because a person can add a setting label
+// before the label mobius:workstream, and the handler of the setting needs the row that the add of the Workstream makes.
+// The other changes keep their order.
 func addEventChanges(ctx context.Context, q *store.Queries, repository github.Repository, events []changeEvent) error {
 	app := appLogin(repository.AppSlug)
 	rank := func(item changeEvent) int {
@@ -160,7 +163,13 @@ func addEventChanges(ctx context.Context, q *store.Queries, repository github.Re
 		actor := item.event.GetActor().GetLogin()
 		status := "pending"
 		if strings.EqualFold(actor, app) {
-			own, err := q.DeleteOldestOwnWrite(ctx, store.DeleteOldestOwnWriteParams{Repository: repository.FullName, Number: item.number, Label: fields["label"], Change: change})
+			own, err := q.DeleteOldestOwnWrite(ctx, store.DeleteOldestOwnWriteParams{
+				Repository: repository.FullName,
+				Number:     item.number,
+				Field:      field,
+				Label:      fields["label"],
+				Change:     change,
+			})
 			if err != nil {
 				return err
 			}
@@ -226,8 +235,30 @@ func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repo
 	if change.Field == blockersField {
 		return false, e.applyBlockersChange(ctx, repository, change)
 	}
+	if change.Field == kindField {
+		return false, e.applyTreeIssueChange(ctx, repository, change)
+	}
 	if _, setting := settingLabels[change.Field]; setting {
 		return false, e.applySettingChange(ctx, repository, change)
+	}
+	if change.Field != workstreamField {
+		stored, err := e.queries.HasWorkstream(ctx, store.HasWorkstreamParams{Repository: change.Repository, Number: change.Number})
+		if err != nil {
+			return false, err
+		}
+		if !stored {
+			row, inTree, err := e.treeIssueOf(ctx, change.Repository, change.Number)
+			if err != nil {
+				return false, err
+			}
+			if inTree {
+				return false, e.applyTreeIssueRowChange(ctx, repository, row, change)
+			}
+			if change.Field == stateField && change.Change == reopenedChange && e.trustedUser(change.Actor) {
+				return false, e.reopenWorkstreamFromChange(ctx, repository, change)
+			}
+			return false, nil
+		}
 	}
 	return false, e.applyWorkstreamChange(ctx, repository, change)
 }
@@ -375,6 +406,95 @@ func (e *Engine) writeBack(ctx context.Context, repository github.Repository, ch
 		return err
 	}
 	return e.sendNow(ctx, repository, id)
+}
+
+func (e *Engine) applyTreeIssueChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
+	row, inTree, err := e.treeIssueOf(ctx, change.Repository, change.Number)
+	if err != nil || !inTree {
+		return err
+	}
+	return e.applyTreeIssueRowChange(ctx, repository, row, change)
+}
+
+func (e *Engine) treeIssueOf(ctx context.Context, repository string, number int64) (store.GetTreeIssueRow, bool, error) {
+	row, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: repository, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.GetTreeIssueRow{}, false, nil
+	}
+	if err != nil {
+		return store.GetTreeIssueRow{}, false, err
+	}
+	return row, row.Workstream.Valid && row.WorkstreamRepository.Valid && row.WorkstreamNumber.Valid, nil
+}
+
+// applyTreeIssueRowChange applies the change of a field of a tree issue from a trusted user to issues, or adds an
+// outgoing change that writes the field of the row back for another actor.
+func (e *Engine) applyTreeIssueRowChange(ctx context.Context, repository github.Repository, row store.GetTreeIssueRow, change store.IncomingChange) error {
+	if !e.trustedUser(change.Actor) {
+		return e.writeBackTreeIssue(ctx, repository, row.ID, change.Repository, change.Number, change.Field)
+	}
+	var changed int64
+	switch change.Field {
+	case titleField:
+		var meta struct{ Title string }
+		if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+			return err
+		}
+		e.copyWrite.Lock()
+		var err error
+		changed, err = e.queries.SetIssueTitle(ctx, store.SetIssueTitleParams{Title: meta.Title, ID: row.ID})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return err
+		}
+	case bodyField:
+		found, err := e.changeRepository(change.Repository, repository).Issue(ctx, change.Number)
+		if err != nil || found == nil {
+			return err
+		}
+		body := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(found.GetBody()))
+		e.copyWrite.Lock()
+		changed, err = e.queries.SetIssueBody(ctx, store.SetIssueBodyParams{Body: body, ID: row.ID})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return err
+		}
+	case stateField:
+		state := "open"
+		if change.Change == closedChange {
+			state = "closed"
+		}
+		e.copyWrite.Lock()
+		var err error
+		changed, err = e.queries.SetIssueState(ctx, store.SetIssueStateParams{State: state, ID: row.ID})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return err
+		}
+	case kindField:
+		var meta struct{ Label string }
+		if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+			return err
+		}
+		if meta.Label != projectLabel {
+			return nil
+		}
+		kind := "task"
+		if change.Change == labeledChange {
+			kind = projectKind
+		}
+		e.copyWrite.Lock()
+		var err error
+		changed, err = e.queries.SetIssueKind(ctx, store.SetIssueKindParams{Kind: kind, ID: row.ID})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	if changed > 0 {
+		e.publish(Change{Workstreams: true})
+	}
+	return nil
 }
 
 func (e *Engine) writeBackTreeIssue(ctx context.Context, repository github.Repository, issueID int64, targetRepo string, number int64, field string) error {
