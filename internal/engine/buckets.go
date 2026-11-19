@@ -382,19 +382,15 @@ func (f *bucketFill) makeRoom(ctx context.Context, bucket int64, closed bool) er
 }
 
 // add counts each call toward the limit of moves, also a refused one, because it uses the rate limit of GitHub. It
-// stores the own write of the call, and deletes it when GitHub refuses the call, because GitHub makes no event then.
+// stores the own write of a call that GitHub accepted. Only the poll of the repository reads the events, and it is the
+// caller of add, so no poll reads the event before the own write exists.
 func (f *bucketFill) add(ctx context.Context, parent int64, issue *gh.Issue) error {
 	*f.moves++
-	own, err := f.own(ctx, int64(issue.GetNumber()), addedChange)
+	_, _, err := f.repository.Client.SubIssue.Add(ctx, f.repository.Owner(), f.repository.Name(), parent, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
 	if err != nil {
 		return err
 	}
-	_, _, err = f.repository.Client.SubIssue.Add(ctx, f.repository.Owner(), f.repository.Name(), parent, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
-	if err != nil {
-		if delErr := f.engine.queries.DeleteOwnWrite(ctx, own); delErr != nil {
-			return delErr
-		}
-	}
+	_, err = f.own(ctx, int64(issue.GetNumber()), addedChange)
 	return err
 }
 
