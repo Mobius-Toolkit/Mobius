@@ -295,7 +295,6 @@ func TestTheGHSendsTheWritesOfEachSubcommandBeforeItRunsTheRealGH(t *testing.T) 
 		},
 		"create": {
 			args: []string{"issue", "create", "--repo", "github.com/owner/shop", "-t", "A title", "-l", "a", "--label", "b", "--body", "text"},
-			want: []string{write(0, "created", `["a","b"]`, "A title")},
 		},
 		"comment": {
 			args: []string{"issue", "comment", "5", "-R", "owner/shop", "--body", "a comment"},

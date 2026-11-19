@@ -210,14 +210,19 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
+func keepSince() string {
+	return time.Now().Add(-addedCopyLifetime).UTC().Format(time.RFC3339Nano)
+}
+
 // detachTrees takes the issues out of the trees of the Workstreams of repository and removes their blockers. The tree
 // of a Workstream with a pending close stays. An issue that stays in a tree gets its row back, with the same id, when
 // addTree adds the tree again.
 func detachTrees(ctx context.Context, q *store.Queries, repository string) error {
-	if err := q.DeleteCopiedBlockersOfSettledTrees(ctx, repository); err != nil {
+	since := keepSince()
+	if err := q.DeleteCopiedBlockersOfSettledTrees(ctx, store.DeleteCopiedBlockersOfSettledTreesParams{Repository: repository, KeepSince: since}); err != nil {
 		return err
 	}
-	return q.DetachCopiedSettledTrees(ctx, repository)
+	return q.DetachCopiedSettledTrees(ctx, store.DetachCopiedSettledTreesParams{Repository: repository, KeepSince: since})
 }
 
 // detachAllTrees is detachTrees with the trees of the Workstreams with a pending close.
@@ -414,7 +419,7 @@ func bucketOf(issue *gh.Issue) copiedBucket {
 func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
 	var rows []store.ListCopiedTreeRow
 	var blockerRows []store.ListCopiedTreeBlockersRow
-	var pendingBlockerIDs []int64
+	var pendingBlockerIDs, pendingParentIDs []int64
 	var storedBuckets, storedNested string
 	err := e.readTx(ctx, func(q *store.Queries) error {
 		var err error
@@ -427,6 +432,10 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 			return err
 		}
 		pendingBlockerIDs, err = q.ListPendingBlockerIssues(ctx)
+		if err != nil {
+			return err
+		}
+		pendingParentIDs, err = q.ListPendingParentIssues(ctx)
 		if err != nil {
 			return err
 		}
@@ -444,21 +453,36 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	for _, id := range pendingBlockerIDs {
 		pendingBlockers[id] = true
 	}
+	pendingParents := map[int64]bool{}
+	for _, id := range pendingParentIDs {
+		pendingParents[id] = true
+	}
 	root := lowerRef(repository.FullName, workstream)
 	refs := map[int64]issueRef{}
 	idByRef := map[issueRef]int64{}
 	for _, row := range rows {
+		if row.Number == 0 || pendingParents[row.ID] {
+			continue
+		}
 		ref := lowerRef(row.IssueRepository, row.Number)
 		refs[row.ID] = ref
 		idByRef[ref] = row.ID
 	}
 	children := map[issueRef][]issueRef{}
 	for _, row := range rows {
+		ref, ok := refs[row.ID]
+		if !ok {
+			continue
+		}
 		parent := root
 		if row.Parent.Valid {
-			parent = refs[row.Parent.Int64]
+			var found bool
+			parent, found = refs[row.Parent.Int64]
+			if !found {
+				continue
+			}
 		}
-		children[parent] = append(children[parent], refs[row.ID])
+		children[parent] = append(children[parent], ref)
 	}
 	blockers := map[issueRef][]blockerKey{}
 	for _, row := range blockerRows {
@@ -636,7 +660,7 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 		if keepLabels && state == "open" && row.State == "closed" {
 			state = row.State
 		}
-		body := issue.GetBody()
+		body := withoutWriteMarker(issue.GetBody())
 		workstream, err := q.GetCopiedIssueWorkstreamOf(ctx, store.GetCopiedIssueWorkstreamOfParams{Repository: repository, Number: number})
 		if err == nil {
 			body = e.WithoutChatLink(workstream.Repository, workstream.Number, body)
@@ -757,8 +781,7 @@ func (e *Engine) labelChangesNow() copySnapshots {
 func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []copiedTree, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
-	var pending []addedCopy
-	err := e.inTx(ctx, func(q *store.Queries) error {
+	return e.inTx(ctx, func(q *store.Queries) error {
 		for t := range trees {
 			for i := range trees[t].issues {
 				copied := &trees[t].issues[i]
@@ -806,138 +829,12 @@ func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []co
 				}
 			}
 		}
-		if err := write(q); err != nil {
-			return err
-		}
-		pending = e.pendingCopies(trees)
-		for _, added := range pending {
-			if err := putAddedIssue(ctx, q, added); err != nil {
-				return err
-			}
-		}
-		return nil
+		return write(q)
 	})
-	if err == nil {
-		e.addedCopies = pending
-	}
-	return err
 }
 
-// addedCopyLifetime is the time that writeRead puts an added issue back into the tree. A list of GitHub can lack a new
-// issue for some time, and an issue that GitHub never lists must not stay in the copy.
+// addedCopyLifetime is the time that a copied tree keeps an issue with a recent parent outgoing change.
 const addedCopyLifetime = 10 * time.Minute
-
-// addedCopy is an issue that addIssueToCopy added to the copied tree of workstream. The copy keeps it until a tree of
-// GitHub has it, or until the time until.
-type addedCopy struct {
-	workstream issueRef
-	issue      copiedIssue
-	until      time.Time
-}
-
-// pendingCopies gives the added issues that none of trees has, and that have not expired. The caller holds labelChangeMu.
-func (e *Engine) pendingCopies(trees []copiedTree) []addedCopy {
-	now := e.timeNow()
-	var pending []addedCopy
-	for _, added := range e.addedCopies {
-		listed := slices.ContainsFunc(trees, func(tree copiedTree) bool {
-			return slices.ContainsFunc(tree.issues, func(copied copiedIssue) bool { return sameIssue(copied.issue, added.issue.issue) })
-		})
-		if !listed && now.Before(added.until) {
-			pending = append(pending, added)
-		}
-	}
-	return pending
-}
-
-func sameIssue(a, b *gh.Issue) bool {
-	return a.GetNumber() == b.GetNumber() && strings.EqualFold(a.GetRepositoryURL(), b.GetRepositoryURL())
-}
-
-// addIssueToCopy adds the issue, which createIssue created below parent with blockers, to the copied tree of the
-// Workstream workstream. Each write of a tree of GitHub that lacks the issue puts it back (writeRead).
-func (e *Engine) addIssueToCopy(ctx context.Context, workstream issueRef, issue *gh.Issue, parent issueAt, blockers []issueAt) error {
-	copied := copiedIssue{
-		issue:      issue,
-		repository: repositoryOfURL(issue.GetRepositoryURL()),
-		body:       e.WithoutChatLink(workstream.repository, workstream.number, issue.GetBody()),
-	}
-	if !strings.EqualFold(parent.repository.FullName, workstream.repository) || parent.number != workstream.number {
-		copied.parent = issueRef{parent.repository.FullName, parent.number}
-	}
-	keys := make([]blockerKey, len(blockers))
-	for i, blocker := range blockers {
-		keys[i] = blockerKey{blocker.repository.FullName, blocker.number}
-	}
-	var err error
-	if copied.blockers, err = e.readBlockers(ctx, keys); err != nil {
-		return err
-	}
-	e.copyWrite.Lock()
-	defer e.copyWrite.Unlock()
-	e.labelChangeMu.Lock()
-	defer e.labelChangeMu.Unlock()
-	added := addedCopy{workstream: workstream, issue: copied, until: e.timeNow().Add(addedCopyLifetime)}
-	if err := e.inTx(ctx, func(q *store.Queries) error { return putAddedIssue(ctx, q, added) }); err != nil {
-		return err
-	}
-	e.addedCopies = append(e.addedCopies, added)
-	e.publish(Change{Workstreams: true})
-	return nil
-}
-
-// readBlockers reads the issues of blockers from GitHub. It leaves out an issue that is gone.
-func (e *Engine) readBlockers(ctx context.Context, blockers []blockerKey) ([]copiedBlocker, error) {
-	var found []copiedBlocker
-	for _, blocker := range blockers {
-		repository, err := e.repository(blocker.repository)
-		if err != nil {
-			return nil, err
-		}
-		issue, err := repository.Issue(ctx, blocker.number)
-		if err != nil {
-			return nil, err
-		}
-		if issue != nil {
-			found = append(found, copiedBlocker{repository: blocker.repository, issue: issue})
-		}
-	}
-	return found, nil
-}
-
-// putAddedIssue adds the issue to its Workstream, with the labels and blockers. It adds nothing when the copy has no
-// such open Workstream or the tree has the issue. The next copy of the tree puts the issue in its depth-first place.
-func putAddedIssue(ctx context.Context, q *store.Queries, added addedCopy) error {
-	workstream := added.workstream
-	stored, err := q.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: workstream.repository, Number: workstream.number})
-	if err != nil || !stored {
-		return err
-	}
-	rows, err := q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: workstream.repository, Number: workstream.number})
-	if err != nil {
-		return err
-	}
-	number := int64(added.issue.issue.GetNumber())
-	if slices.ContainsFunc(rows, func(row store.ListCopiedTreeRow) bool {
-		return row.Number == number && strings.EqualFold(row.IssueRepository, added.issue.repository)
-	}) {
-		return nil
-	}
-	parent := sql.NullInt64{}
-	if added.issue.parent != (issueRef{}) {
-		for _, row := range rows {
-			if row.Number == added.issue.parent.number && strings.EqualFold(row.IssueRepository, added.issue.parent.repository) {
-				parent = sql.NullInt64{Int64: row.ID, Valid: true}
-			}
-		}
-	}
-	id, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: workstream.repository, Number: workstream.number})
-	if err != nil {
-		return err
-	}
-	_, err = addCopiedIssue(ctx, q, id, parent, added.issue)
-	return err
-}
 
 // copyTree replaces the copied tree of the Workstream with the tree on GitHub.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
@@ -995,7 +892,7 @@ func (e *Engine) addSubtree(ctx context.Context, home, repository github.Reposit
 		copied := copiedIssue{
 			issue:      issue,
 			repository: name,
-			body:       e.WithoutChatLink(home.FullName, workstream, issue.GetBody()),
+			body:       e.WithoutChatLink(home.FullName, workstream, withoutWriteMarker(issue.GetBody())),
 			parent:     parentRef,
 			bucket:     bucket,
 		}
@@ -1193,9 +1090,24 @@ func detachTree(ctx context.Context, q *store.Queries, repository string, workst
 	return q.DetachCopiedTree(ctx, sql.NullInt64{Int64: id, Valid: true})
 }
 
+func detachOpenTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
+	id, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository, Number: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	since := keepSince()
+	if err := q.DeleteCopiedBlockersOfOpenTree(ctx, store.DeleteCopiedBlockersOfOpenTreeParams{Workstream: sql.NullInt64{Int64: id, Valid: true}, KeepSince: since}); err != nil {
+		return err
+	}
+	return q.DetachCopiedOpenTree(ctx, store.DetachCopiedOpenTreeParams{Workstream: sql.NullInt64{Int64: id, Valid: true}, KeepSince: since})
+}
+
 // replaceTree writes the tree as the tree of the Workstream. An issue that was in the tree keeps its row and its id.
 func replaceTree(ctx context.Context, q *store.Queries, repository string, workstream int64, tree copiedTree) error {
-	if err := detachTree(ctx, q, repository, workstream); err != nil {
+	if err := detachOpenTree(ctx, q, repository, workstream); err != nil {
 		return err
 	}
 	if err := addTree(ctx, q, repository, workstream, tree); err != nil {

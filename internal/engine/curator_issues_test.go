@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -47,8 +48,10 @@ func TestTheCuratorCreatesATaskIssueWithTriageBelowTheMaintenanceWorkstream(t *t
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{41}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if title, body := fake.Issue(shop, 41); title != "Fix the flaky test" || body != marked("The test fails in CI.", "— Curator") {
+	if title, body := fake.Issue(shop, 41); title != "Fix the flaky test" {
 		t.Errorf("issue = %q, %q", title, body)
+	} else if got, ok := withoutWriteMarkerText(body); !ok || got != marked("The test fails in CI.", "— Curator") {
+		t.Errorf("body = %q", body)
 	}
 	if got := fake.Labels(shop, 41); !reflect.DeepEqual(got, []string{"mobius:triage"}) {
 		t.Errorf("labels = %v", got)
@@ -247,5 +250,86 @@ func TestSearchIssuesGivesOpenAndClosedIssuesWithTheCloseReasonAndTheLastThreeCo
 	}
 	if strings.Contains(text, engine.ClosedIssueReply) {
 		t.Errorf("the engine notice is in %q", text)
+	}
+}
+
+func TestTheCuratorCreateIssueAddsOneUnnumberedRowWithTriageLabelAndSendsToGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := "[[prompts]]\nwhen = \"Create the issue\"\ncall = { tool = \"create_issue\", arguments = { title = \"Fix the flaky test\", body = \"The test fails in CI.\", blocked_by = [40] } }\n\n" + seenScript
+	server, _ := connect(t, fake, script)
+	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
+	fake.AddIssue(shop, 40, "Plan table")
+	fake.RefuseIssueCreates(http.StatusInternalServerError)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
+
+	if got, want := reply(t, server, session), "Mobius creates the issue \"Fix the flaky test\" on GitHub later."; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+	if got := countRows(t, server, `SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream
+		WHERE i.repository = ? AND w.number = 20 AND i.number IS NULL AND i.title = 'Fix the flaky test'
+		AND json_extract(i.metadata, '$.github.labels') = '["mobius:triage"]'`, shop); got != 1 {
+		t.Fatalf("pending rows = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('create', 'parent', 'blockers') AND status = 'pending'"); got != 3 {
+		t.Fatalf("pending changes = %d", got)
+	}
+
+	fake.RefuseIssueCreates(0)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND json_extract(metadata, '$.github.id') > 0", shop) == 1 &&
+			countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('create', 'parent', 'blockers') AND status = 'pending'") == 0
+	})
+	if got := fake.Labels(shop, 41); !reflect.DeepEqual(got, []string{"mobius:triage"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{41}) {
+		t.Errorf("sub-issues = %v", got)
+	}
+	if got := fake.BlockerNumbers(shop, 41); !reflect.DeepEqual(got, []int64{40}) {
+		t.Errorf("blockers = %v", got)
+	}
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := eventsOfKind(t, server, "issue_created", 20)
+		return events, len(events) == 1 && events[0].Delivered
+	})
+	if !strings.Contains(events[0].Payload, `Mobius created owner/shop#41 "Fix the flaky test" of a create_issue call of the Curator.`) {
+		t.Errorf("event = %+v", events[0])
+	}
+}
+
+func TestTheCuratorCreateIssueRefusalNamesTheCuratorAndDoesNotTellLeadToRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := "[[prompts]]\nwhen = \"Create the issue\"\ncall = { tool = \"create_issue\", arguments = { title = \"Fix the flaky test\", body = \"The test fails in CI.\", blocked_by = [] } }\n\n" + seenScript
+	server, _ := connect(t, fake, script)
+	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
+	fake.RefuseIssueCreates(http.StatusInternalServerError)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
+
+	if got, want := reply(t, server, session), "Mobius creates the issue \"Fix the flaky test\" on GitHub later."; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := eventsOfKind(t, server, "issue_create_refused", 20)
+		return events, len(events) == 1 && events[0].Delivered
+	})
+	waitForPolls(t, fake)
+	if !strings.Contains(events[0].Payload, `GitHub refused the create of the issue "Fix the flaky test" of the Curator: `) {
+		t.Errorf("event = %+v", events[0])
+	}
+	if strings.Contains(events[0].Payload, "Create it again with create_issue.") {
+		t.Errorf("event tells Lead to create again: %+v", events[0])
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM issues WHERE title = 'Fix the flaky test'"); got != 0 {
+		t.Errorf("issues rows = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('create', 'parent', 'blockers') AND status = 'refused'"); got != 3 {
+		t.Errorf("refused changes = %d", got)
 	}
 }

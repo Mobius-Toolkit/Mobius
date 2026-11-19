@@ -394,8 +394,10 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{89}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if title, body := fake.Issue(shop, 89); title != "Add plan model" || body != marked("Plans have a price.", leadMark) {
+	if title, body := fake.Issue(shop, 89); title != "Add plan model" {
 		t.Errorf("issue = %q, %q", title, body)
+	} else if got, ok := withoutWriteMarkerText(body); !ok || got != marked("Plans have a price.", leadMark) {
+		t.Errorf("body = %q", body)
 	}
 	if got := fake.BlockerNumbers(shop, 89); !reflect.DeepEqual(got, []int64{88}) {
 		t.Errorf("blockers = %v", got)
@@ -413,8 +415,11 @@ func TestCreateIssueGivesTheNumberOfTheIssueWhenTheSubIssueAddFails(t *testing.T
 
 	session := run(t, server, leadSpec(t), "Plan the work.")
 
-	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created owner/shop#13, but the add of owner/shop#13 below owner/shop#12 failed. Do not create the issue again: ") {
+	if got := reply(t, server, session); got != "Created owner/shop#13." {
 		t.Errorf("reply = %q", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'parent' AND status = 'pending'"); got != 1 {
+		t.Errorf("pending parent changes = %d", got)
 	}
 }
 
