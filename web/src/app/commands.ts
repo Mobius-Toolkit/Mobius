@@ -76,15 +76,16 @@ export const LoadApp = Command.define("LoadApp", {
     Message.OnlineChanged,
   ],
   execute: Effect.gen(function* () {
-    const appsRes = yield* request(() => listGitHubApps());
-    if (appsRes.status === 401) {
+    const [appsRes, orgsRes] = yield* Effect.all(
+      [request(() => listGitHubApps()), request(() => listOrganizations())],
+      { concurrency: "unbounded" },
+    );
+    if (appsRes.status === 401 || orgsRes.status === 401) {
       return Message.ShowLogin();
     }
     if (appsRes.status !== 200) {
       return Message.LoadAppFailed({ error: appsRes.data.error });
     }
-
-    const orgsRes = yield* request(() => listOrganizations());
     if (orgsRes.status !== 200) {
       return Message.LoadAppFailed({ error: orgsRes.data.error });
     }
