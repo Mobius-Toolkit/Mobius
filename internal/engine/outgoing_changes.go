@@ -41,6 +41,8 @@ const (
 	blockersField          = "blockers"
 	parentField            = "parent"
 	kindField              = "kind"
+	// bucketField is the field of the own writes of fillBuckets. No outgoing change has it.
+	bucketField = "bucket"
 )
 
 // settingLabels gives the label of each field of an outgoing change that writes a setting of a Workstream.
@@ -251,7 +253,7 @@ func (e *Engine) outgoingItem(repository string, item changeItem) *sync.Mutex {
 // sendOutgoingChanges sends each pending outgoing change of the repository in the order of the rows. Before a post, it
 // reads the comments of the item, because an earlier send can have made the comment and failed to tell. A change that
 // stays pending holds the later changes of its item. An item that another send holds waits for the next poll. The
-// changes of other items continue.
+// changes of other items continue. After the send, it moves sub-issues of a Workstream that has too many into buckets.
 func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repository) error {
 	changes, err := e.queries.ListPendingOutgoingChanges(ctx, repository.FullName)
 	if err != nil {
@@ -267,6 +269,7 @@ func (e *Engine) sendOutgoingChanges(ctx context.Context, repository github.Repo
 			return err
 		}
 	}
+	e.fillBuckets(ctx, repository)
 	return nil
 }
 

@@ -1015,6 +1015,24 @@ func (q *Queries) AddPendingAction(ctx context.Context, arg AddPendingActionPara
 	return i, err
 }
 
+const addPendingBucket = `-- name: AddPendingBucket :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
+    '$.buckets', json(json_insert(coalesce(json_extract(metadata, '$.github.buckets'), json('[]')), '$[#]', json(CAST(?1 AS TEXT)))))))
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
+`
+
+type AddPendingBucketParams struct {
+	Bucket     string
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) AddPendingBucket(ctx context.Context, arg AddPendingBucketParams) error {
+	_, err := q.db.ExecContext(ctx, addPendingBucket, arg.Bucket, arg.Repository, arg.Workstream)
+	return err
+}
+
 const addRecurringTask = `-- name: AddRecurringTask :one
 INSERT INTO recurring_tasks (repository, workstream, cron, text, checked_at)
 VALUES (?, ?, ?, ?, ?)
@@ -1548,27 +1566,6 @@ func (q *Queries) AddWorkstream(ctx context.Context, arg AddWorkstreamParams) (i
 	return result.RowsAffected()
 }
 
-const addWorkstreamBucket = `-- name: AddWorkstreamBucket :exec
-INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(?4 AS BOOLEAN))
-`
-
-type AddWorkstreamBucketParams struct {
-	Repository string
-	Workstream int64
-	Issue      int64
-	Closed     bool
-}
-
-func (q *Queries) AddWorkstreamBucket(ctx context.Context, arg AddWorkstreamBucketParams) error {
-	_, err := q.db.ExecContext(ctx, addWorkstreamBucket,
-		arg.Repository,
-		arg.Workstream,
-		arg.Issue,
-		arg.Closed,
-	)
-	return err
-}
-
 const addWorkstreamMcpServer = `-- name: AddWorkstreamMcpServer :exec
 INSERT INTO workstream_mcp_servers (repository, workstream, server) VALUES (?, ?, ?)
 `
@@ -1896,6 +1893,35 @@ func (q *Queries) CloseWorkstream(ctx context.Context, arg CloseWorkstreamParams
 	return result.RowsAffected()
 }
 
+const completeBucket = `-- name: CompleteBucket :exec
+UPDATE workstreams
+SET metadata = json_set(json_remove(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].pending'),
+    '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].state', CAST(?2 AS TEXT))
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER))
+`
+
+type CompleteBucketParams struct {
+	Number     int64
+	State      string
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) CompleteBucket(ctx context.Context, arg CompleteBucketParams) error {
+	_, err := q.db.ExecContext(ctx, completeBucket,
+		arg.Number,
+		arg.State,
+		arg.Repository,
+		arg.Workstream,
+	)
+	return err
+}
+
 const continueEndedTask = `-- name: ContinueEndedTask :execrows
 UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), recoveries = 0
 WHERE id = ? AND state = 'ended'
@@ -2008,6 +2034,26 @@ DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream IS N
 
 func (q *Queries) DeleteBlockersOfDetachedIssues(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteBlockersOfDetachedIssues)
+	return err
+}
+
+const deleteBucket = `-- name: DeleteBucket :exec
+UPDATE workstreams
+SET metadata = json_remove(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || ']')
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER))
+`
+
+type DeleteBucketParams struct {
+	Number     int64
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) DeleteBucket(ctx context.Context, arg DeleteBucketParams) error {
+	_, err := q.db.ExecContext(ctx, deleteBucket, arg.Number, arg.Repository, arg.Workstream)
 	return err
 }
 
@@ -2476,20 +2522,6 @@ DELETE FROM issues WHERE workstream IS NULL AND NOT EXISTS (SELECT 1 FROM blocke
 // An issue that is in no tree and blocks no issue goes away.
 func (q *Queries) DeleteUnusedIssues(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteUnusedIssues)
-	return err
-}
-
-const deleteWorkstreamBucket = `-- name: DeleteWorkstreamBucket :exec
-DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?
-`
-
-type DeleteWorkstreamBucketParams struct {
-	Repository string
-	Issue      int64
-}
-
-func (q *Queries) DeleteWorkstreamBucket(ctx context.Context, arg DeleteWorkstreamBucketParams) error {
-	_, err := q.db.ExecContext(ctx, deleteWorkstreamBucket, arg.Repository, arg.Issue)
 	return err
 }
 
@@ -8774,6 +8806,43 @@ func (q *Queries) ListOpenBlockersOfIssue(ctx context.Context, arg ListOpenBlock
 	return items, nil
 }
 
+const listOpenBuckets = `-- name: ListOpenBuckets :many
+SELECT CAST(json_extract(b.value, '$.number') AS INTEGER) AS number
+FROM workstreams w, json_each(w.metadata, '$.github.buckets') b
+WHERE w.repository = ?1 AND w.number = CAST(?2 AS INTEGER)
+  AND json_extract(b.value, '$.state') = 'open' AND json_extract(b.value, '$.number') IS NOT NULL
+  AND coalesce(json_extract(b.value, '$.pending'), 0) = 0
+ORDER BY json_extract(b.value, '$.number') DESC
+`
+
+type ListOpenBucketsParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListOpenBuckets(ctx context.Context, arg ListOpenBucketsParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenBuckets, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
 `
@@ -9421,6 +9490,54 @@ func (q *Queries) ListPendingBlockerIssues(ctx context.Context) ([]int64, error)
 			return nil, err
 		}
 		items = append(items, issue)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingBuckets = `-- name: ListPendingBuckets :many
+SELECT CAST(w.number AS INTEGER) AS workstream,
+       CAST(coalesce(json_extract(b.value, '$.number'), 0) AS INTEGER) AS number,
+       CAST(coalesce(json_extract(b.value, '$.marker'), '') AS TEXT) AS marker,
+       CAST(coalesce(json_extract(b.value, '$.title'), '') AS TEXT) AS title,
+       CAST(json_extract(b.value, '$.state') = 'closed' AS BOOLEAN) AS closed
+FROM workstreams w, json_each(w.metadata, '$.github.buckets') b
+WHERE w.repository = ? AND w.state = 'open' AND w.number IS NOT NULL AND json_extract(b.value, '$.pending') = 1
+ORDER BY w.number, b.key
+`
+
+type ListPendingBucketsRow struct {
+	Workstream int64
+	Number     int64
+	Marker     string
+	Title      string
+	Closed     bool
+}
+
+func (q *Queries) ListPendingBuckets(ctx context.Context, repository string) ([]ListPendingBucketsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingBuckets, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPendingBucketsRow
+	for rows.Next() {
+		var i ListPendingBucketsRow
+		if err := rows.Scan(
+			&i.Workstream,
+			&i.Number,
+			&i.Marker,
+			&i.Title,
+			&i.Closed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -11075,42 +11192,6 @@ func (q *Queries) ListWaitingWorkstreams(ctx context.Context) ([]ListWaitingWork
 	return items, nil
 }
 
-const listWorkstreamBuckets = `-- name: ListWorkstreamBuckets :many
-SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
-JOIN workstreams w ON w.repository = b.repository AND w.number = b.workstream AND w.state = 'open'
-WHERE b.repository = ?
-ORDER BY b.issue
-`
-
-type ListWorkstreamBucketsRow struct {
-	Workstream int64
-	Issue      int64
-	Closed     bool
-}
-
-func (q *Queries) ListWorkstreamBuckets(ctx context.Context, repository string) ([]ListWorkstreamBucketsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listWorkstreamBuckets, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListWorkstreamBucketsRow
-	for rows.Next() {
-		var i ListWorkstreamBucketsRow
-		if err := rows.Scan(&i.Workstream, &i.Issue, &i.Closed); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listWorkstreamLiveTasks = `-- name: ListWorkstreamLiveTasks :many
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at FROM tasks WHERE workstream_repository = ? AND workstream = ? AND state <> 'ended' ORDER BY id
 `
@@ -11708,6 +11789,58 @@ func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams
 	return err
 }
 
+const setBucketNumber = `-- name: SetBucketNumber :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.marker') = CAST(?1 AS TEXT)) || '].number', CAST(?2 AS INTEGER))
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.marker') = CAST(?1 AS TEXT))
+`
+
+type SetBucketNumberParams struct {
+	Marker     string
+	Number     int64
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) SetBucketNumber(ctx context.Context, arg SetBucketNumberParams) error {
+	_, err := q.db.ExecContext(ctx, setBucketNumber,
+		arg.Marker,
+		arg.Number,
+		arg.Repository,
+		arg.Workstream,
+	)
+	return err
+}
+
+const setBucketState = `-- name: SetBucketState :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER)) || '].state', CAST(?2 AS TEXT))
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(?1 AS INTEGER))
+`
+
+type SetBucketStateParams struct {
+	Number     int64
+	State      string
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) SetBucketState(ctx context.Context, arg SetBucketStateParams) error {
+	_, err := q.db.ExecContext(ctx, setBucketState,
+		arg.Number,
+		arg.State,
+		arg.Repository,
+		arg.Workstream,
+	)
+	return err
+}
+
 const setCIBreakFailuresIssueOfRow = `-- name: SetCIBreakFailuresIssueOfRow :exec
 UPDATE ci_failures SET issue = ?1
 WHERE issue = 0 AND ended_at = '' AND id IN (
@@ -12034,7 +12167,16 @@ func (q *Queries) SetCopiedSkills(ctx context.Context, arg SetCopiedSkillsParams
 const setCopiedTreeData = `-- name: SetCopiedTreeData :exec
 UPDATE workstreams
 SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
-    '$.buckets', json(CAST(?1 AS TEXT)), '$.nested', json(CAST(?2 AS TEXT)))))
+    '$.buckets', json((
+        SELECT json_group_array(json(entry)) FROM (
+            SELECT n.value AS entry FROM json_each(CAST(?1 AS TEXT)) n
+            UNION ALL
+            SELECT p.value FROM json_each(workstreams.metadata, '$.github.buckets') p
+            WHERE json_extract(p.value, '$.pending') = 1
+              AND NOT EXISTS (SELECT 1 FROM json_each(CAST(?1 AS TEXT)) n
+                              WHERE json_extract(n.value, '$.number') = json_extract(p.value, '$.number')))
+    )),
+    '$.nested', json(CAST(?2 AS TEXT)))))
 WHERE id = ?3
 `
 

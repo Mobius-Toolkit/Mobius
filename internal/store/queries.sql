@@ -1168,7 +1168,16 @@ SELECT id FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(numbe
 -- name: SetCopiedTreeData :exec
 UPDATE workstreams
 SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
-    '$.buckets', json(CAST(sqlc.arg(buckets) AS TEXT)), '$.nested', json(CAST(sqlc.arg(nested) AS TEXT)))))
+    '$.buckets', json((
+        SELECT json_group_array(json(entry)) FROM (
+            SELECT n.value AS entry FROM json_each(CAST(sqlc.arg(buckets) AS TEXT)) n
+            UNION ALL
+            SELECT p.value FROM json_each(workstreams.metadata, '$.github.buckets') p
+            WHERE json_extract(p.value, '$.pending') = 1
+              AND NOT EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(buckets) AS TEXT)) n
+                              WHERE json_extract(n.value, '$.number') = json_extract(p.value, '$.number')))
+    )),
+    '$.nested', json(CAST(sqlc.arg(nested) AS TEXT)))))
 WHERE id = sqlc.arg(id);
 
 -- name: GetCopiedNested :one
@@ -2038,17 +2047,64 @@ WHERE w.repository = sqlc.arg(repository) AND w.state = 'open' AND w.number IS N
                                AND c.state = 'closed'))))
 ORDER BY w.number;
 
--- name: ListWorkstreamBuckets :many
-SELECT b.workstream, b.issue, CAST(b.closed AS BOOLEAN) AS closed FROM workstream_buckets b
-JOIN workstreams w ON w.repository = b.repository AND w.number = b.workstream AND w.state = 'open'
-WHERE b.repository = ?
-ORDER BY b.issue;
+-- name: ListPendingBuckets :many
+SELECT CAST(w.number AS INTEGER) AS workstream,
+       CAST(coalesce(json_extract(b.value, '$.number'), 0) AS INTEGER) AS number,
+       CAST(coalesce(json_extract(b.value, '$.marker'), '') AS TEXT) AS marker,
+       CAST(coalesce(json_extract(b.value, '$.title'), '') AS TEXT) AS title,
+       CAST(json_extract(b.value, '$.state') = 'closed' AS BOOLEAN) AS closed
+FROM workstreams w, json_each(w.metadata, '$.github.buckets') b
+WHERE w.repository = ? AND w.state = 'open' AND w.number IS NOT NULL AND json_extract(b.value, '$.pending') = 1
+ORDER BY w.number, b.key;
 
--- name: AddWorkstreamBucket :exec
-INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES (?, ?, ?, CAST(sqlc.arg(closed) AS BOOLEAN));
+-- name: AddPendingBucket :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
+    '$.buckets', json(json_insert(coalesce(json_extract(metadata, '$.github.buckets'), json('[]')), '$[#]', json(CAST(sqlc.arg(bucket) AS TEXT)))))))
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER);
 
--- name: DeleteWorkstreamBucket :exec
-DELETE FROM workstream_buckets WHERE repository = ? AND issue = ?;
+-- name: SetBucketNumber :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.marker') = CAST(sqlc.arg(marker) AS TEXT)) || '].number', CAST(sqlc.arg(number) AS INTEGER))
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.marker') = CAST(sqlc.arg(marker) AS TEXT));
+
+-- name: SetBucketState :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || '].state', CAST(sqlc.arg(state) AS TEXT))
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER));
+
+-- name: CompleteBucket :exec
+UPDATE workstreams
+SET metadata = json_set(json_remove(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || '].pending'),
+    '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || '].state', CAST(sqlc.arg(state) AS TEXT))
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER));
+
+-- name: DeleteBucket :exec
+UPDATE workstreams
+SET metadata = json_remove(metadata, '$.github.buckets[' || (
+    SELECT b.key FROM json_each(workstreams.metadata, '$.github.buckets') b
+    WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER)) || ']')
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND EXISTS (SELECT 1 FROM json_each(workstreams.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.number') = CAST(sqlc.arg(number) AS INTEGER));
+
+-- name: ListOpenBuckets :many
+SELECT CAST(json_extract(b.value, '$.number') AS INTEGER) AS number
+FROM workstreams w, json_each(w.metadata, '$.github.buckets') b
+WHERE w.repository = sqlc.arg(repository) AND w.number = CAST(sqlc.arg(workstream) AS INTEGER)
+  AND json_extract(b.value, '$.state') = 'open' AND json_extract(b.value, '$.number') IS NOT NULL
+  AND coalesce(json_extract(b.value, '$.pending'), 0) = 0
+ORDER BY json_extract(b.value, '$.number') DESC;
 
 -- name: ListGlobalPauses :many
 SELECT * FROM global_pauses ORDER BY kind;

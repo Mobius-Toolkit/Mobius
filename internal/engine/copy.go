@@ -56,11 +56,16 @@ type copiedBlocker struct {
 	issue      *gh.Issue
 }
 
-// copiedBucket is a bucket of a Workstream on GitHub. The key github of workstreams.metadata holds the buckets.
+// copiedBucket is a bucket of a Workstream on GitHub. The key github of workstreams.metadata holds the buckets. A
+// pending bucket is not complete: its issue is open when it has to be closed, or it is no sub-issue of the Workstream
+// yet. Marker is the marker in the body of the issue of a bucket that fillBuckets made, and Number is empty until
+// fillBuckets knows the issue.
 type copiedBucket struct {
-	Number int64  `json:"number"`
-	State  string `json:"state"`
-	Title  string `json:"title"`
+	Number  int64  `json:"number,omitempty"`
+	State   string `json:"state"`
+	Title   string `json:"title"`
+	Pending bool   `json:"pending,omitempty"`
+	Marker  string `json:"marker,omitempty"`
 }
 
 // copiedNested is a nested Workstream that is a direct sub-issue of a Workstream. The key github of workstreams.metadata
@@ -674,13 +679,19 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 	if err := json.Unmarshal([]byte(storedNested), &stored.nested); err != nil {
 		return err
 	}
+	// SetCopiedTreeData keeps a pending bucket that GitHub does not show as a sub-issue of the Workstream yet.
+	stored.buckets = slices.DeleteFunc(stored.buckets, func(b copiedBucket) bool {
+		return b.Pending && !slices.ContainsFunc(leaves.buckets, func(found copiedBucket) bool { return found.Number == b.Number })
+	})
 	compareBuckets := func(a, b copiedBucket) int { return cmp.Compare(a.Number, b.Number) }
 	slices.SortFunc(leaves.buckets, compareBuckets)
 	slices.SortFunc(stored.buckets, compareBuckets)
 	compareNested := func(a, b copiedNested) int { return cmp.Compare(a.Number, b.Number) }
 	slices.SortFunc(leaves.nested, compareNested)
 	slices.SortFunc(stored.nested, compareNested)
-	if !slices.EqualFunc(leaves.buckets, stored.buckets, func(a, b copiedBucket) bool { return a.Number == b.Number && a.State == b.State }) ||
+	if !slices.EqualFunc(leaves.buckets, stored.buckets, func(a, b copiedBucket) bool {
+		return a.Number == b.Number && a.State == b.State && a.Pending == b.Pending
+	}) ||
 		!slices.Equal(leaves.nested, stored.nested) {
 		buckets, err := json.Marshal(append([]copiedBucket{}, leaves.buckets...))
 		if err != nil {

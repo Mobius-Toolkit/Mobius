@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // addSubIssues adds the issues first to last below the issue parent. The issues before closedUntil are closed, in
@@ -277,6 +278,7 @@ func TestABucketIssueThatGitHubNoLongerHasLosesItsRowAndTheNextPollMovesTheSubIs
 	}
 
 	fake.GoneIssue(shop, 151)
+	testkit.WaitFor(t, func() bool { return fake.HasIssue(shop, 152) })
 	fake.FailAddSubIssue(shop, 12, false)
 
 	waitForThirtyDirectSubIssues(t, fake)
@@ -321,8 +323,11 @@ func TestAnOpenBucketThatGitHubRefusesEachOpenIssueStaysAndTheNextPollsMakeNoNew
 
 	fake.RefuseOpenBucketAdds(false)
 
+	// A poll that runs while the refusal ends can refuse its first moves and make the later ones, so the test does not
+	// expect the oldest issues.
 	waitForThirtyDirectSubIssues(t, fake)
-	if got := sorted(fake.SubIssueNumbers(shop, 151)); !slices.Equal(got, numbers(100, 121)) || fake.HasIssue(shop, 152) {
+	got := sorted(fake.SubIssueNumbers(shop, 151))
+	if len(got) != 22 || got[0] < 100 || got[len(got)-1] > 150 || fake.HasIssue(shop, 152) {
 		t.Errorf("sub-issues of #151 = %v, #152 = %t", got, fake.HasIssue(shop, 152))
 	}
 }
@@ -378,5 +383,162 @@ func TestRefusedMovesBelowANewBucketForAFullWorkstreamStopAtTheLimitOfMovesOfAPo
 	}
 	if len(adds) < 3 || slices.Max(adds) > maxBucketMoves+1 {
 		t.Errorf("adds of a sub-issue in each poll = %v", adds)
+	}
+}
+
+func bucketEntries(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	var got string
+	err := server.DB.QueryRow(`SELECT coalesce(group_concat(json_extract(b.value, '$.number') || ':' || json_extract(b.value, '$.state') || ':' || coalesce(json_extract(b.value, '$.pending'), 0), ','), '')
+		FROM (SELECT value FROM workstreams, json_each(metadata, '$.github.buckets') WHERE repository = ? AND number = 12 ORDER BY json_extract(value, '$.number')) b`, shop).Scan(&got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestTheMovesOfFillBucketsMakeNoIncomingChangeAndTheMetadataOfTheWorkstreamHoldsTheBuckets(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 110)
+
+	server := startCopied(t, fake)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	testkit.WaitFor(t, func() bool {
+		var count int
+		err := server.DB.QueryRow("SELECT count(*) FROM incoming_changes WHERE repository = ? AND number = 151 AND field = 'state' AND status = 'done'", shop).Scan(&count)
+		return err == nil && count == 1
+	})
+	waitForPolls(t, fake)
+	var pending int
+	if err := server.DB.QueryRow("SELECT count(*) FROM incoming_changes WHERE status = 'pending'").Scan(&pending); err != nil || pending != 0 {
+		t.Errorf("pending incoming changes = %d, %v", pending, err)
+	}
+	if got, want := bucketEntries(t, server), "151:closed:0,152:open:0"; got != want {
+		t.Errorf("buckets = %q, want %q", got, want)
+	}
+	var moved int
+	err := server.DB.QueryRow(`SELECT count(*) FROM issues WHERE repository = ? AND number BETWEEN 100 AND 109 AND json_extract(metadata, '$.github.bucket') = 151`, shop).Scan(&moved)
+	if err != nil || moved != 10 {
+		t.Errorf("rows below the closed bucket = %d, %v", moved, err)
+	}
+}
+
+func TestACreateOfABucketThatAnswersWith500AfterGitHubMadeTheBucketMakesNoSecondBucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 100)
+	fake.LoseIssueCreateAnswers(1)
+
+	server := startCopied(t, fake)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	waitForPolls(t, fake)
+	if got := sorted(fake.SubIssueNumbers(shop, 151)); !slices.Equal(got, numbers(100, 121)) || fake.HasIssue(shop, 152) {
+		t.Errorf("sub-issues of #151 = %v, #152 = %t", got, fake.HasIssue(shop, 152))
+	}
+	if got, want := bucketEntries(t, server), "151:open:0"; got != want {
+		t.Errorf("buckets = %q, want %q", got, want)
+	}
+}
+
+func TestTheSendOfCreateIssueGivesTheIssueOfAFullWorkstreamToTheOpenBucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addBucket(fake, 41, "Bucket 1 of #12", false)
+	fake.AddIssue(shop, 50, "Task 50")
+	fake.AddSubIssue(shop, 41, 50)
+	fake.RefuseAddSubIssues(shop, 12, true)
+	server, _ := connect(t, fake, call("create_issue", createPlanModel))
+	testkit.WaitFor(t, func() bool { return bucketEntries(t, server) == "41:open:0" })
+
+	session := run(t, server, leadSpec(t), "Plan the work.")
+
+	if got := reply(t, server, session); got != "Created owner/shop#51." {
+		t.Fatalf("reply = %q", got)
+	}
+	if got := sorted(fake.SubIssueNumbers(shop, 41)); !slices.Equal(got, []int64{50, 51}) {
+		t.Errorf("sub-issues of the bucket = %v", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{41}) {
+		t.Errorf("sub-issues of the Workstream = %v", got)
+	}
+	waitForPolls(t, fake)
+	var root, bucket int64
+	err := server.DB.QueryRow(`SELECT i.parent IS NULL, coalesce(json_extract(i.metadata, '$.github.bucket'), 0)
+		FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.number = 12 AND i.number = 51`, shop).Scan(&root, &bucket)
+	if err != nil || root != 1 || bucket != 41 {
+		t.Errorf("row of #51: no parent = %d, bucket = %d, %v", root, bucket, err)
+	}
+	var pending int
+	if err := server.DB.QueryRow("SELECT count(*) FROM incoming_changes WHERE status = 'pending'").Scan(&pending); err != nil || pending != 0 {
+		t.Errorf("pending incoming changes = %d, %v", pending, err)
+	}
+}
+
+func TestAClosedBucketThatGitHubDoesNotLinkAtFirstStaysPendingAndTheNextPollLinksItAndMakesNoSecondClosedBucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 150, 101)
+	fake.FailAddSubIssue(shop, 12, true)
+	server := startCopied(t, fake)
+
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 151); state != "closed" || fake.HasIssue(shop, 152) {
+		t.Fatalf("state of #151 = %q, #152 = %t", state, fake.HasIssue(shop, 152))
+	}
+	if got, want := bucketEntries(t, server), "151:closed:1"; got != want {
+		t.Errorf("buckets = %q, want %q", got, want)
+	}
+
+	fake.FailAddSubIssue(shop, 12, false)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	if got := fake.SubIssueNumbers(shop, 151); !slices.Equal(got, []int64{100}) || fake.HasIssue(shop, 153) {
+		t.Errorf("sub-issues of #151 = %v, #153 = %t", got, fake.HasIssue(shop, 153))
+	}
+}
+
+func TestAMoveOfASubIssueFromAnotherRepositoryMarksThatIssueAndNotTheIssueWithTheSameNumberInTheWorkstreamRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	fake.AddRepository(garden)
+	fake.AddIssue(garden, 7, "Water the plants")
+	fake.AddForeignSubIssue(shop, 12, garden, 7)
+	fake.AddIssue(shop, 13, "Billing")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 7, "Add invoices")
+	fake.AddSubIssue(shop, 13, 7)
+	addSubIssues(fake, 12, 100, 150, 100)
+
+	server := startCopied(t, fake)
+
+	waitForThirtyDirectSubIssues(t, fake)
+	bucketOf := func(repository string) int64 {
+		var bucket int64
+		err := server.DB.QueryRow(`SELECT coalesce(json_extract(metadata, '$.github.bucket'), 0) FROM issues WHERE repository = ? AND number = 7`, repository).Scan(&bucket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bucket
+	}
+	testkit.WaitFor(t, func() bool { return bucketOf(garden) != 0 })
+	if got := bucketOf(shop); got != 0 {
+		t.Errorf("bucket of owner/shop#7 = %d", got)
+	}
+	var own int
+	err := server.DB.QueryRow(`SELECT count(*) FROM own_writes WHERE field = 'bucket' AND number = 7 AND repository = ?`, garden).Scan(&own)
+	if err != nil || own != 1 {
+		t.Errorf("own writes of owner/garden#7 = %d, %v", own, err)
+	}
+	err = server.DB.QueryRow(`SELECT count(*) FROM own_writes WHERE field = 'bucket' AND number = 7 AND repository = ?`, shop).Scan(&own)
+	if err != nil || own != 0 {
+		t.Errorf("own writes of owner/shop#7 = %d, %v", own, err)
 	}
 }

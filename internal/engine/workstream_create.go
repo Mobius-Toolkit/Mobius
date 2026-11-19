@@ -82,7 +82,7 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 	}
 	number := row.Number.Int64
 	if !row.Number.Valid {
-		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, row.Body, nil)
+		issue, err := e.findOrCreateIssue(ctx, repository, writeMarker(change.ID), row.Title, row.Body, nil)
 		if permanentRefusal(err) {
 			log.Printf("create the Workstream %d of %s: %v", change.Workstream.Int64, change.Repository, err)
 			err := e.dropCreate(ctx, change)
@@ -167,13 +167,12 @@ func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
 	return e.commentToTriager(ctx, triaged, c.issue, text)
 }
 
-// findOrCreateIssue gives the issue of the change: the issue of the App that has its marker, or a new issue.
-func (e *Engine) findOrCreateIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange, title, brief string, labels []string) (*gh.Issue, error) {
+// findOrCreateIssue gives the issue of the App that has the marker, or a new issue with the marker at the end of its body.
+func (e *Engine) findOrCreateIssue(ctx context.Context, repository github.Repository, marker, title, brief string, labels []string) (*gh.Issue, error) {
 	issues, err := repository.NewestIssues(ctx)
 	if err != nil {
 		return nil, err
 	}
-	marker := writeMarker(change.ID)
 	app := appLogin(repository.AppSlug)
 	for _, issue := range issues {
 		if strings.EqualFold(issue.GetUser().GetLogin(), app) && strings.Contains(issue.GetBody(), marker) {

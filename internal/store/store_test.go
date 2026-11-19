@@ -1658,3 +1658,74 @@ func TestTheRecordIssuesMigrationMakesANegativeIssueARowWithAPendingParentChange
 		t.Errorf("rows of the positive issue = %d, %v", rows, err)
 	}
 }
+
+func TestTheBucketsMigrationMovesTheRowsOfWorkstreamBucketsIntoTheMetadataOfTheWorkstreams(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270421000000)
+	for _, statement := range []string{
+		`INSERT INTO workstreams (id, repository, number, title, body, state, created_at, metadata) VALUES
+			(5, 'o/a', 12, 'Plans', '', 'open', '2027-03-01T10:00:00Z',
+			 '{"github": {"nested": [], "buckets": [{"number": 41, "state": "open", "title": "Bucket 1 of #12"}, {"number": 40, "state": "closed", "title": "Bucket 0 of #12"}]}}'),
+			(6, 'o/a', 20, 'Billing', '', 'open', '2027-03-01T10:00:00Z', '{}'),
+			(7, 'o/a', 30, 'Search', '', 'open', '2027-03-01T10:00:00Z', '{}')`,
+		`INSERT INTO workstream_buckets (repository, workstream, issue, closed) VALUES
+			('o/a', 12, 41, 0), ('o/a', 12, 42, 1), ('o/a', 20, 50, 0)`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 1, 'body', '{}', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	buckets := func(number int64) string {
+		var got string
+		err := db.QueryRow(`SELECT coalesce((SELECT group_concat(json_extract(b.value, '$.number') || ':' || json_extract(b.value, '$.state') || ':' || coalesce(json_extract(b.value, '$.pending'), 0), ',')
+			FROM (SELECT value FROM json_each(w.metadata, '$.github.buckets') ORDER BY json_extract(value, '$.number')) b), '')
+			FROM workstreams w WHERE w.repository = 'o/a' AND w.number = ?`, number).Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got, want := buckets(12), "40:closed:0,41:open:1,42:closed:1"; got != want {
+		t.Errorf("buckets of #12 = %q, want %q", got, want)
+	}
+	if got, want := buckets(20), "50:open:1"; got != want {
+		t.Errorf("buckets of #20 = %q, want %q", got, want)
+	}
+	if got := buckets(30); got != "" {
+		t.Errorf("buckets of #30 = %q", got)
+	}
+	var nested string
+	if err := db.QueryRow(`SELECT json_extract(metadata, '$.github.nested') FROM workstreams WHERE number = 12`).Scan(&nested); err != nil || nested != "[]" {
+		t.Errorf("nested of #12 = %q, %v", nested, err)
+	}
+	var tables int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'workstream_buckets'`).Scan(&tables); err != nil || tables != 0 {
+		t.Errorf("tables workstream_buckets = %d, %v", tables, err)
+	}
+	var kept int
+	if err := db.QueryRow(`SELECT count(*) FROM own_writes WHERE id = 8 AND field = 'body'`).Scan(&kept); err != nil || kept != 1 {
+		t.Errorf("kept own writes = %d, %v", kept, err)
+	}
+	for _, field := range []string{"body", "kind", "bucket"} {
+		if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 2, ?, '{}', '2027-03-01T10:00:01Z')`, field); err != nil {
+			t.Errorf("own write %s: %v", field, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+		VALUES ('github', 'o/a', 2, 'unknown', '{}', '2027-03-01T10:00:01Z')`); err == nil {
+		t.Error("own_writes accepts an unknown field")
+	}
+}
