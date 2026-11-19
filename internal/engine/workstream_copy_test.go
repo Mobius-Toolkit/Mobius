@@ -1095,6 +1095,23 @@ func TestATaskThatLosesTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnother
 	})
 }
 
+// The poll reads the issue page first and the events later, so a removal between the two reads gives the page with the
+// label and the event of the removal.
+func TestARemovalAfterThePageReadChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlockerBelowATask(t, fake)
+	fake.AddLabel(shop, 41, "mobius:workstream", "owner")
+	testkit.WaitFor(t, func() bool { return slices.Contains(workstreamNumbers(t, server), 41) })
+	fake.AfterNextIssueListRead(shop, func() { fake.RemoveLabel(shop, 41, "mobius:workstream", "owner") })
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(workstreamNumbers(t, server), 41) })
+	waitForPolls(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{blocker(60, 50, 12, "Integrate loyalty plans")})
+	})
+}
+
 // The poll copies the tree of #20 when it reads the label of #41, and it adds the Workstream #41 later. A removal between
 // the two steps gives a label event with no Workstream to add, and then an event of the removal with no row.
 func TestARemovalBeforeTheAddOfTheWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
