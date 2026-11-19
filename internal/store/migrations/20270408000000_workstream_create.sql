@@ -11,11 +11,12 @@ CREATE TABLE workstreams_new (
     body TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed')),
     created_at TEXT NOT NULL DEFAULT '',
-    close_pending INTEGER NOT NULL DEFAULT 0
+    close_pending INTEGER NOT NULL DEFAULT 0,
+    finished_at TEXT
 );
 
-INSERT INTO workstreams_new (id, repository, number, autopilot, auto_merge, evergreen, maintenance, skills, title, body, state, created_at, close_pending)
-SELECT id, repository, number, autopilot, auto_merge, evergreen, maintenance, skills, title, body, state, created_at, close_pending FROM workstreams;
+INSERT INTO workstreams_new (id, repository, number, autopilot, auto_merge, evergreen, maintenance, skills, title, body, state, created_at, close_pending, finished_at)
+SELECT id, repository, number, autopilot, auto_merge, evergreen, maintenance, skills, title, body, state, created_at, close_pending, finished_at FROM workstreams;
 
 DROP TABLE workstreams;
 

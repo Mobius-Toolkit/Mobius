@@ -1310,10 +1310,10 @@ func TestTheMcpServerOAuthMigrationAddsTheTableAndADeleteOfAServerDeletesItsRow(
 
 func TestTheWorkstreamCreateMigrationKeepsTheRowsAndAcceptsARowWithNoNumber(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
-	db := openBefore(t, path, 20270402000000)
+	db := openBefore(t, path, 20270408000000)
 	for _, statement := range []string{
-		`INSERT INTO workstreams (id, repository, number, title, body, state, created_at, evergreen, close_pending)
-			VALUES (5, 'o/a', 12, 'Work', 'Body', 'closed', '2027-03-01T10:00:00Z', 1, 1)`,
+		`INSERT INTO workstreams (id, repository, number, title, body, state, created_at, evergreen, close_pending, finished_at)
+			VALUES (5, 'o/a', 12, 'Work', 'Body', 'closed', '2027-03-01T10:00:00Z', 1, 1, '2027-03-02T10:00:00Z')`,
 		`INSERT INTO outgoing_changes (integration, repository, number, field, text, status, created_at)
 			VALUES ('github', 'o/a', 12, 'body', NULL, 'pending', '2027-03-01T10:00:00Z')`,
 		`INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
@@ -1334,7 +1334,7 @@ func TestTheWorkstreamCreateMigrationKeepsTheRowsAndAcceptsARowWithNoNumber(t *t
 	defer func() { _ = db.Close() }()
 
 	var kept int
-	err = db.QueryRow(`SELECT (SELECT count(*) FROM workstreams WHERE id = 5 AND number = 12 AND title = 'Work' AND body = 'Body' AND state = 'closed' AND evergreen = 1 AND close_pending = 1)
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM workstreams WHERE id = 5 AND number = 12 AND title = 'Work' AND body = 'Body' AND state = 'closed' AND evergreen = 1 AND close_pending = 1 AND finished_at = '2027-03-02T10:00:00Z')
 		+ (SELECT count(*) FROM outgoing_changes WHERE id = 1 AND number = 12 AND workstream IS NULL AND field = 'body' AND status = 'pending')
 		+ (SELECT count(*) FROM pending_actions WHERE id = 1 AND created_workstream IS NULL)`).Scan(&kept)
 	if err != nil || kept != 3 {
