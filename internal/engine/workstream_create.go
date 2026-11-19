@@ -77,7 +77,11 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, row.Body)
 		if permanentRefusal(err) {
 			log.Printf("create the Workstream %d of %s: %v", change.Workstream.Int64, change.Repository, err)
-			return false, e.dropCreate(ctx, change)
+			err := e.dropCreate(ctx, change)
+			if errors.Is(err, errActionNotDone) {
+				return true, nil
+			}
+			return false, err
 		}
 		if err != nil {
 			return e.failed(ctx, repository, change, err)
@@ -96,6 +100,8 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 	}
 	return false, e.markSent(ctx, change)
 }
+
+var errActionNotDone = errors.New("the action that created the Workstream is not done")
 
 // dropCreate marks the refused create change refused, deletes the row of the Workstream that has no issue, and clears
 // created_workstream of the action, so that a new approval of the action adds a new row and a new change. When the
@@ -117,7 +123,9 @@ func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) er
 
 // endRefusedCreate gives the caller of the action that created the Workstream row the refusal of GitHub, when the
 // result of the action told that the number comes later. The Triager gets a comment, and a caller with a chat gets an
-// Approval message. dropCreate clears awaits_number, so a run again gives no second message.
+// Approval message. dropCreate clears awaits_number, so a run again gives no second message. It gives
+// errActionNotDone while approve has not yet posted the result that the number comes later, so the change stays
+// pending and the refusal comes after that result.
 func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
 	action, err := e.queries.GetPendingActionByCreatedWorkstream(ctx, sql.NullInt64{Int64: workstream, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && action.AwaitsNumber == 0 {
@@ -125,6 +133,9 @@ func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
 	}
 	if err != nil {
 		return err
+	}
+	if action.State != "done" {
+		return errActionNotDone
 	}
 	name, err := e.actionName(ctx, action)
 	if err != nil {
@@ -218,7 +229,7 @@ func (e *Engine) endCreate(ctx context.Context, repository github.Repository, wo
 	}
 	if action.AwaitsNumber != 0 {
 		if action.State != "done" {
-			return errors.New("the action that created the Workstream is not done")
+			return errActionNotDone
 		}
 		name, err := e.actionName(ctx, action)
 		if err != nil {

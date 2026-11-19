@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -145,6 +146,35 @@ func TestTheChatOfTheCoordinatorGetsOneApprovalMessageWithTheRefusalWhenALaterPo
 	}
 	if got := upkeepRows(t, server, "1 = 1"); got != 0 {
 		t.Errorf("rows = %d", got)
+	}
+}
+
+// Serial: the test changes the hook afterActionRun.
+func TestARefusalOfTheCreateBeforeTheActionIsDoneComesAfterTheMessageThatTheNumberComesLater(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	fake.FailIssueCreates(1)
+	*engine.AfterActionRun = func() {
+		fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+		waitForPolls(t, fake)
+		waitForPolls(t, fake)
+	}
+	t.Cleanup(func() { *engine.AfterActionRun = nil })
+
+	done := decided(t, server, action, "approve", "")
+
+	if done.State != "done" || done.Result != createLater {
+		t.Errorf("action = %+v", done)
+	}
+	testkit.WaitFor(t, func() bool { return approvalMessages(t, server, "The result: GitHub refused the write.") == 1 })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := approvalMessages(t, server, "The result: GitHub refused the write."); got != 1 {
+		t.Errorf("messages with the refusal = %d", got)
+	}
+	if got := countRows(t, server, `SELECT count(*) FROM chat_messages refusal WHERE refusal.author = 'Approval' AND instr(refusal.text, 'The result: GitHub refused the write.') > 0
+		AND EXISTS (SELECT 1 FROM chat_messages later WHERE later.author = 'Approval' AND instr(later.text, 'The result: '||?) > 0 AND later.id < refusal.id)`, createLater); got != 1 {
+		t.Errorf("refusals after the message that the number comes later = %d", got)
 	}
 }
 

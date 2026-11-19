@@ -27,6 +27,7 @@ var (
 	RateLimitGrace           = &rateLimitGrace
 	HangTimeout              = &hangTimeout
 	AfterHangRead            = &afterHangRead
+	AfterActionRun           = &afterActionRun
 	AfterDownload            = &afterDownload
 	AfterTriagerStop         = &afterTriagerStop
 	AfterCopiedTasksTree     = &afterCopiedTasksTree
