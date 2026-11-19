@@ -71,7 +71,7 @@ func TestAFailedFirstCreateGivesTheResultThatMobiusCreatesTheWorkstreamLaterAndA
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, action := startCreate(t, fake)
-	fake.FailIssueCreates(1)
+	fake.FailIssueCreates(1000)
 
 	done := decided(t, server, action, "approve", "")
 
@@ -87,6 +87,7 @@ func TestAFailedFirstCreateGivesTheResultThatMobiusCreatesTheWorkstreamLaterAndA
 	if got := creationEvents(t, server); got != 0 {
 		t.Errorf("creation events before the send = %d", got)
 	}
+	fake.FailIssueCreates(0)
 
 	testkit.WaitFor(t, func() bool { return upkeepRows(t, server, "number = 13") == 1 })
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 13), "mobius:workstream") })
