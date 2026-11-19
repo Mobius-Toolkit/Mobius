@@ -11,14 +11,14 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// blockerRows gives the number of the rows in blockers of the issue number with a blocker in the state blockerState.
-func blockerRows(t *testing.T, server *testserver.Server, number int64, blockerState string) int {
+// blockersOf41 gives the number of the rows in blockers of the issue 41 with a blocker in the state blockerState.
+func blockersOf41(t *testing.T, server *testserver.Server, blockerState string) int {
 	t.Helper()
 	var count int
 	err := server.DB.QueryRow(`SELECT count(*) FROM blockers b
 		JOIN issues i ON i.id = b.issue
 		JOIN issues bi ON bi.id = b.blocker
-		WHERE i.number = ? AND bi.state = ?`, number, blockerState).Scan(&count)
+		WHERE i.number = 41 AND bi.state = ?`, blockerState).Scan(&count)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestAutopilotStartsTheFirstOpenTaskOfTheTreeAndSkipsATaskWithAnOpenBlockerI
 	liveTaskOf(t, server, 42)
 	waitForPolls(t, fake)
 
-	if blockerRows(t, server, 41, "open") != 1 {
+	if blockersOf41(t, server, "open") != 1 {
 		t.Error("the table blockers has no open blocker of #41")
 	}
 	if hasLiveTask(t, server, 41) || hasLiveTask(t, server, 43) || activeTasks(t, server) != 1 {
@@ -68,7 +68,7 @@ func TestAutopilotStartsATaskWhoseOnlyBlockerIsClosed(t *testing.T) {
 
 	liveTaskOf(t, server, 41)
 
-	if blockerRows(t, server, 41, "closed") != 1 {
+	if blockersOf41(t, server, "closed") != 1 {
 		t.Error("the table blockers has no closed blocker of #41")
 	}
 }
@@ -101,7 +101,7 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 	fake.AddIssue(shop, 88, "Invoice totals")
 	dispatchTask(fake, 41, "Plan API")
 	fake.AddBlockedBy(shop, 41, 88)
-	testkit.WaitFor(t, func() bool { return blockerRows(t, server, 41, "open") == 1 })
+	testkit.WaitFor(t, func() bool { return blockersOf41(t, server, "open") == 1 })
 	dispatchTask(fake, 43, "Price rounding")
 
 	liveTaskOf(t, server, 43)
@@ -193,4 +193,32 @@ func TestACloseAsWontDoClosesEachOpenIssueOfTheTreeInTheTableIssues(t *testing.T
 		t.Errorf("labels of #45 = %v", fake.Labels(shop, 45))
 	}
 	unchanged(t, fake, shop, 43, "closed")
+}
+
+func TestALostAccessRemovesTheTreeOfAWorkstreamWithAPendingClose(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 88, "Invoice totals")
+	fake.AddBlockedBy(shop, 41, 88)
+	server, _ := connect(t, fake, curatorScript)
+	testkit.WaitFor(t, func() bool { return blockersOf41(t, server, "open") == 1 })
+	fake.FailClose(shop, 41)
+	fake.CloseIssue(shop, 12)
+	testkit.WaitFor(t, func() bool {
+		var pending int
+		err := server.DB.QueryRow("SELECT close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&pending)
+		return err == nil && pending == 1
+	})
+
+	fake.RemoveRepository(shop)
+
+	testkit.WaitFor(t, func() bool {
+		var workstreams, issues, blockers int
+		err := server.DB.QueryRow(`SELECT (SELECT count(*) FROM workstreams), (SELECT count(*) FROM issues), (SELECT count(*) FROM blockers)`).Scan(&workstreams, &issues, &blockers)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return workstreams == 0 && issues == 0 && blockers == 0
+	})
 }

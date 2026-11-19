@@ -1923,6 +1923,18 @@ func (q *Queries) DeleteCopiedBlockersOfIssue(ctx context.Context, issue int64) 
 	return err
 }
 
+const deleteCopiedBlockersOfSettledTrees = `-- name: DeleteCopiedBlockersOfSettledTrees :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+)
+`
+
+// The tree of a Workstream with a pending close stays, because the close reads it.
+func (q *Queries) DeleteCopiedBlockersOfSettledTrees(ctx context.Context, repository string) error {
+	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfSettledTrees, repository)
+	return err
+}
+
 const deleteCopiedBlockersOfTree = `-- name: DeleteCopiedBlockersOfTree :exec
 DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream = ?)
 `
@@ -1934,11 +1946,10 @@ func (q *Queries) DeleteCopiedBlockersOfTree(ctx context.Context, workstream sql
 
 const deleteCopiedBlockersOfTrees = `-- name: DeleteCopiedBlockersOfTrees :exec
 DELETE FROM blockers WHERE issue IN (
-    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
 )
 `
 
-// The tree of a Workstream with a pending close stays, because the close reads it.
 func (q *Queries) DeleteCopiedBlockersOfTrees(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfTrees, repository)
 	return err
@@ -2388,6 +2399,16 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 	return err
 }
 
+const detachCopiedSettledTrees = `-- name: DetachCopiedSettledTrees :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0)
+`
+
+func (q *Queries) DetachCopiedSettledTrees(ctx context.Context, repository string) error {
+	_, err := q.db.ExecContext(ctx, detachCopiedSettledTrees, repository)
+	return err
+}
+
 const detachCopiedTree = `-- name: DetachCopiedTree :exec
 UPDATE issues SET workstream = NULL, parent = NULL WHERE workstream = ?
 `
@@ -2399,7 +2420,7 @@ func (q *Queries) DetachCopiedTree(ctx context.Context, workstream sql.NullInt64
 
 const detachCopiedTrees = `-- name: DetachCopiedTrees :exec
 UPDATE issues SET workstream = NULL, parent = NULL
-WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0)
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?)
 `
 
 func (q *Queries) DetachCopiedTrees(ctx context.Context, repository string) error {

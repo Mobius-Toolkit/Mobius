@@ -189,7 +189,7 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			continue
 		}
 		err := e.inTx(ctx, func(q *store.Queries) error {
-			if err := detachTrees(ctx, q, name); err != nil {
+			if err := detachAllTrees(ctx, q, name); err != nil {
 				return err
 			}
 			if err := q.DeleteUnusedIssues(ctx); err != nil {
@@ -209,9 +209,18 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
-// detachTrees takes the issues out of the trees of all Workstreams of repository and removes their blockers. An issue
-// that stays in a tree gets its row back, with the same id, when addTree adds the tree again.
+// detachTrees takes the issues out of the trees of the Workstreams of repository and removes their blockers. The tree
+// of a Workstream with a pending close stays. An issue that stays in a tree gets its row back, with the same id, when
+// addTree adds the tree again.
 func detachTrees(ctx context.Context, q *store.Queries, repository string) error {
+	if err := q.DeleteCopiedBlockersOfSettledTrees(ctx, repository); err != nil {
+		return err
+	}
+	return q.DetachCopiedSettledTrees(ctx, repository)
+}
+
+// detachAllTrees is detachTrees with the trees of the Workstreams with a pending close.
+func detachAllTrees(ctx context.Context, q *store.Queries, repository string) error {
 	if err := q.DeleteCopiedBlockersOfTrees(ctx, repository); err != nil {
 		return err
 	}

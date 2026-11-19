@@ -909,13 +909,22 @@ SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? A
 -- name: IsWorkstreamClosePending :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND close_pending != 0);
 
--- The tree of a Workstream with a pending close stays, because the close reads it.
 -- name: DeleteCopiedBlockersOfTrees :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
+);
+
+-- name: DetachCopiedTrees :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?);
+
+-- The tree of a Workstream with a pending close stays, because the close reads it.
+-- name: DeleteCopiedBlockersOfSettledTrees :exec
 DELETE FROM blockers WHERE issue IN (
     SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
 );
 
--- name: DetachCopiedTrees :exec
+-- name: DetachCopiedSettledTrees :exec
 UPDATE issues SET workstream = NULL, parent = NULL
 WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0);
 
