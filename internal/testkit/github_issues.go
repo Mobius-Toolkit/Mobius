@@ -56,7 +56,9 @@ type nameJSON struct {
 
 // bodyEdit is an edit of the body of an issue. diff is the full body after the edit.
 type bodyEdit struct {
+	id       string
 	editedAt int64
+	editor   string
 	diff     string
 }
 
@@ -244,33 +246,53 @@ func (g *FakeGitHub) SetAuthor(repository string, number int64, author string) {
 	found.updatedAt = g.tick()
 }
 
-// SetBody sets the body of the issue. Like GitHub, it keeps the edit. The first edit of an issue also keeps the first
-// body with the creation time of the issue.
+// SetBody sets the body of the issue as the author of the issue. Like GitHub, it keeps the edit. The first edit of an
+// issue also keeps the first body with the creation time of the issue.
 func (g *FakeGitHub) SetBody(repository string, number int64, body string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.setBody(issueKey{repository, number}, body)
+	key := issueKey{repository, number}
+	g.setBody(key, body, g.issues[key].author)
 }
 
-func (g *FakeGitHub) setBody(key issueKey, body string) {
+// SetBodyBy is SetBody with the editor as the user of the edit.
+func (g *FakeGitHub) SetBodyBy(repository string, number int64, body, editor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setBody(issueKey{repository, number}, body, editor)
+}
+
+func (g *FakeGitHub) setBody(key issueKey, body, editor string) {
 	found := g.issues[key]
 	if len(found.bodyEdits) == 0 {
-		found.bodyEdits = append(found.bodyEdits, bodyEdit{g.createdAt[key], found.body})
+		found.bodyEdits = append(found.bodyEdits, bodyEdit{fmt.Sprintf("UCE_%d", g.newEventID()), g.createdAt[key], found.author, found.body})
 	}
 	found.body = body
 	found.updatedAt = g.tick()
-	found.bodyEdits = append(found.bodyEdits, bodyEdit{found.updatedAt, body})
+	found.bodyEdits = append(found.bodyEdits, bodyEdit{fmt.Sprintf("UCE_%d", g.newEventID()), found.updatedAt, editor, body})
 }
 
 // SetTitle sets the title of the issue, and adds a renamed event of the author of the issue.
 func (g *FakeGitHub) SetTitle(repository string, number int64, title string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, number}]
+	key := issueKey{repository, number}
+	g.setTitle(key, title, g.issues[key].author)
+}
+
+// SetTitleBy is SetTitle with the actor as the actor of the renamed event.
+func (g *FakeGitHub) SetTitleBy(repository string, number int64, title, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setTitle(issueKey{repository, number}, title, actor)
+}
+
+func (g *FakeGitHub) setTitle(key issueKey, title, actor string) {
+	found := g.issues[key]
 	rename := &renameJSON{From: found.title, To: title}
 	found.title = title
 	found.updatedAt = g.tick()
-	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "renamed", Actor: loginJSON{found.author}, Rename: rename, CreatedAt: timestamp(found.updatedAt)})
+	found.events = append(found.events, eventJSON{ID: g.newEventID(), Event: "renamed", Actor: loginJSON{actor}, Rename: rename, CreatedAt: timestamp(found.updatedAt)})
 }
 
 // CloseIssue closes the issue as the owner, with no reason.
@@ -292,6 +314,13 @@ func (g *FakeGitHub) ReopenIssue(repository string, number int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.setState(issueKey{repository, number}, "open", "", "owner")
+}
+
+// CloseIssueBy closes the issue as actor, with no reason.
+func (g *FakeGitHub) CloseIssueBy(repository string, number int64, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setState(issueKey{repository, number}, "closed", "", actor)
 }
 
 // State gives the state of the issue and the reason of its last close.
@@ -982,6 +1011,7 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		State       string  `json:"state"`
 		StateReason string  `json:"state_reason"`
 		Body        *string `json:"body"`
+		Title       *string `json:"title"`
 	}
 	if !decode(w, r, &request) {
 		return
@@ -999,14 +1029,21 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		g.bodyWrites[key]++
-		g.setBody(key, *request.Body)
+		g.setBody(key, *request.Body, caller.login)
+		if request.State == "" && request.Title == nil {
+			writeJSON(w, http.StatusOK, g.issueJSON(key))
+			return
+		}
+	}
+	if request.Title != nil {
+		g.setTitle(key, *request.Title, caller.login)
 		if request.State == "" {
 			writeJSON(w, http.StatusOK, g.issueJSON(key))
 			return
 		}
 	}
 	if request.State != "closed" && request.State != "open" {
-		message(w, http.StatusUnprocessableEntity, "The fake GitHub only sets the state and the body.")
+		message(w, http.StatusUnprocessableEntity, "The fake GitHub only sets the state, the title and the body.")
 		return
 	}
 	if g.closeRefusal != 0 {

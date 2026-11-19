@@ -932,6 +932,63 @@ func TestTheWorkstreamFieldsMigrationKeepsTheOutgoingChangesAndAcceptsBodyAndSta
 	}
 }
 
+func TestTheWorkstreamChangesMigrationKeepsTheRowsAndAcceptsTheWorkstreamFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270401000000)
+	for _, statement := range []string{
+		`INSERT INTO outgoing_changes (integration, repository, number, field, text, status, created_at)
+			VALUES ('github', 'o/a', 1, 'body', 'First', 'sent', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES (7, 'github', '70', 'o/a', 1, 'autopilot', 'labeled', 'owner', 'pending', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 1, 'skills', '{}', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM outgoing_changes WHERE id = 1 AND field = 'body')
+		+ (SELECT count(*) FROM incoming_changes WHERE id = 7 AND external_id = '70' AND status = 'pending')
+		+ (SELECT count(*) FROM own_writes WHERE id = 8 AND field = 'skills')`).Scan(&kept)
+	if err != nil || kept != 3 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	var id int64
+	err = db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+		VALUES ('github', 'o/a', 2, 'workstream', 'pending', '2027-03-01T10:00:01Z') RETURNING id`).Scan(&id)
+	if err != nil || id != 2 {
+		t.Errorf("outgoing id = %d, error = %v", id, err)
+	}
+	for _, field := range []string{"workstream", "state", "title", "body"} {
+		_, err := db.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES ('github', ?, 'o/a', 2, ?, 'edited', 'owner', 'pending', '2027-03-01T10:00:01Z')`, field, field)
+		if err != nil {
+			t.Errorf("incoming %s: %v", field, err)
+		}
+	}
+	for _, field := range []string{"workstream", "state", "title"} {
+		if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 2, ?, '{}', '2027-03-01T10:00:01Z')`, field); err != nil {
+			t.Errorf("own write %s: %v", field, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+		VALUES ('github', 'o/a', 2, 'body', '{}', '2027-03-01T10:00:01Z')`); err == nil {
+		t.Error("own_writes accepts the field body")
+	}
+}
+
 func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db := openBefore(t, path, 20261105000000)

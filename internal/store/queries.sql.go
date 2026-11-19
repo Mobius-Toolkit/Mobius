@@ -4771,6 +4771,22 @@ func (q *Queries) HasOpenPullRequestFailureWithIssue(ctx context.Context, arg Ha
 	return exists, err
 }
 
+const hasOwnWrite = `-- name: HasOwnWrite :one
+SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ?)
+`
+
+type HasOwnWriteParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasOwnWrite(ctx context.Context, arg HasOwnWriteParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasOwnWrite, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasTask = `-- name: HasTask :one
 SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?)
 `
@@ -5792,6 +5808,33 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listClosePendingWorkstreams = `-- name: ListClosePendingWorkstreams :many
+SELECT number FROM workstreams WHERE repository = ? AND close_pending != 0 ORDER BY number
+`
+
+func (q *Queries) ListClosePendingWorkstreams(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listClosePendingWorkstreams, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -11939,6 +11982,24 @@ type SetWorkstreamBodyParams struct {
 
 func (q *Queries) SetWorkstreamBody(ctx context.Context, arg SetWorkstreamBodyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setWorkstreamBody, arg.Body, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setWorkstreamTitle = `-- name: SetWorkstreamTitle :execrows
+UPDATE workstreams SET title = ? WHERE repository = ? AND number = ?
+`
+
+type SetWorkstreamTitleParams struct {
+	Title      string
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetWorkstreamTitle(ctx context.Context, arg SetWorkstreamTitleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setWorkstreamTitle, arg.Title, arg.Repository, arg.Number)
 	if err != nil {
 		return 0, err
 	}

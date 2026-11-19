@@ -169,7 +169,7 @@ func TestARemovalOfTheWorkstreamLabelEndsTheTasksAndClosesNothing(t *testing.T) 
 	addLiveTask(fake)
 	server := startWithLiveTask(t, fake)
 
-	fake.RemoveLabel(shop, 12, "mobius:workstream", "mallory")
+	fake.RemoveLabel(shop, 12, "mobius:workstream", "owner")
 
 	testkit.WaitFor(t, func() bool { return !live(t, server) })
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:working") })
@@ -344,7 +344,7 @@ func TestARemovalOfTheWorkstreamLabelStopsTheRunningImplementer(t *testing.T) {
 		return len(sessions) > 0 && sessions[0].AcpSessionID.Valid
 	})
 
-	fake.RemoveLabel(shop, 12, "mobius:workstream", "mallory")
+	fake.RemoveLabel(shop, 12, "mobius:workstream", "owner")
 
 	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "stopped" {
 		t.Errorf("end reason = %s", session.EndReason.String)

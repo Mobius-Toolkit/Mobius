@@ -513,7 +513,7 @@ func (g *FakeGitHub) bodyEdits(w http.ResponseWriter, key issueKey, after string
 	}
 	nodes := []map[string]any{}
 	for _, edit := range slices.Backward(found.bodyEdits) {
-		nodes = append(nodes, map[string]any{"editedAt": timestamp(edit.editedAt), "diff": edit.diff})
+		nodes = append(nodes, map[string]any{"id": edit.id, "editedAt": timestamp(edit.editedAt), "editor": graphqlActor(edit.editor), "diff": edit.diff})
 	}
 	page := g.connection(nodes, after)
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"issue": map[string]any{"page": page}}}})

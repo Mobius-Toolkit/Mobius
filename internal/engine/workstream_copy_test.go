@@ -488,11 +488,12 @@ func TestANewTitleChangesTheCopiedIssueAndGitHubEditsDoNotOverwriteWorkstreams(t
 	server := startWithTasks(t, fake)
 
 	fake.SetTitle(shop, 41, "Add the plan table")
-	fake.SetTitle(shop, 12, "Integrate loyalty tiers")
-	fake.SetBody(shop, 12, "Brief of the tiers")
+	fake.SetTitleBy(shop, 12, "Integrate loyalty tiers", "mallory")
+	fake.SetBodyBy(shop, 12, "Brief of the tiers", "mallory")
 
 	testkit.WaitFor(t, func() bool { return copiedTitle(t, server, 41) == "Add the plan table" })
 	waitForPoll(t, server, fake)
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 2 })
 	if got := copiedWorkstreams(t, server); !reflect.DeepEqual(got, []copiedWorkstream{{12, "Integrate loyalty plans", "", false}}) {
 		t.Errorf("workstreams = %+v", got)
 	}

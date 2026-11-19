@@ -816,6 +816,9 @@ DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < j
 INSERT INTO own_writes (integration, repository, number, field, metadata, created_at) VALUES ('github', ?, ?, ?, ?, ?)
 RETURNING id;
 
+-- name: HasOwnWrite :one
+SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ?);
+
 -- name: DeleteOwnWrite :exec
 DELETE FROM own_writes WHERE id = ?;
 
@@ -889,6 +892,9 @@ UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? 
 -- name: ClearWorkstreamClosePending :exec
 UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = ?;
 
+-- name: ListClosePendingWorkstreams :many
+SELECT number FROM workstreams WHERE repository = ? AND close_pending != 0 ORDER BY number;
+
 -- name: IsWorkstreamClosePending :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ? AND close_pending != 0);
 
@@ -928,6 +934,9 @@ SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = ?);
 
 -- name: SetWorkstreamBody :execrows
 UPDATE workstreams SET body = ? WHERE repository = ? AND number = ? AND state = 'open';
+
+-- name: SetWorkstreamTitle :execrows
+UPDATE workstreams SET title = ? WHERE repository = ? AND number = ?;
 
 -- name: ReopenWorkstream :execrows
 UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = ? AND state = 'closed';

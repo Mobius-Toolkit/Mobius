@@ -81,6 +81,48 @@ func (e *Engine) setBrief(ctx context.Context, repository github.Repository, num
 	return id, nil
 }
 
+// changeBrief is setBrief for the change of the Brief by actor on GitHub. When the Workstream is open, it also adds a
+// brief_change event for the Lead.
+func (e *Engine) changeBrief(ctx context.Context, repository github.Repository, number int64, actor, brief string) error {
+	id, err := e.setBrief(ctx, repository, number, brief)
+	if err != nil || id == 0 {
+		return err
+	}
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: number})
+	if err != nil {
+		return err
+	}
+	text := eventText(time.Now(), "change of the Brief of Workstream", fmt.Sprintf("#%d", number), &gh.Issue{Title: &row.Title}, actor, row.Body)
+	return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "brief_change", text)
+}
+
+// setTitle writes title into the Workstream row and into the titles of the blockers in the copied trees, and adds an
+// outgoing title change in the same transaction, then sends it.
+func (e *Engine) setTitle(ctx context.Context, repository github.Repository, number int64, title string) error {
+	var id int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		updated, err := q.SetWorkstreamTitle(ctx, store.SetWorkstreamTitleParams{Title: title, Repository: repository.FullName, Number: number})
+		if err != nil || updated == 0 {
+			return err
+		}
+		_, err = q.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
+			Title:      sql.NullString{String: title, Valid: true},
+			Repository: repository.FullName,
+			Workstream: sql.NullInt64{Int64: number, Valid: true},
+		})
+		if err != nil {
+			return err
+		}
+		id, err = addFieldChange(ctx, q, repository.FullName, number, titleField)
+		return err
+	})
+	if err != nil || id == 0 {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return e.sendNow(ctx, repository, id)
+}
+
 // handleWorkstreamClose closes the Workstream number of repository in workstreams, removes its tasks and copied tree,
 // writes its state to GitHub, stops its work, and starts a Curator. When the row is already closed and no earlier
 // closeWorkstream failed, it stops.
@@ -130,6 +172,25 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 	}
 	if err := e.startCurator(ctx, repository.FullName); err != nil {
 		log.Printf("start a Curator of %s: %v", repository.FullName, err)
+	}
+	return nil
+}
+
+// retryWorkstreamCloses runs again the close of each Workstream of repository whose earlier closeWorkstream failed. The
+// close event of a send or of the close as "won't do" is no incoming change that runs it again. A Workstream whose close
+// runs now waits for the next poll.
+func (e *Engine) retryWorkstreamCloses(ctx context.Context, repository github.Repository) error {
+	numbers, err := e.queries.ListClosePendingWorkstreams(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, number := range numbers {
+		if e.IsClosing(repository.FullName, number) {
+			continue
+		}
+		if err := e.handleWorkstreamClose(ctx, repository, number); err != nil {
+			return err
+		}
 	}
 	return nil
 }

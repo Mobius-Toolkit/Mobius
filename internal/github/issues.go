@@ -133,6 +133,46 @@ func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdi
 	}
 }
 
+// NewestBodyEdit is the newest edit of the body of an issue. Editor is empty when GitHub has no user for the edit.
+type NewestBodyEdit struct {
+	ID       string
+	EditedAt time.Time
+	Editor   string
+}
+
+// IssueNewestBodyEdit gives the newest edit of the body of the issue number, or nil when the issue has no edit.
+func (r Repository) IssueNewestBodyEdit(ctx context.Context, number int64) (*NewestBodyEdit, error) {
+	const query = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { page: userContentEdits(first: 1) { nodes { id editedAt editor { login } } } } } }`
+	var data struct {
+		Repository struct {
+			Issue struct {
+				Page struct {
+					Nodes []struct {
+						ID       string    `json:"id"`
+						EditedAt time.Time `json:"editedAt"`
+						Editor   *struct {
+							Login string `json:"login"`
+						} `json:"editor"`
+					} `json:"nodes"`
+				} `json:"page"`
+			} `json:"issue"`
+		} `json:"repository"`
+	}
+	variables := map[string]any{"owner": r.Owner(), "name": r.Name(), "number": number}
+	if err := r.graphql(ctx, query, variables, &data); err != nil {
+		return nil, err
+	}
+	nodes := data.Repository.Issue.Page.Nodes
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+	edit := &NewestBodyEdit{ID: nodes[0].ID, EditedAt: nodes[0].EditedAt}
+	if nodes[0].Editor != nil {
+		edit.Editor = nodes[0].Editor.Login
+	}
+	return edit, nil
+}
+
 // ResolveReviewThread resolves the review thread with the GraphQL node id.
 func (r Repository) ResolveReviewThread(ctx context.Context, id string) error {
 	const query = `mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { clientMutationId } }`

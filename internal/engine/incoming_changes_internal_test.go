@@ -4,17 +4,17 @@ import (
 	"testing"
 )
 
-func TestTheSameSettingEventsAddNoSecondIncomingChange(t *testing.T) {
+func TestTheSameEventsAddNoSecondIncomingChange(t *testing.T) {
 	t.Parallel()
 	e := storingEngine(t)
 	added := labelEvent("labeled", "mobius:autopilot", "owner")
 	added.ID = new(int64(7))
 	removed := labelEvent("unlabeled", "mobius:evergreen", "owner")
 	removed.ID = new(int64(8))
-	events := []settingEvent{{12, added}, {12, removed}}
+	events := []changeEvent{{12, added}, {12, removed}}
 
 	for range 2 {
-		if err := addSettingChanges(t.Context(), e.queries, appRepository, events); err != nil {
+		if err := addEventChanges(t.Context(), e.queries, appRepository, events); err != nil {
 			t.Fatal(err)
 		}
 	}

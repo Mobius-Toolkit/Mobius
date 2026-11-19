@@ -176,27 +176,10 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 	if err != nil {
 		return false, err
 	}
-	changed := false
-	stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: name, Number: number})
+	changed, err := e.updateCopiedIssue(ctx, issue, name, changes)
 	if err != nil {
 		return false, err
 	}
-	if stored {
-		titled, err := e.queries.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
-			Title:      sql.NullString{String: issue.GetTitle(), Valid: true},
-			Repository: name,
-			Workstream: sql.NullInt64{Int64: number, Valid: true},
-		})
-		if err != nil {
-			return false, err
-		}
-		changed = titled > 0
-	}
-	issueChanged, err := e.updateCopiedIssue(ctx, issue, name, changes)
-	if err != nil {
-		return false, err
-	}
-	changed = changed || issueChanged
 	if issue.GetState() != "open" {
 		removed, err := e.queries.DeleteCopiedBlocker(ctx, store.DeleteCopiedBlockerParams{BlockerRepository: name, Number: number})
 		if err != nil {
