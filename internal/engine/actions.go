@@ -553,6 +553,8 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 		text := fmt.Sprintf("The Owner approved %s, and it failed: %s. The action still waits for the approval of the Owner.", name, strings.TrimSuffix(action.Error, "."))
 		return action, e.postResult(ctx, action, text)
 	}
+	e.approvedResultMu.Lock()
+	defer e.approvedResultMu.Unlock()
 	action, err = e.queries.FinishPendingAction(ctx, store.FinishPendingActionParams{
 		Result:    result,
 		Message:   message,
