@@ -250,15 +250,6 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 	return e.updateCopiedIssue(ctx, issue, repository.FullName, changes)
 }
 
-// copyTreeOf copies again the tree of the Workstream of the copy of another repository.
-func (e *Engine) copyTreeOf(ctx context.Context, workstream issueRef) error {
-	repository, err := e.repository(workstream.repository)
-	if err != nil {
-		return err
-	}
-	return e.copyTree(ctx, repository, workstream.number)
-}
-
 // beforeRecopyTrees is a hook of the tests. recopyTrees calls it before copyTree.
 var beforeRecopyTrees func()
 
@@ -814,20 +805,17 @@ func recordTreeIncomingChange(ctx context.Context, q *store.Queries, app, target
 		case blockerMetadata:
 			otherRepo, otherNumber = m.BlockerRepository, m.Blocker
 		}
-		own, err := q.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
+		if _, err := q.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
 			Repository:      targetRepo,
 			Number:          number,
 			Field:           field,
 			Change:          change,
 			OtherRepository: otherRepo,
 			OtherNumber:     otherNumber,
-		})
-		if err != nil {
+		}); err != nil {
 			return err
 		}
-		if own > 0 {
-			status = "done"
-		}
+		status = "done"
 	}
 	encoded, err := json.Marshal(meta)
 	if err != nil {
@@ -1192,16 +1180,237 @@ func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []co
 // addedCopyLifetime is the time that a copied tree keeps an issue with a recent parent outgoing change.
 const addedCopyLifetime = 10 * time.Minute
 
-// copyTree replaces the copied tree of the Workstream with the tree on GitHub.
+// copyTree updates the bucket metadata and adds only new issues that the Mobius App created for the Workstream,
+// keeping the parent, Workstream and blockers of each existing row unchanged.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
 	before := e.labelChangesNow()
 	tree, err := e.readTree(ctx, repository, workstream)
 	if err != nil {
 		return err
 	}
+	appAdded, err := e.appAddedIssues(ctx, repository, workstream, tree)
+	if err != nil {
+		return err
+	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
 	return e.writeRead(ctx, before, []copiedTree{tree}, func(q *store.Queries) error {
-		return replaceTree(ctx, q, repository.FullName, workstream, tree)
+		return addCreatedTreeIssues(ctx, q, repository.FullName, workstream, tree, appAdded)
 	})
+}
+
+func (e *Engine) appAddedIssues(ctx context.Context, repository github.Repository, workstream int64, tree copiedTree) (map[issueRef]bool, error) {
+	appAdded := map[issueRef]bool{}
+	wsApp := appLogin(repository.AppSlug)
+	eventsCache := map[issueRef][]github.TreeEvent{}
+	eventsOf := func(repo github.Repository, num int64) ([]github.TreeEvent, error) {
+		key := lowerRef(repo.FullName, num)
+		if cached, ok := eventsCache[key]; ok {
+			return cached, nil
+		}
+		events, err := repo.TreeEvents(ctx, num)
+		if err != nil {
+			return nil, err
+		}
+		eventsCache[key] = events
+		return events, nil
+	}
+	for _, copied := range tree.issues {
+		num := int64(copied.issue.GetNumber())
+		_, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: copied.repository, Number: num})
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		author := copied.issue.GetUser().GetLogin()
+		childRepo, readable := e.namedRepository(copied.repository, repository)
+		childApp := wsApp
+		if readable && childRepo.AppSlug != "" {
+			childApp = appLogin(childRepo.AppSlug)
+		}
+		if !strings.EqualFold(author, wsApp) && !strings.EqualFold(author, childApp) {
+			continue
+		}
+		ok, err := e.addedByApp(repository, workstream, copied, num, childRepo, readable, wsApp, childApp, eventsOf)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			appAdded[lowerRef(copied.repository, num)] = true
+		}
+	}
+	return appAdded, nil
+}
+
+func (e *Engine) addedByApp(repository github.Repository, workstream int64, copied copiedIssue, num int64, childRepo github.Repository, readable bool, wsApp, childApp string, eventsOf eventFetcher) (bool, error) {
+	parentRepoName, parentNum := repository.FullName, workstream
+	if copied.parent != (issueRef{}) {
+		parentRepoName, parentNum = copied.parent.repository, copied.parent.number
+	}
+	parentKey := lowerRef(parentRepoName, parentNum)
+	bucketKey := issueRef{}
+	if copied.bucket != 0 {
+		bucketKey = lowerRef(repository.FullName, copied.bucket)
+	}
+	if readable {
+		events, err := eventsOf(childRepo, num)
+		if err != nil {
+			return false, err
+		}
+		for i := len(events) - 1; i >= 0; i-- {
+			ev := events[i]
+			if ev.Event != "parent_issue_added" || ev.ParentIssue == nil {
+				continue
+			}
+			pRef := lowerRef(ev.ParentIssue.RepositoryName(childRepo.FullName), ev.ParentIssue.Number)
+			if pRef == parentKey || (copied.bucket != 0 && pRef == bucketKey) {
+				return strings.EqualFold(ev.Actor.Login, wsApp) || strings.EqualFold(ev.Actor.Login, childApp), nil
+			}
+		}
+	}
+	listRepo, ok := e.namedRepository(parentRepoName, repository)
+	if !ok {
+		return false, nil
+	}
+	listParent := parentNum
+	if copied.bucket != 0 {
+		listRepo = repository
+		listParent = copied.bucket
+	}
+	events, err := eventsOf(listRepo, listParent)
+	if err != nil {
+		return false, err
+	}
+	listApp := appLogin(listRepo.AppSlug)
+	childRef := lowerRef(copied.repository, num)
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if ev.Event == "sub_issue_added" && ev.SubIssue != nil && lowerRef(ev.SubIssue.RepositoryName(listRepo.FullName), ev.SubIssue.Number) == childRef {
+			return strings.EqualFold(ev.Actor.Login, wsApp) || strings.EqualFold(ev.Actor.Login, listApp), nil
+		}
+	}
+	return false, nil
+}
+
+func addCreatedTreeIssues(ctx context.Context, q *store.Queries, repository string, workstream int64, tree copiedTree, appAdded map[issueRef]bool) error {
+	wsID, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository, Number: workstream})
+	if err != nil {
+		return err
+	}
+	ids := map[issueRef]int64{}
+	for _, copied := range tree.issues {
+		num := int64(copied.issue.GetNumber())
+		ref := lowerRef(copied.repository, num)
+		existing, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: copied.repository, Number: num})
+		if err == nil {
+			if existing.Workstream.Valid && existing.Workstream.Int64 == wsID {
+				ids[ref] = existing.ID
+				if !existing.Parent.Valid {
+					if meta, err := parseMetadata(existing.Metadata); err == nil && meta.Bucket != copied.bucket {
+						if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: copied.bucket, ID: existing.ID}); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if !appAdded[ref] {
+			continue
+		}
+		var parent sql.NullInt64
+		if copied.parent != (issueRef{}) {
+			parentID, found := ids[lowerRef(copied.parent.repository, copied.parent.number)]
+			if !found {
+				continue
+			}
+			parent = sql.NullInt64{Int64: parentID, Valid: true}
+		}
+		id, err := addNewCopiedIssue(ctx, q, wsID, parent, copied)
+		if err != nil {
+			return err
+		}
+		ids[ref] = id
+	}
+	return setCopiedTreeData(ctx, q, wsID, tree)
+}
+
+func setCopiedTreeData(ctx context.Context, q *store.Queries, wsID int64, tree copiedTree) error {
+	buckets, err := json.Marshal(append([]copiedBucket{}, tree.buckets...))
+	if err != nil {
+		return err
+	}
+	nested, err := json.Marshal(append([]copiedNested{}, tree.nested...))
+	if err != nil {
+		return err
+	}
+	return q.SetCopiedTreeData(ctx, store.SetCopiedTreeDataParams{Buckets: string(buckets), Nested: string(nested), ID: wsID})
+}
+
+func addNewCopiedIssue(ctx context.Context, q *store.Queries, workstream int64, parent sql.NullInt64, copied copiedIssue) (int64, error) {
+	issue := copied.issue
+	metadata, err := githubMetadata(issue, copied.bucket)
+	if err != nil {
+		return 0, err
+	}
+	id, err := q.AddCopiedIssue(ctx, store.AddCopiedIssueParams{
+		Repository: copied.repository,
+		Number:     int64(issue.GetNumber()),
+		Title:      issue.GetTitle(),
+		Body:       copied.body,
+		State:      issue.GetState(),
+		Author:     issue.GetUser().GetLogin(),
+		Workstream: sql.NullInt64{Int64: workstream, Valid: true},
+		Parent:     parent,
+		Kind:       issueKind(labelNames(issue)),
+		Github:     metadata,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, addMissingBlockers(ctx, q, id, copied.blockers)
+}
+
+func addMissingBlockers(ctx context.Context, q *store.Queries, issue int64, blockers []copiedBlocker) error {
+	for _, blocker := range blockers {
+		id := blocker.id
+		if id == 0 {
+			existing, err := q.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blocker.repository, Number: int64(blocker.issue.GetNumber())})
+			switch {
+			case err == nil:
+				id = existing.ID
+			case errors.Is(err, sql.ErrNoRows):
+				metadata, err := githubMetadata(blocker.issue, 0)
+				if err != nil {
+					return err
+				}
+				id, err = q.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
+					Repository: blocker.repository,
+					Number:     int64(blocker.issue.GetNumber()),
+					Title:      blocker.issue.GetTitle(),
+					Body:       blocker.issue.GetBody(),
+					State:      blocker.issue.GetState(),
+					Author:     blocker.issue.GetUser().GetLogin(),
+					Kind:       issueKind(labelNames(blocker.issue)),
+					Github:     metadata,
+				})
+				if err != nil {
+					return err
+				}
+			default:
+				return err
+			}
+		}
+		if err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{Issue: issue, Blocker: id}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (copiedWorkstream, error) {
@@ -1381,8 +1590,8 @@ func (e *Engine) removeClosedWorkstreamTree(ctx context.Context, repository stri
 	return nil
 }
 
-// recopyAfterRemoval copies again the tree of the Workstream above the issue number of repository, because the issue
-// is no Workstream, so it is a task of that Workstream.
+// recopyAfterRemoval copies the subtree rooted at number into the Workstream above it, because the issue is no
+// Workstream, so it is a task of that Workstream. Existing rows of other issues stay unchanged.
 func (e *Engine) recopyAfterRemoval(ctx context.Context, repository github.Repository, number int64) error {
 	parentRepository, parent, err := e.workstreamOf(ctx, repository, number)
 	if err != nil || parent == 0 {
@@ -1393,12 +1602,93 @@ func (e *Engine) recopyAfterRemoval(ctx context.Context, repository github.Repos
 		return err
 	}
 	if stored {
-		if err := e.copyTreeOf(ctx, issueRef{parentRepository, parent}); err != nil {
+		if err := e.copySubtreeIntoWorkstream(ctx, issueRef{parentRepository, parent}, repository.FullName, number); err != nil {
 			return err
 		}
 	}
 	e.publish(Change{Workstreams: true})
 	return nil
+}
+
+func (e *Engine) copySubtreeIntoWorkstream(ctx context.Context, workstream issueRef, rootRepo string, rootNum int64) error {
+	repository, err := e.repository(workstream.repository)
+	if err != nil {
+		return err
+	}
+	before := e.labelChangesNow()
+	tree, err := e.readTree(ctx, repository, workstream.number)
+	if err != nil {
+		return err
+	}
+	target := lowerRef(rootRepo, rootNum)
+	inSubtree := map[issueRef]bool{}
+	for _, copied := range tree.issues {
+		ref := lowerRef(copied.repository, int64(copied.issue.GetNumber()))
+		if ref == target || (copied.parent != (issueRef{}) && inSubtree[lowerRef(copied.parent.repository, copied.parent.number)]) {
+			inSubtree[ref] = true
+		}
+	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
+	return e.writeRead(ctx, before, []copiedTree{tree}, func(q *store.Queries) error {
+		wsID, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository.FullName, Number: workstream.number})
+		if err != nil {
+			return err
+		}
+		ids := map[issueRef]int64{}
+		for _, copied := range tree.issues {
+			num := int64(copied.issue.GetNumber())
+			ref := lowerRef(copied.repository, num)
+			existing, err := q.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: copied.repository, Number: num})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			stored := err == nil
+			if !inSubtree[ref] {
+				if stored && existing.Workstream.Valid && existing.Workstream.Int64 == wsID {
+					ids[ref] = existing.ID
+				}
+				continue
+			}
+			if stored && existing.Workstream.Valid {
+				ids[ref] = existing.ID
+				continue
+			}
+			var parent sql.NullInt64
+			if copied.parent != (issueRef{}) {
+				parentID, found := ids[lowerRef(copied.parent.repository, copied.parent.number)]
+				if !found {
+					continue
+				}
+				parent = sql.NullInt64{Int64: parentID, Valid: true}
+			}
+			if stored {
+				if err := q.SetIssueParentAndWorkstream(ctx, store.SetIssueParentAndWorkstreamParams{
+					Workstream: sql.NullInt64{Int64: wsID, Valid: true},
+					Parent:     parent,
+					ID:         existing.ID,
+				}); err != nil {
+					return err
+				}
+				if copied.bucket != 0 {
+					if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: copied.bucket, ID: existing.ID}); err != nil {
+						return err
+					}
+				}
+				if err := addMissingBlockers(ctx, q, existing.ID, copied.blockers); err != nil {
+					return err
+				}
+				ids[ref] = existing.ID
+				continue
+			}
+			id, err := addNewCopiedIssue(ctx, q, wsID, parent, copied)
+			if err != nil {
+				return err
+			}
+			ids[ref] = id
+		}
+		return setCopiedTreeData(ctx, q, wsID, tree)
+	})
 }
 
 // removeTree takes the issues out of the tree of the Workstream. An issue that blocks an issue of another tree stays

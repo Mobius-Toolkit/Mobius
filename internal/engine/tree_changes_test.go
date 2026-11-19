@@ -285,3 +285,81 @@ func TestASubIssueBelowABucketMakesNoIncomingChange(t *testing.T) {
 		t.Errorf("issues = %+v, want %+v", got, want)
 	}
 }
+
+func TestAnAppSubIssueWriteWithNoOwnWriteMakesNoWriteBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	fake.CreateIssue(shop, 60, "Check timed out", "The check timed out.", appActor)
+
+	fake.AddSubIssueBy(shop, 12, 60, appActor)
+
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'parent' AND actor = ? AND status = 'done'", appActor) == 1
+	})
+	waitForPolls(t, fake)
+	if got := incomingChanges(t, server, "pending"); got != 0 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+	if !slices.Contains(fake.SubIssueNumbers(shop, 12), 60) {
+		t.Errorf("sub-issues of #12 = %v, want #60 kept", fake.SubIssueNumbers(shop, 12))
+	}
+}
+
+func TestRecopyTreesKeepsParentAndBlockersOfExistingRowsAndIgnoresUserIssues(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	fake.AddIssue(shop, 60, "Untrusted blocker")
+	fake.AddIssue(shop, 61, "Untrusted child")
+
+	issueListReads := func() int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if request.Method == "GET" && request.Path == "/repos/"+shop+"/issues" {
+				reads++
+			}
+		}
+		return reads
+	}
+	beforeReads := issueListReads()
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	testkit.WaitFor(t, func() bool { return issueListReads() > beforeReads })
+	fake.AddBlockedByBy(shop, 50, 60, "mallory")
+	fake.AddSubIssueBy(shop, 12, 50, "mallory")
+	fake.AddSubIssueBy(shop, 41, 61, "mallory")
+
+	if err := server.Engine.RecopyTrees(t.Context(), shop, 12); err != nil {
+		release()
+		t.Fatal(err)
+	}
+	wantIssues := []copiedIssue{
+		{Workstream: 12, Number: 41, Parent: 12, State: "open", Author: "owner"},
+		{Workstream: 12, Number: 50, Parent: 41, State: "open", Author: "owner"},
+	}
+	if got := copiedIssues(t, server); !reflect.DeepEqual(got, wantIssues) {
+		release()
+		t.Fatalf("issues after recopyTrees = %+v, want %+v", got, wantIssues)
+	}
+	if got := copiedBlockers(t, server); len(got) != 0 {
+		release()
+		t.Fatalf("blockers after recopyTrees = %+v", got)
+	}
+	release()
+
+	testkit.WaitFor(t, func() bool {
+		return len(fake.BlockerNumbers(shop, 50)) == 0 &&
+			slices.Contains(fake.SubIssueNumbers(shop, 41), 50) &&
+			!slices.Contains(fake.SubIssueNumbers(shop, 12), 50) &&
+			!slices.Contains(fake.SubIssueNumbers(shop, 41), 61)
+	})
+	testkit.WaitFor(t, func() bool {
+		return doneChangesOfPersons(t, server) == 3 && incomingChanges(t, server, "pending") == 0
+	})
+	if got := copiedIssues(t, server); !reflect.DeepEqual(got, wantIssues) {
+		t.Errorf("issues after polls = %+v, want %+v", got, wantIssues)
+	}
+	if got := copiedBlockers(t, server); len(got) != 0 {
+		t.Errorf("blockers after polls = %+v", got)
+	}
+}
