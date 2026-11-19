@@ -7,6 +7,9 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
                          AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(w.finished_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM copied_issues i
+                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository) AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
@@ -890,7 +893,7 @@ DELETE FROM workstreams WHERE repository = ?;
 SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? AND state = 'open' AND number IS NOT NULL ORDER BY number;
 
 -- name: CloseWorkstream :execrows
-UPDATE workstreams SET state = 'closed', close_pending = 1 WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != 'closed';
+UPDATE workstreams SET state = 'closed', close_pending = 1, finished_at = NULL WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != 'closed';
 
 -- name: ClearWorkstreamClosePending :exec
 UPDATE workstreams SET close_pending = 0 WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
@@ -958,11 +961,17 @@ UPDATE workstreams SET body = ? WHERE repository = ? AND number = CAST(sqlc.arg(
 -- name: SetWorkstreamTitle :execrows
 UPDATE workstreams SET title = ? WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
+-- name: SetWorkstreamFinishedAt :execrows
+UPDATE workstreams SET finished_at = ? WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
+
+-- name: GetWorkstreamFinishedAt :one
+SELECT finished_at FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
+
 -- name: ReopenWorkstream :execrows
-UPDATE workstreams SET state = 'open', close_pending = 0 WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'closed';
+UPDATE workstreams SET state = 'open', close_pending = 0, finished_at = NULL WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'closed';
 
 -- name: FillAndReopenWorkstream :execrows
-UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0
+UPDATE workstreams SET title = ?, body = ?, created_at = ?, state = 'open', close_pending = 0, finished_at = NULL
 WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'closed';
 
 -- name: HasLeadEventKind :one

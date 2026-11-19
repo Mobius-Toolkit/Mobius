@@ -1994,6 +1994,7 @@ export const ListWorkstreamsResponse = S.Struct({
   "evergreen": S.Boolean.annotate({ description: 'Evergreen is true when the Workstream is evergreen' }),
   "number": S.Number.annotate({ description: 'Number is the number of the Workstream issue' }),
   "readyToMerge": S.Boolean.annotate({ description: 'ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it' }),
+  "reportedFinished": S.Boolean.annotate({ description: 'ReportedFinished is true when the Workstream issue has no sub-issue and its Lead reported it as finished' }),
   "repository": S.String.annotate({ description: 'Repository is the repository of the Workstream issue, as \"owner\/name\"' }),
   "title": S.String.annotate({ description: 'Title is the title of the Workstream issue' })
 }).annotate({ description: 'Workstream is an open Workstream of a managed repository.' })).annotate({ description: 'Data is the payload of the response' })
@@ -2081,7 +2082,7 @@ export const WorkstreamClosureResponse = S.Struct({
 
 
 /**
- * CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.
+ * CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.
  */
 export const CompleteWorkstreamParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),

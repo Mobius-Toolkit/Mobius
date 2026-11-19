@@ -19,7 +19,7 @@ import (
 const closedText = "Workstream closed"
 
 // CompleteWorkstream closes the open Workstream number of repository as completed, when the Workstream issue has
-// sub-issues and each one is closed.
+// closed sub-issues or no sub-issue after a report of its Lead.
 func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -43,8 +43,19 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	if err != nil {
 		return err
 	}
-	if len(tasks) == 0 || slices.ContainsFunc(tasks, func(task *gh.Issue) bool { return task.GetState() != "closed" }) {
-		return refuse("The Workstream has no task, or a task is open.")
+	if len(tasks) == 0 {
+		finishedAt, err := e.queries.GetWorkstreamFinishedAt(ctx, store.GetWorkstreamFinishedAtParams{Repository: repository.FullName, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			return refuse("The issue is not an open Workstream.")
+		}
+		if err != nil {
+			return err
+		}
+		if !finishedAt.Valid {
+			return refuse("The Workstream has no task, and its Lead did not report it as finished.")
+		}
+	} else if slices.ContainsFunc(tasks, func(task *gh.Issue) bool { return task.GetState() != "closed" }) {
+		return refuse("A task of the Workstream is open.")
 	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()

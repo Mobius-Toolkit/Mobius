@@ -285,6 +285,10 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
 				},
 				e.tellOwner),
+			tool(e, c, "report_finished",
+				"Report that the Workstream is finished, so the Owner gets the button to close it. Call it only for a non-evergreen Workstream when all its tasks are closed or it has no task, and each item of the Done list of the Brief is on the main branch. It refuses an evergreen Workstream.",
+				map[string]any{},
+				e.reportFinished),
 		}
 		tools = append(tools, e.rejectSkillProposalTool(c))
 		if c.agent.skills {
@@ -2209,4 +2213,30 @@ func (e *Engine) currentBrief(ctx context.Context, repository github.Repository,
 		return "", err
 	}
 	return row.Body, nil
+}
+
+func (e *Engine) reportFinished(ctx context.Context, c caller, repository github.Repository, _ noInput) (string, error) {
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: c.workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", refuse("The issue is not an open Workstream.")
+	}
+	if err != nil {
+		return "", err
+	}
+	if copied.Evergreen {
+		return "", refuse("An evergreen Workstream has no end.")
+	}
+	updated, err := e.queries.SetWorkstreamFinishedAt(ctx, store.SetWorkstreamFinishedAtParams{
+		FinishedAt: sql.NullString{String: now(), Valid: true},
+		Repository: repository.FullName,
+		Number:     c.workstream,
+	})
+	if err != nil {
+		return "", err
+	}
+	if updated == 0 {
+		return "", refuse("The issue is not an open Workstream.")
+	}
+	e.publish(Change{Workstreams: true})
+	return "Reported the Workstream as finished.", nil
 }

@@ -2375,6 +2375,32 @@ test("screenshots", async ({ page }) => {
     main.getByText("All tasks are closed."),
     main.getByText("Change the prices for each season."),
   ]);
+  const reportedFinishedRoute = "**/api/workstreams";
+  await page.route(reportedFinishedRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        repository: string;
+        number: number;
+        allTasksClosed: boolean;
+        reportedFinished: boolean;
+      }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-reported-finished", "/workstreams/owner/shop/13", (device) => [
+    ...frame(device, drain),
+    main.getByText("The Lead reported the Workstream as finished."),
+    main.getByRole("button", { name: "Close Workstream" }),
+    main.getByText("Change the prices for each season."),
+  ]);
+  await page.unroute(reportedFinishedRoute);
   await screenshot(page, "chat-coordinator", "/chat", (device) => [
     chatCount,
     ...frame(device, drain),
