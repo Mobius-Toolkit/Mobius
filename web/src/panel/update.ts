@@ -178,8 +178,6 @@ export function commandsFor(model: Model): ReadonlyArray<Cmd<Message>> {
       return Command.mapMessages(reloadDetails(model.details), toGotDetailsMessage);
     case "recurring":
       return Command.mapMessages(reloadRecurring(model.recurring), toGotRecurringMessage);
-    case "brief":
-      return [];
   }
 }
 
@@ -225,8 +223,6 @@ function reloadTab(model: Model, only: readonly Tab[]): UpdateReturn {
       return refreshDetailsStep(model);
     case "recurring":
       return refreshRecurringStep(model);
-    case "brief":
-      return { model };
   }
 }
 

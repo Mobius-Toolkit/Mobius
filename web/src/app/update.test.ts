@@ -325,10 +325,10 @@ describe("organization switch update logic", () => {
   it("closes the Brief sheet after a selection of the Brief reaches the draft", () => {
     story(
       update,
-      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
+      given(createModel("/workstreams/owner/repo/1", { briefOpen: true })),
       message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
       model((m) => {
-        expect(m.mobileBriefOpen).toBe(false);
+        expect(m.briefOpen).toBe(false);
       }),
     );
   });
@@ -336,10 +336,10 @@ describe("organization switch update logic", () => {
   it("closes the Brief sheet on Escape", () => {
     story(
       update,
-      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
+      given(createModel("/workstreams/owner/repo/1", { briefOpen: true })),
       message(Message.PressedEscape()),
       model((m) => {
-        expect(m.mobileBriefOpen).toBe(false);
+        expect(m.briefOpen).toBe(false);
       }),
     );
   });
@@ -347,10 +347,10 @@ describe("organization switch update logic", () => {
   it("closes the Brief sheet with its close button", () => {
     story(
       update,
-      given(createModel("/workstreams/owner/repo/1", { mobileBriefOpen: true })),
-      message(Message.SetMobileBriefOpen({ open: false })),
+      given(createModel("/workstreams/owner/repo/1", { briefOpen: true })),
+      message(Message.SetBriefOpen({ open: false })),
       model((m) => {
-        expect(m.mobileBriefOpen).toBe(false);
+        expect(m.briefOpen).toBe(false);
       }),
     );
   });
@@ -373,31 +373,29 @@ describe("organization switch update logic", () => {
     ).model;
     expect(Option.exists(withSelection.panel, (panel) => panel.selection !== null)).toBe(true);
 
-    const opened = update(withSelection, Message.SetMobileBriefOpen({ open: true })).model;
-    expect(opened.mobileBriefOpen).toBe(true);
+    const opened = update(withSelection, Message.SetBriefOpen({ open: true })).model;
+    expect(opened.briefOpen).toBe(true);
     expect(Option.exists(opened.panel, (panel) => panel.selection === null)).toBe(true);
   });
 
-  it("shows the tab Tasks when the Tasks sheet opens while the panel tab is Brief", () => {
-    const briefTab = update(
-      moveTo(open(1, [workstream(1, "off")]), 1),
-      Message.GotPanelMessage({ message: PanelMessage.SelectedTab({ tab: "brief" }) }),
+  it("opens the Brief on a desktop, and closes it on Escape", () => {
+    const opened = update(
+      { ...createModel("/workstreams/owner/repo/1"), wide: true },
+      Message.SetBriefOpen({ open: true }),
     ).model;
-    expect(Option.exists(briefTab.panel, (panel) => panel.tab === "brief")).toBe(true);
+    expect(opened.briefOpen).toBe(true);
 
-    const opened = update(briefTab, Message.SetMobileTasksOpen({ open: true })).model;
-    expect(opened.mobileTasksOpen).toBe(true);
-    expect(Option.exists(opened.panel, (panel) => panel.tab === "tasks")).toBe(true);
+    expect(update(opened, Message.PressedEscape()).model.briefOpen).toBe(false);
   });
 
-  it("closes the Brief sheet of a phone on a move to another Workstream", () => {
+  it("closes the Brief on a move to another Workstream", () => {
     const opened = update(
       open(1, [workstream(1, "off"), workstream(2, "off")]),
-      Message.SetMobileBriefOpen({ open: true }),
+      Message.SetBriefOpen({ open: true }),
     ).model;
-    expect(opened.mobileBriefOpen).toBe(true);
+    expect(opened.briefOpen).toBe(true);
 
-    expect(moveTo(opened, 2).mobileBriefOpen).toBe(false);
+    expect(moveTo(opened, 2).briefOpen).toBe(false);
   });
 
   it("gives the switch errors to the Settings overview", () => {
@@ -753,10 +751,10 @@ describe("a task card of the Lead chat", () => {
   const path = "/workstreams/owner/repo/7?tab=agents";
 
   it("opens the Tasks sheet of a phone, closes the Brief sheet, and gives the task to the panel", () => {
-    const next = update({ ...enter(path, false), mobileBriefOpen: true }, tapTask).model;
+    const next = update({ ...enter(path, false), briefOpen: true }, tapTask).model;
 
     expect(next.mobileTasksOpen).toBe(true);
-    expect(next.mobileBriefOpen).toBe(false);
+    expect(next.briefOpen).toBe(false);
     expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
     expect(Option.map(next.panel, (panel) => panel.tasks.pendingOpen)).toEqual(
       Option.some(Option.some({ repository: "owner/repo", number: 9 })),
@@ -812,12 +810,16 @@ describe("the panel that the address of a Workstream asks for", () => {
     expect(enter(settingOfTask, true).mobileTasksOpen).toBe(false);
   });
 
-  it("opens the Brief sheet on a phone for the Brief tab", () => {
-    const next = enter("/workstreams/owner/repo/7?tab=brief", false);
+  it.each([false, true])(
+    "opens the Brief and the tab Tasks for the Brief tab (wide: %s)",
+    (wide) => {
+      const next = enter("/workstreams/owner/repo/7?tab=brief", wide);
 
-    expect(next.mobileBriefOpen).toBe(true);
-    expect(next.mobileTasksOpen).toBe(false);
-  });
+      expect(next.briefOpen).toBe(true);
+      expect(next.mobileTasksOpen).toBe(false);
+      expect(Option.map(next.panel, (panel) => panel.tab)).toEqual(Option.some("tasks"));
+    },
+  );
 
   it("acts as before for an address with no search", () => {
     const next = enter("/workstreams/owner/repo/7", false);
@@ -827,7 +829,7 @@ describe("the panel that the address of a Workstream asks for", () => {
       Option.some(true),
     );
     expect(next.mobileTasksOpen).toBe(false);
-    expect(next.mobileBriefOpen).toBe(false);
+    expect(next.briefOpen).toBe(false);
   });
 });
 
