@@ -435,8 +435,9 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 
 // bodyChange gives the incoming change of an edit of the body of the Workstream issue that the issue cursor since did
 // not pass, or nil when the body of the issue with no link line of the Lead chat equals the Brief in workstreams, when an
-// outgoing body change of the issue waits, or when the newest edit is older than since. The body of the issue differs
-// from the row while that change waits, so the edit is no change of a person.
+// outgoing body change of the issue waits, when the newest edit is older than since, or when the Mobius App made the
+// newest edit. The body of the issue differs from the row while that change waits, so the edit is no change of a person.
+// A poll that read the issue before the send of the body change also reads the edit of that send.
 func (e *Engine) bodyChange(ctx context.Context, repository github.Repository, issue *gh.Issue, since time.Time) (*store.AddIncomingChangeParams, error) {
 	number := int64(issue.GetNumber())
 	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: number})
@@ -452,7 +453,7 @@ func (e *Engine) bodyChange(ctx context.Context, repository github.Repository, i
 		return nil, err
 	}
 	edit, err := repository.IssueNewestBodyEdit(ctx, number)
-	if err != nil || edit == nil || edit.EditedAt.Before(since) {
+	if err != nil || edit == nil || edit.EditedAt.Before(since) || strings.EqualFold(edit.Editor, appLogin(repository.AppSlug)) {
 		return nil, err
 	}
 	metadata, err := json.Marshal(map[string]string{"body": brief})
