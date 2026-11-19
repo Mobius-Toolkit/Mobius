@@ -93,6 +93,12 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})
 		if errors.Is(err, sql.ErrNoRows) {
+			// The copy of the tree of an open Workstream can come after the label. A closed Workstream has no tree.
+			open, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: workstreamRepository, Number: workstream})
+			if err != nil {
+				return err
+			}
+			held = held || open
 			continue
 		}
 		if err != nil {

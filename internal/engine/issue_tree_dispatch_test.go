@@ -222,3 +222,19 @@ func TestALostAccessRemovesTheTreeOfAWorkstreamWithAPendingClose(t *testing.T) {
 		return workstreams == 0 && issues == 0 && blockers == 0
 	})
 }
+
+func TestAnIssueWithMobiusReadyBelowAnOpenWorkstreamStartsWhenTheCopyOfTheTreeComes(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.FailSubIssues(shop, 12, true)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForPolls(t, fake)
+	if hasIssueRow(t, server, 41) || hasLiveTask(t, server, 41) {
+		t.Fatal("the issue has a row or a task before the copy of the tree")
+	}
+
+	fake.FailSubIssues(shop, 12, false)
+
+	liveTaskOf(t, server, 41)
+}
