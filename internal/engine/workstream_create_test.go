@@ -144,6 +144,13 @@ func TestTheLabelWritesOfTheCreateAddNoIncomingChange(t *testing.T) {
 	if got := upkeepRows(t, server, "number = 13 AND state = 'open'"); got != 1 {
 		t.Errorf("rows = %d", got)
 	}
+	// The changes of the create: the label, the two settings and the Brief. A handler of an incoming change would add a change that writes a label back.
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE number = 13 AND status = 'sent' AND field IN ('workstream', 'evergreen', 'maintenance', 'body')") == 4
+	})
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE number = 13"); got != 4 {
+		t.Errorf("changes of #13 = %d", got)
+	}
 }
 
 func TestACreateOfTheTriagerClosesTheTriagedIssueWithTheLinkToTheNewWorkstreamAfterTheSend(t *testing.T) {
