@@ -304,6 +304,95 @@ func TestAnAppSubIssueWriteWithNoOwnWriteMakesNoWriteBack(t *testing.T) {
 	if !slices.Contains(fake.SubIssueNumbers(shop, 12), 60) {
 		t.Errorf("sub-issues of #12 = %v, want #60 kept", fake.SubIssueNumbers(shop, 12))
 	}
+	want := []copiedIssue{
+		{Workstream: 12, Number: 41, Parent: 12, State: "open", Author: "owner"},
+		{Workstream: 12, Number: 50, Parent: 41, State: "open", Author: "owner"},
+		{Workstream: 12, Number: 60, Parent: 12, State: "open", Author: appActor},
+	}
+	if got := copiedIssues(t, server); !reflect.DeepEqual(got, want) {
+		t.Errorf("issues = %+v, want %+v", got, want)
+	}
+}
+
+func TestAFailedUpdateCopyRefreshesLabelsAndTextsOnSyncCopyWithoutChangingTreeOrBlockers(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddIssue(shop, 42, "Document the API")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddIssue(shop, 50, "Store the price in cents")
+	fake.AddLabel(shop, 50, "bug", "owner")
+	fake.AddSubIssue(shop, 41, 50)
+	fake.AddIssue(shop, 60, "Untrusted blocker")
+	server := startCopied(t, fake)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(copiedLabels(t, server, 50), "bug") && slices.Equal(issueNumbers(t, server), []int64{41, 50, 42})
+	})
+	waitForPolls(t, fake)
+
+	issueListReads := func() int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if request.Method == "GET" && request.Path == "/repos/"+shop+"/issues" {
+				reads++
+			}
+		}
+		return reads
+	}
+	if _, err := server.DB.Exec(`CREATE TRIGGER fail_issue_update BEFORE UPDATE OF title ON issues WHEN NEW.number = 50 BEGIN SELECT RAISE(ABORT, 'busy'); END`); err != nil {
+		t.Fatal(err)
+	}
+	beforeReads := issueListReads()
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	testkit.WaitFor(t, func() bool { return issueListReads() > beforeReads })
+
+	fake.RemoveLabel(shop, 50, "bug", "owner")
+	fake.AddLabel(shop, 50, "enhancement", "owner")
+	fake.SetTitle(shop, 50, "Store integer cents")
+	fake.SetBody(shop, 50, "Store prices in integer cents.")
+	fake.CloseIssue(shop, 42)
+	fake.AddSubIssueBy(shop, 12, 50, "mallory")
+	fake.AddBlockedByBy(shop, 50, 60, "mallory")
+	release()
+
+	waitForPoll(t, server, fake)
+	if _, err := server.DB.Exec(`DROP TRIGGER fail_issue_update`); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		return copiedTitle(t, server, 50) == "Store integer cents" &&
+			slices.Equal(copiedLabels(t, server, 50), []string{"enhancement"}) &&
+			doneChangesOfPersons(t, server) == 2 &&
+			incomingChanges(t, server, "pending") == 0
+	})
+	waitForPolls(t, fake)
+
+	var body string
+	if err := server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = 50", shop).Scan(&body); err != nil || body != "Store prices in integer cents." {
+		t.Errorf("body = %q, %v", body, err)
+	}
+	wantIssues := []copiedIssue{
+		{Workstream: 12, Number: 41, Parent: 12, State: "open", Author: "owner"},
+		{Workstream: 12, Number: 50, Parent: 41, State: "open", Author: "owner"},
+		{Workstream: 12, Number: 42, Parent: 12, State: "closed", Author: "owner"},
+	}
+	if got := copiedIssues(t, server); !reflect.DeepEqual(got, wantIssues) {
+		t.Errorf("issues = %+v, want %+v", got, wantIssues)
+	}
+	if got := copiedBlockers(t, server); len(got) != 0 {
+		t.Errorf("blockers = %+v", got)
+	}
+	if !slices.Contains(fake.SubIssueNumbers(shop, 41), 50) || slices.Contains(fake.SubIssueNumbers(shop, 12), 50) {
+		t.Errorf("sub-issues on GitHub: #41=%v, #12=%v", fake.SubIssueNumbers(shop, 41), fake.SubIssueNumbers(shop, 12))
+	}
+	if got := fake.BlockerNumbers(shop, 50); len(got) != 0 {
+		t.Errorf("blockers of #50 on GitHub = %v", got)
+	}
 }
 
 func TestRecopyTreesKeepsParentAndBlockersOfExistingRowsAndIgnoresUserIssues(t *testing.T) {

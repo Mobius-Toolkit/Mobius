@@ -403,7 +403,15 @@ func (e *Engine) applyParentChange(ctx context.Context, repository github.Reposi
 		return false, err
 	}
 	inTree := stored && node.Workstream.Valid
-	if !e.trustedUser(change.Actor) {
+	var meta parentMetadata
+	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+		return false, err
+	}
+	if e.isTreeAppActor(repository, change.Actor, change.Repository, meta) {
+		if inTree || change.Change != addedChange {
+			return false, nil
+		}
+	} else if !e.trustedUser(change.Actor) {
 		if inTree {
 			return false, e.writeBackTreeIssue(ctx, repository, node.ID, change.Repository, change.Number, parentField)
 		}
@@ -417,10 +425,6 @@ func (e *Engine) applyParentChange(ctx context.Context, repository github.Reposi
 			return false, nil
 		}
 		return false, e.detachIssueSubtree(ctx, node.ID)
-	}
-	var meta parentMetadata
-	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
-		return false, err
 	}
 	parentRepoName := meta.ParentRepository
 	if repo, ok := e.namedRepository(meta.ParentRepository, repository); ok {

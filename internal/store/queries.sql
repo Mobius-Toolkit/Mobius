@@ -1265,6 +1265,21 @@ WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg
       OR issues.author != sqlc.arg(author)
   );
 
+-- name: RefreshCopiedTreeIssue :exec
+UPDATE issues
+SET title = sqlc.arg(title),
+    body = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE sqlc.arg(body)
+    END,
+    state = sqlc.arg(state),
+    author = sqlc.arg(author),
+    kind = sqlc.arg(kind),
+    metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
+        '$.id', CAST(sqlc.arg(github_id) AS INTEGER), '$.labels', json(CAST(sqlc.arg(labels) AS TEXT)))))
+WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER);
+
 -- name: GetCopiedIssue :one
 SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 

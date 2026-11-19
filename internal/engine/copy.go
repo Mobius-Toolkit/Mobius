@@ -105,7 +105,8 @@ func issueKind(labels []string) string {
 
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
-// When the database already holds tree issues for repository, it keeps them instead of overwriting local structure.
+// When the database already holds tree issues for repository, it refreshes only their title, body, state, author,
+// kind and GitHub labels, and keeps the parent, Workstream and blockers of each existing row unchanged.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
@@ -113,15 +114,6 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	firstPoll := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !firstPoll {
 		return err
-	}
-	if !firstPoll {
-		hasTree, err := e.queries.HasRepositoryTreeIssues(ctx, repository.FullName)
-		if err != nil {
-			return err
-		}
-		if hasTree {
-			return nil
-		}
 	}
 	before := e.labelChangesNow()
 	if firstPoll {
@@ -161,6 +153,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		e.publish(Change{Workstreams: true})
 		return nil
 	}
+	hasTree, err := e.queries.HasRepositoryTreeIssues(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
 	numbers, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
 	if err != nil {
 		return err
@@ -171,6 +167,16 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		if err != nil {
 			return err
 		}
+	}
+	if hasTree {
+		err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
+			return refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees)
+		})
+		if err != nil {
+			return err
+		}
+		e.publish(Change{Workstreams: true})
+		return nil
 	}
 	err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
 		if err := detachTrees(ctx, q, repository.FullName); err != nil {
@@ -187,6 +193,44 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+func refreshCopiedTrees(ctx context.Context, q *store.Queries, repository string, numbers []int64, trees []copiedTree) error {
+	for i, number := range numbers {
+		wsID, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, copied := range trees[i].issues {
+			issue := copied.issue
+			labels := labelNames(issue)
+			slices.Sort(labels)
+			labelsText, err := json.Marshal(labels)
+			if err != nil {
+				return err
+			}
+			if err := q.RefreshCopiedTreeIssue(ctx, store.RefreshCopiedTreeIssueParams{
+				Title:      issue.GetTitle(),
+				Body:       copied.body,
+				State:      issue.GetState(),
+				Author:     issue.GetUser().GetLogin(),
+				Kind:       issueKind(labels),
+				GithubID:   issue.GetID(),
+				Labels:     string(labelsText),
+				Repository: copied.repository,
+				Number:     int64(issue.GetNumber()),
+			}); err != nil {
+				return err
+			}
+		}
+		if err := setCopiedTreeData(ctx, q, wsID, trees[i]); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -481,7 +525,6 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 			workstreamValid: row.Workstream.Valid,
 		}
 	}
-	app := appLogin(repository.AppSlug)
 	var leaves copiedTree
 	syncChanged := false
 	visited := map[issueRef]bool{}
@@ -519,7 +562,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 					return err
 				}
 				if ok {
-					if err := recordTreeIncomingChange(ctx, e.queries, app, subRepoName, subNum, parentField, addedChange, ev, parentMetadata{pRepo, pNum}); err != nil {
+					if err := e.recordTreeIncomingChange(ctx, repository, subRepoName, subNum, parentField, addedChange, ev, parentMetadata{pRepo, pNum}); err != nil {
 						return err
 					}
 					markTouched(subRepoName)
@@ -577,7 +620,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 						return err
 					}
 					if ev, ok := newestBlockerEvent(events, "blocked_by_removed", childRepo.FullName, bRef); ok {
-						if err := recordTreeIncomingChange(ctx, e.queries, app, childRepo.FullName, subNum, blockersField, removedChange, ev, blockerMetadata{info.repo, info.number}); err != nil {
+						if err := e.recordTreeIncomingChange(ctx, repository, childRepo.FullName, subNum, blockersField, removedChange, ev, blockerMetadata{info.repo, info.number}); err != nil {
 							return err
 						}
 						markTouched(childRepo.FullName)
@@ -593,7 +636,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 					}
 					if ev, ok := newestBlockerEvent(events, "blocked_by_added", childRepo.FullName, bRef); ok {
 						bRepo := blockerRepository(ghIssue, childRepo.FullName)
-						if err := recordTreeIncomingChange(ctx, e.queries, app, childRepo.FullName, subNum, blockersField, addedChange, ev, blockerMetadata{bRepo, int64(ghIssue.GetNumber())}); err != nil {
+						if err := e.recordTreeIncomingChange(ctx, repository, childRepo.FullName, subNum, blockersField, addedChange, ev, blockerMetadata{bRepo, int64(ghIssue.GetNumber())}); err != nil {
 							return err
 						}
 						markTouched(childRepo.FullName)
@@ -617,7 +660,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 				return err
 			}
 			if ok {
-				if err := recordTreeIncomingChange(ctx, e.queries, app, childRepoName, want.number, parentField, changeKind, ev, parentMetadata{pRepo, pNum}); err != nil {
+				if err := e.recordTreeIncomingChange(ctx, repository, childRepoName, want.number, parentField, changeKind, ev, parentMetadata{pRepo, pNum}); err != nil {
 					return err
 				}
 				markTouched(childRepoName)
@@ -788,15 +831,30 @@ func newestBlockerEvent(events []github.TreeEvent, kind, issueRepo string, block
 	return github.TreeEvent{}, false
 }
 
-func recordTreeIncomingChange(ctx context.Context, q *store.Queries, app, targetRepo string, number int64, field, change string, event github.TreeEvent, meta any) error {
+func (e *Engine) isTreeAppActor(repository github.Repository, actor, targetRepo string, meta any) bool {
+	if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
+		return true
+	}
+	if repo, ok := e.namedRepository(targetRepo, repository); ok && strings.EqualFold(actor, appLogin(repo.AppSlug)) {
+		return true
+	}
+	if m, ok := meta.(parentMetadata); ok && m.ParentRepository != "" {
+		if repo, ok := e.namedRepository(m.ParentRepository, repository); ok && strings.EqualFold(actor, appLogin(repo.AppSlug)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) recordTreeIncomingChange(ctx context.Context, repository github.Repository, targetRepo string, number int64, field, change string, event github.TreeEvent, meta any) error {
 	externalID := strconv.FormatInt(event.ID, 10)
-	known, err := q.HasIncomingChange(ctx, externalID)
+	known, err := e.queries.HasIncomingChange(ctx, externalID)
 	if err != nil || known {
 		return err
 	}
 	actor := event.Actor.Login
 	status := "pending"
-	if strings.EqualFold(actor, app) {
+	if e.isTreeAppActor(repository, actor, targetRepo, meta) {
 		var otherRepo string
 		var otherNumber int64
 		switch m := meta.(type) {
@@ -805,23 +863,35 @@ func recordTreeIncomingChange(ctx context.Context, q *store.Queries, app, target
 		case blockerMetadata:
 			otherRepo, otherNumber = m.BlockerRepository, m.Blocker
 		}
-		if _, err := q.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
+		own, err := e.queries.DeleteOldestTreeOwnWrite(ctx, store.DeleteOldestTreeOwnWriteParams{
 			Repository:      targetRepo,
 			Number:          number,
 			Field:           field,
 			Change:          change,
 			OtherRepository: otherRepo,
 			OtherNumber:     otherNumber,
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
-		status = "done"
+		addMissingChild := false
+		if own == 0 && field == parentField && change == addedChange {
+			node, err := e.queries.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: targetRepo, Number: number})
+			if errors.Is(err, sql.ErrNoRows) || (err == nil && !node.Workstream.Valid) {
+				addMissingChild = true
+			} else if err != nil {
+				return err
+			}
+		}
+		if !addMissingChild {
+			status = "done"
+		}
 	}
 	encoded, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
-	return q.AddIncomingChange(ctx, store.AddIncomingChangeParams{
+	return e.queries.AddIncomingChange(ctx, store.AddIncomingChangeParams{
 		ExternalID: externalID,
 		Repository: targetRepo,
 		Number:     number,
