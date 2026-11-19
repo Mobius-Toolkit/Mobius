@@ -144,7 +144,7 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
 			return err
 		}
-		if err := removeTree(ctx, q, repository.FullName, number); err != nil {
+		if err := removeClosedTree(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}
 		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)

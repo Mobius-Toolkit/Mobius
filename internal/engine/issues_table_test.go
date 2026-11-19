@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -137,27 +138,36 @@ func TestAnIssueOfAnotherRepositoryBelowAWorkstreamHasOneRowWithTheWorkstream(t 
 	}
 }
 
-func TestAFullCopyAgainKeepsTheIdOfEachRow(t *testing.T) {
+func TestAFullCopyAfterARestartKeepsTheIdOfEachRow(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := startWithTasks(t, fake)
-	before := issueRows(t, server)
+	dataDir := t.TempDir()
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddIssue(shop, 50, "Store the price in cents")
+	fake.AddSubIssue(shop, 41, 50)
+	first := startServer(t, fake, dataDir, "")
+	first.WaitForFirstPoll(t, shop)
+	before := issueRows(t, first)
 	if len(before) != 2 {
 		t.Fatalf("rows = %+v", before)
 	}
-	fake.FailSubIssues(shop, 12, true)
+	first.Stop()
 	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
-	waitForPoll(t, server, fake)
-	changes := listen(t, server)
+	fake.SetTitleBy(shop, 41, "Add the plan model", "owner")
 
-	fake.FailSubIssues(shop, 12, false)
+	restarted := testserver.Start(t, dataDir, fake.URL)
 
-	waitForWorkstreams(t, changes)
-	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50, 42}) })
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, restarted), []int64{41, 50, 42}) })
 	for _, row := range before {
-		if got := issueRowOf(t, server, row.Repository, row.Number); got.ID != row.ID || got.Parent != row.Parent {
+		if got := issueRowOf(t, restarted, row.Repository, row.Number); got.ID != row.ID || got.Parent != row.Parent {
 			t.Errorf("row of #%d = %+v, want the id %d", row.Number, got, row.ID)
 		}
+	}
+	if got := copiedTitle(t, restarted, 41); got != "Add the plan model" {
+		t.Errorf("title of #41 = %q", got)
 	}
 }
 
@@ -224,4 +234,88 @@ func TestAnIssueWithTheLabelProjectHasTheKindProject(t *testing.T) {
 	}
 	fake.RemoveLabel(shop, 41, "mobius:project", "owner")
 	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).Kind == "task" })
+}
+
+func TestANestedWorkstreamCountsAsADirectSubIssueOfTheAllTasksClosedFlag(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.CloseIssue(shop, 41)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 20)
+	server := startCopied(t, fake)
+
+	if workstreams(t, server)[0].AllTasksClosed {
+		t.Fatal("all tasks closed with an open nested Workstream")
+	}
+
+	fake.CloseIssue(shop, 20)
+
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+}
+
+func TestAWorkstreamWithOnlyANestedWorkstreamIsNotReportedAsFinished(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 20)
+	server := startCopied(t, fake)
+
+	if _, err := server.DB.Exec("UPDATE workstreams SET finished_at = '2026-10-04T10:00:00Z' WHERE repository = ? AND number = 12", shop); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, w := range workstreams(t, server) {
+		if w.Number == 12 && w.ReportedFinished {
+			t.Error("the Workstream #12 is reported as finished")
+		}
+	}
+}
+
+func TestANestedWorkstreamCountsAsADirectSubIssueForTheBuckets(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBucketWorkstream(fake)
+	addSubIssues(fake, 12, 100, 148, 0)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 20)
+	startCopied(t, fake)
+	waitForPolls(t, fake)
+	if got := len(fake.SubIssueNumbers(shop, 12)); got != 50 {
+		t.Fatalf("sub-issues = %d", got)
+	}
+
+	fake.AddIssue(shop, 21, "Invoices")
+	fake.AddLabel(shop, 21, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 21)
+
+	testkit.WaitFor(t, func() bool {
+		for _, request := range fake.Requests() {
+			if request.Method == "POST" && strings.HasSuffix(request.Path, "/issues") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestTheTitleOfTheWorkstreamOfABlockerStaysAfterTheCloseOfThatWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlocker(t, fake)
+
+	fake.CloseIssue(shop, 13)
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(workstreamNumbers(t, server), 13) })
+	billing := "Billing"
+	want := []taskLine{line(42, "Let customers change plans", "open", 0)}
+	want[0].BlockedBy = []taskBlocker{{Number: 60, WorkstreamTitle: &billing}}
+	if got := apiData[[]taskLine](t, server, "/api/workstreams/owner/shop/12/tasks"); !reflect.DeepEqual(got, want) {
+		t.Errorf("tasks = %+v", got)
+	}
 }

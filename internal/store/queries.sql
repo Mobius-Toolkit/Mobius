@@ -2,10 +2,16 @@
 SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
-       CAST(EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL)
+             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) > 0
+       AND ((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL AND i.state != 'closed')
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.state') != 'closed')
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested') n WHERE json_extract(n.value, '$.state') != 'closed')) = 0 AS BOOLEAN) AS all_tasks_closed,
        CAST(w.finished_at IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL) AS BOOLEAN) AS reported_finished,
+       AND ((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL)
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
@@ -1019,10 +1025,16 @@ DELETE FROM blockers WHERE issue = ? AND blocker IN (SELECT id FROM issues WHERE
 -- name: GetWorkstreamID :one
 SELECT id FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- name: SetCopiedBuckets :exec
+-- The buckets and the nested Workstreams are the direct sub-issues of the Workstream that are no rows of issues.
+-- name: SetCopiedTreeData :exec
 UPDATE workstreams
-SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()), '$.buckets', json(CAST(sqlc.arg(buckets) AS TEXT)))))
+SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
+    '$.buckets', json(CAST(sqlc.arg(buckets) AS TEXT)), '$.nested', json(CAST(sqlc.arg(nested) AS TEXT)))))
 WHERE id = sqlc.arg(id);
+
+-- name: GetCopiedNested :one
+SELECT CAST(coalesce(json_extract(metadata, '$.github.nested'), '[]') AS TEXT) AS nested
+FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetCopiedBuckets :one
 SELECT CAST(coalesce(json_extract(metadata, '$.github.buckets'), '[]') AS TEXT) AS buckets
@@ -1146,9 +1158,16 @@ FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
 JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
-LEFT JOIN workstreams bw ON bw.id = bi.workstream AND bw.repository = w.repository AND bi.repository = w.repository
+LEFT JOIN workstreams bw ON bw.id = coalesce(bi.workstream, json_extract(bi.metadata, '$.github.workstream'))
+  AND bw.repository = w.repository AND bi.repository = w.repository
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
 ORDER BY b.issue, bi.repository, bi.number;
+
+-- A blocker that stays after the close of its Workstream keeps the id of that Workstream in its metadata, so a task
+-- still shows the title of the Workstream of the blocker.
+-- name: KeepWorkstreamOfBlockers :exec
+UPDATE issues SET metadata = json_set(metadata, '$.github.workstream', workstream)
+WHERE workstream = ? AND EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);
 
 -- name: ListCopiedIssuesWithLabels :many
 SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository,
@@ -1675,7 +1694,8 @@ SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
 WHERE w.repository = sqlc.arg(repository) AND w.state = 'open' AND w.number IS NOT NULL
   AND ((SELECT COUNT(*) FROM issues c
         WHERE c.workstream = w.id AND c.parent IS NULL AND json_extract(c.metadata, '$.github.bucket') IS NULL)
-       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets')) > CAST(sqlc.arg(maximum) AS INTEGER)
+       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested')) > CAST(sqlc.arg(maximum) AS INTEGER)
        OR EXISTS (
            SELECT 1 FROM json_each(w.metadata, '$.github.buckets') b
            WHERE json_extract(b.value, '$.state') = 'open'

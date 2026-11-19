@@ -3146,6 +3146,23 @@ func (q *Queries) GetCopiedIssueWorkstreamOf(ctx context.Context, arg GetCopiedI
 	return i, err
 }
 
+const getCopiedNested = `-- name: GetCopiedNested :one
+SELECT CAST(coalesce(json_extract(metadata, '$.github.nested'), '[]') AS TEXT) AS nested
+FROM workstreams WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+`
+
+type GetCopiedNestedParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetCopiedNested(ctx context.Context, arg GetCopiedNestedParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getCopiedNested, arg.Repository, arg.Number)
+	var nested string
+	err := row.Scan(&nested)
+	return nested, err
+}
+
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
 SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
 FROM workstreams
@@ -5170,6 +5187,18 @@ func (q *Queries) KeepLeadFindings(ctx context.Context, arg KeepLeadFindingsPara
 	return result.RowsAffected()
 }
 
+const keepWorkstreamOfBlockers = `-- name: KeepWorkstreamOfBlockers :exec
+UPDATE issues SET metadata = json_set(metadata, '$.github.workstream', workstream)
+WHERE workstream = ? AND EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id)
+`
+
+// A blocker that stays after the close of its Workstream keeps the id of that Workstream in its metadata, so a task
+// still shows the title of the Workstream of the blocker.
+func (q *Queries) KeepWorkstreamOfBlockers(ctx context.Context, workstream sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, keepWorkstreamOfBlockers, workstream)
+	return err
+}
+
 const linkPendingAction = `-- name: LinkPendingAction :one
 UPDATE pending_actions SET chat_message = ?, inbox_item = ? WHERE id = ?
 RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
@@ -6175,7 +6204,8 @@ FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
 JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
-LEFT JOIN workstreams bw ON bw.id = bi.workstream AND bw.repository = w.repository AND bi.repository = w.repository
+LEFT JOIN workstreams bw ON bw.id = coalesce(bi.workstream, json_extract(bi.metadata, '$.github.workstream'))
+  AND bw.repository = w.repository AND bi.repository = w.repository
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
 ORDER BY b.issue, bi.repository, bi.number
 `
@@ -6226,10 +6256,16 @@ const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
-       CAST(EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL)
-       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL)
+             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) > 0
+       AND ((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL AND i.state != 'closed')
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets') b WHERE json_extract(b.value, '$.state') != 'closed')
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested') n WHERE json_extract(n.value, '$.state') != 'closed')) = 0 AS BOOLEAN) AS all_tasks_closed,
        CAST(w.finished_at IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL) AS BOOLEAN) AS reported_finished,
+       AND ((SELECT COUNT(*) FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND json_extract(i.metadata, '$.github.bucket') IS NULL)
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+            + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
@@ -10349,7 +10385,8 @@ SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
 WHERE w.repository = ?1 AND w.state = 'open' AND w.number IS NOT NULL
   AND ((SELECT COUNT(*) FROM issues c
         WHERE c.workstream = w.id AND c.parent IS NULL AND json_extract(c.metadata, '$.github.bucket') IS NULL)
-       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets')) > CAST(?2 AS INTEGER)
+       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
+       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested')) > CAST(?2 AS INTEGER)
        OR EXISTS (
            SELECT 1 FROM json_each(w.metadata, '$.github.buckets') b
            WHERE json_extract(b.value, '$.state') = 'open'
@@ -10911,22 +10948,6 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 	return err
 }
 
-const setCopiedBuckets = `-- name: SetCopiedBuckets :exec
-UPDATE workstreams
-SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()), '$.buckets', json(CAST(?1 AS TEXT)))))
-WHERE id = ?2
-`
-
-type SetCopiedBucketsParams struct {
-	Buckets string
-	ID      int64
-}
-
-func (q *Queries) SetCopiedBuckets(ctx context.Context, arg SetCopiedBucketsParams) error {
-	_, err := q.db.ExecContext(ctx, setCopiedBuckets, arg.Buckets, arg.ID)
-	return err
-}
-
 const setCopiedEvergreen = `-- name: SetCopiedEvergreen :exec
 UPDATE workstreams SET evergreen = CAST(?1 AS BOOLEAN)
 WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
@@ -10994,6 +11015,25 @@ type SetCopiedSkillsParams struct {
 
 func (q *Queries) SetCopiedSkills(ctx context.Context, arg SetCopiedSkillsParams) error {
 	_, err := q.db.ExecContext(ctx, setCopiedSkills, arg.Skills, arg.Repository, arg.Number)
+	return err
+}
+
+const setCopiedTreeData = `-- name: SetCopiedTreeData :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()),
+    '$.buckets', json(CAST(?1 AS TEXT)), '$.nested', json(CAST(?2 AS TEXT)))))
+WHERE id = ?3
+`
+
+type SetCopiedTreeDataParams struct {
+	Buckets string
+	Nested  string
+	ID      int64
+}
+
+// The buckets and the nested Workstreams are the direct sub-issues of the Workstream that are no rows of issues.
+func (q *Queries) SetCopiedTreeData(ctx context.Context, arg SetCopiedTreeDataParams) error {
+	_, err := q.db.ExecContext(ctx, setCopiedTreeData, arg.Buckets, arg.Nested, arg.ID)
 	return err
 }
 

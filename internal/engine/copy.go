@@ -27,11 +27,12 @@ type copiedWorkstream struct {
 	tree  copiedTree
 }
 
-// copiedTree is the tree of a Workstream: its issues in depth-first order, and the buckets of GitHub below it. A
-// nested Workstream and a bucket are no issues of the tree.
+// copiedTree is the tree of a Workstream: its issues in depth-first order, the buckets of GitHub below it, and its
+// nested Workstreams that are direct sub-issues. A nested Workstream and a bucket are no issues of the tree.
 type copiedTree struct {
 	issues  []copiedIssue
 	buckets []copiedBucket
+	nested  []copiedNested
 }
 
 type copiedIssue struct {
@@ -58,6 +59,13 @@ type copiedBucket struct {
 	Number int64  `json:"number"`
 	State  string `json:"state"`
 	Title  string `json:"title"`
+}
+
+// copiedNested is a nested Workstream that is a direct sub-issue of a Workstream. The key github of workstreams.metadata
+// holds them, so the count of the direct sub-issues is the count of GitHub.
+type copiedNested struct {
+	Number int64  `json:"number"`
+	State  string `json:"state"`
 }
 
 // issueGitHub is the key github of issues.metadata.
@@ -347,8 +355,9 @@ type subIssueAt struct {
 }
 
 // flatSubIssues gives the sub-issues of the issue parent of from, with the sub-issues of each bucket in place of the
-// bucket. A nested Workstream is no sub-issue. It adds each bucket that it finds to buckets.
-func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, parent int64, buckets *[]copiedBucket) ([]subIssueAt, error) {
+// bucket. A nested Workstream is no sub-issue. It adds each bucket that it finds to leaves.buckets, and each nested
+// Workstream to leaves.nested when direct is true.
+func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, parent int64, direct bool, leaves *copiedTree) ([]subIssueAt, error) {
 	issues, err := from.SubIssues(ctx, parent)
 	if github.NotFound(err) {
 		return nil, nil
@@ -359,6 +368,9 @@ func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, pare
 	var found []subIssueAt
 	for _, issue := range issues {
 		if hasLabel(issue, workstreamLabel) {
+			if direct {
+				leaves.nested = append(leaves.nested, nestedOf(issue))
+			}
 			continue
 		}
 		issueRepository, readable := e.issueRepository(issue, from)
@@ -366,14 +378,18 @@ func (e *Engine) flatSubIssues(ctx context.Context, from github.Repository, pare
 			found = append(found, subIssueAt{issue, from})
 			continue
 		}
-		*buckets = append(*buckets, bucketOf(issue))
-		inside, err := e.flatSubIssues(ctx, issueRepository, int64(issue.GetNumber()), buckets)
+		leaves.buckets = append(leaves.buckets, bucketOf(issue))
+		inside, err := e.flatSubIssues(ctx, issueRepository, int64(issue.GetNumber()), false, leaves)
 		if err != nil {
 			return nil, err
 		}
 		found = append(found, inside...)
 	}
 	return found, nil
+}
+
+func nestedOf(issue *gh.Issue) copiedNested {
+	return copiedNested{Number: int64(issue.GetNumber()), State: issue.GetState()}
 }
 
 func bucketOf(issue *gh.Issue) copiedBucket {
@@ -386,7 +402,7 @@ func bucketOf(issue *gh.Issue) copiedBucket {
 func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
 	var rows []store.ListCopiedTreeRow
 	var blockerRows []store.ListCopiedTreeBlockersRow
-	var storedBuckets string
+	var storedBuckets, storedNested string
 	err := e.readTx(ctx, func(q *store.Queries) error {
 		var err error
 		rows, err = q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repository.FullName, Number: workstream})
@@ -398,6 +414,10 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 			return err
 		}
 		storedBuckets, err = q.GetCopiedBuckets(ctx, store.GetCopiedBucketsParams{Repository: repository.FullName, Number: workstream})
+		if err != nil {
+			return err
+		}
+		storedNested, err = q.GetCopiedNested(ctx, store.GetCopiedNestedParams{Repository: repository.FullName, Number: workstream})
 		return err
 	})
 	if err != nil {
@@ -421,10 +441,10 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 		node := refs[row.Issue]
 		blockers[node] = append(blockers[node], blockerKey{row.BlockerRepository, row.Number})
 	}
-	var buckets []copiedBucket
+	var leaves copiedTree
 	var differs func(from github.Repository, parent int64, key issueRef) (bool, error)
 	differs = func(from github.Repository, parent int64, key issueRef) (bool, error) {
-		issues, err := e.flatSubIssues(ctx, from, parent, &buckets)
+		issues, err := e.flatSubIssues(ctx, from, parent, key == root, &leaves)
 		if err != nil {
 			return false, err
 		}
@@ -474,14 +494,21 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	if changed, err := differs(repository, workstream, root); err != nil || changed {
 		return changed, err
 	}
-	var stored []copiedBucket
-	if err := json.Unmarshal([]byte(storedBuckets), &stored); err != nil {
+	var stored copiedTree
+	if err := json.Unmarshal([]byte(storedBuckets), &stored.buckets); err != nil {
 		return false, err
 	}
-	compare := func(a, b copiedBucket) int { return cmp.Compare(a.Number, b.Number) }
-	slices.SortFunc(buckets, compare)
-	slices.SortFunc(stored, compare)
-	return !slices.EqualFunc(buckets, stored, func(a, b copiedBucket) bool { return a.Number == b.Number && a.State == b.State }), nil
+	if err := json.Unmarshal([]byte(storedNested), &stored.nested); err != nil {
+		return false, err
+	}
+	compareBuckets := func(a, b copiedBucket) int { return cmp.Compare(a.Number, b.Number) }
+	slices.SortFunc(leaves.buckets, compareBuckets)
+	slices.SortFunc(stored.buckets, compareBuckets)
+	compareNested := func(a, b copiedNested) int { return cmp.Compare(a.Number, b.Number) }
+	slices.SortFunc(leaves.nested, compareNested)
+	slices.SortFunc(stored.nested, compareNested)
+	return !slices.EqualFunc(leaves.buckets, stored.buckets, func(a, b copiedBucket) bool { return a.Number == b.Number && a.State == b.State }) ||
+		!slices.Equal(leaves.nested, stored.nested), nil
 }
 
 type blockerKey struct {
@@ -915,6 +942,9 @@ func (e *Engine) addSubtree(ctx context.Context, home, repository github.Reposit
 	}
 	for _, issue := range issues {
 		if hasLabel(issue, workstreamLabel) {
+			if parent == workstream && repository.FullName == home.FullName {
+				tree.nested = append(tree.nested, nestedOf(issue))
+			}
 			continue
 		}
 		issueRepository, readable := e.issueRepository(issue, repository)
@@ -1053,7 +1083,7 @@ func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Re
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
 			return err
 		}
-		return removeTree(ctx, q, repository.FullName, number)
+		return removeClosedTree(ctx, q, repository.FullName, number)
 	})
 	if err != nil || !closed {
 		return err
@@ -1089,6 +1119,19 @@ func removeTree(ctx context.Context, q *store.Queries, repository string, workst
 		return err
 	}
 	return q.DeleteUnusedIssues(ctx)
+}
+
+// removeClosedTree is removeTree for a Workstream that stays as a closed row. An issue that stays as a blocker keeps the
+// id of that Workstream, so the blocked tasks still show its title.
+func removeClosedTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
+	id, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository, Number: workstream})
+	if err != nil {
+		return err
+	}
+	if err := q.KeepWorkstreamOfBlockers(ctx, sql.NullInt64{Int64: id, Valid: true}); err != nil {
+		return err
+	}
+	return removeTree(ctx, q, repository, workstream)
 }
 
 func detachTree(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
@@ -1141,7 +1184,11 @@ func addTree(ctx context.Context, q *store.Queries, repository string, workstrea
 	if err != nil {
 		return err
 	}
-	return q.SetCopiedBuckets(ctx, store.SetCopiedBucketsParams{Buckets: string(buckets), ID: id})
+	nested, err := json.Marshal(append([]copiedNested{}, tree.nested...))
+	if err != nil {
+		return err
+	}
+	return q.SetCopiedTreeData(ctx, store.SetCopiedTreeDataParams{Buckets: string(buckets), Nested: string(nested), ID: id})
 }
 
 // addCopiedIssue writes the row of the issue in the tree of the Workstream with the id workstream, and its blockers.
