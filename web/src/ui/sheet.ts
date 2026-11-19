@@ -12,11 +12,12 @@ const focusable =
 // content. The layer stays in its place in the DOM, because the panel can sit inside a dialog of the host, and that
 // dialog blocks the pointer and the focus outside its content. Tab stays in the layer, and the focus goes back to the
 // opener when the layer closes.
-export function defineInPlaceMount<Done extends Schema.Top & (() => Schema.Schema.Type<Done>)>(
-  done: Done,
-) {
-  return Mount.define("InPlaceOpened", {
-    messages: [done],
+export function defineInPlaceMount<
+  const Messages extends readonly [Schema.Top & (() => Schema.Schema.Type<Messages[0]>)],
+>(...messages: Mount.ResultMessageSchemas<Messages>) {
+  const [done] = messages;
+  return Mount.define<"InPlaceOpened", Messages>("InPlaceOpened", {
+    messages,
     execute: ({ element }) =>
       Effect.gen(function* () {
         const dialog = element.querySelector<HTMLElement>('[role="dialog"]');
