@@ -23,6 +23,20 @@ func blockerWrites(fake *testkit.FakeGitHub, number string) int {
 	return count
 }
 
+// successfulBlockerWrites gives the number of 2xx requests that add or remove a blocker of the issue number in
+// owner/shop.
+func successfulBlockerWrites(fake *testkit.FakeGitHub, number string) int {
+	count := 0
+	for _, request := range fake.Requests() {
+		if request.Method != "GET" &&
+			request.Status >= 200 && request.Status < 300 &&
+			strings.HasPrefix(request.Path, "/repos/owner/shop/issues/"+number+"/dependencies/blocked_by") {
+			count++
+		}
+	}
+	return count
+}
+
 func waitForCopiedBlocker(t *testing.T, server *testserver.Server, issue, blocker int64) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
@@ -322,7 +336,6 @@ func TestUpdateBlockersTellsTheChangeOn500AndWritesOnceOnPoll(t *testing.T) {
 	waitForPolls(t, fake)
 	waitForCopiedBlocker(t, server, 41, 40)
 
-	before := blockerWrites(fake, "41")
 	fake.FailBlockerWrites(false)
 	testkit.WaitFor(t, func() bool {
 		var sent int
@@ -335,8 +348,8 @@ func TestUpdateBlockersTellsTheChangeOn500AndWritesOnceOnPoll(t *testing.T) {
 	if got := fake.BlockerNumbers(shop, 41); !slices.Equal(got, []int64{40}) {
 		t.Errorf("github blockers after poll = %v", got)
 	}
-	if got := blockerWrites(fake, "41") - before; got != 1 {
-		t.Errorf("poll writes = %d, want 1", got)
+	if got := successfulBlockerWrites(fake, "41"); got != 1 {
+		t.Errorf("successful writes = %d, want 1", got)
 	}
 }
 
