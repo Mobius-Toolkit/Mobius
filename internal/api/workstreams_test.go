@@ -17,8 +17,8 @@ func TestListWorkstreams(t *testing.T) {
 			('o/a', 3, 'Early renewals', '', 0, 1, 'open', NULL),
 			('o/a', 4, 'Closed plans', '', 0, 0, 'closed', NULL),
 			('o/a', 5, 'Reported design', 'Finish the design.', 0, 0, 'open', '2026-10-04T12:00:00Z');
-		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
-			('o/a', 1, 0, 11, 1, 'o/a', 'Plan model', '', 'closed', 'owner', '', '');
+		INSERT INTO issues (repository, number, title, body, state, author, workstream) VALUES
+			('o/a', 11, 'Plan model', '', 'closed', 'owner', 1);
 		INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES
 			('o/a', 'o/a', 21, 2, 'ready_for_review', '2026-10-04T10:00:00Z'),
 			('o/a', 'o/a', 31, 3, 'approval', '2026-10-04T10:00:00Z'),

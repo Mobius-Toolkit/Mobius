@@ -97,7 +97,7 @@ func TestAWorkstreamWithTooManySubIssuesGetsABucketForTheClosedIssuesAndABucketF
 	}
 	testkit.WaitFor(t, func() bool {
 		got := apiData[[]taskLine](t, server, "/api/workstreams/owner/shop/12/tasks")
-		return len(got) == len(want) && got[0].Number == 123 && reflect.DeepEqual(sortedLines(got), want)
+		return len(got) == len(want) && got[0].Number == 100 && reflect.DeepEqual(sortedLines(got), want)
 	})
 }
 

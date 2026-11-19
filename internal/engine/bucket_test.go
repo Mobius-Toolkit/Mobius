@@ -88,8 +88,8 @@ func TestTheDetailsOfAWorkstreamCountTheIssuesBelowABucketAndNotTheBucketAndTheC
 		close(holdRecopy)
 		testkit.WaitFor(t, func() bool {
 			var count int
-			_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12", shop).Scan(&count)
-			return count == 5
+			_ = server.DB.QueryRow("SELECT json_array_length(metadata, '$.github.buckets') FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&count)
+			return count == 2
 		})
 	}
 

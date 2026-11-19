@@ -296,7 +296,7 @@ func TestStartOffHoldsASessionThatWaitsForAFullSlot(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 43)
 	testkit.WaitFor(t, func() bool {
 		var count int
-		err := server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE number = 43").Scan(&count)
+		err := server.DB.QueryRow("SELECT count(*) FROM issues WHERE workstream IS NOT NULL AND number = 43").Scan(&count)
 		return err == nil && count > 0
 	})
 	first := start(t, server, implementerSpec(t, server, fake, 41))

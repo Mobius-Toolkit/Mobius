@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -107,21 +108,12 @@ func (e *Engine) changeBrief(ctx context.Context, repository github.Repository, 
 	return e.addLeadEvent(ctx, repository.FullName, number, "", sql.NullInt64{}, "brief_change", text)
 }
 
-// setTitle writes title into the Workstream row and into the titles of the blockers in the copied trees, and adds an
-// outgoing title change in the same transaction, then sends it.
+// setTitle writes title into the Workstream row and adds an outgoing title change in the same transaction, then sends it.
 func (e *Engine) setTitle(ctx context.Context, repository github.Repository, number int64, title string) error {
 	var id int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.SetWorkstreamTitle(ctx, store.SetWorkstreamTitleParams{Title: title, Repository: repository.FullName, Number: number})
 		if err != nil || updated == 0 {
-			return err
-		}
-		_, err = q.UpdateCopiedBlockerTitles(ctx, store.UpdateCopiedBlockerTitlesParams{
-			Title:      sql.NullString{String: title, Valid: true},
-			Repository: repository.FullName,
-			Workstream: sql.NullInt64{Int64: number, Valid: true},
-		})
-		if err != nil {
 			return err
 		}
 		id, err = addFieldChange(ctx, q, repository.FullName, number, titleField)
@@ -168,9 +160,6 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 		}
 	} else {
 		e.publish(Change{Workstreams: true})
-		if err := e.recopyWorkstreamsWithBlockerIn(ctx, repository, number); err != nil {
-			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
-		}
 		if err := e.sendNow(ctx, repository, changeID); err != nil {
 			return err
 		}
@@ -254,20 +243,15 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 		return err
 	}
 	copyFailed := false
-	var tree []copiedIssue
 	if copyTree {
 		before := e.labelChangesNow()
-		var treeErr error
-		tree, treeErr = e.readTree(ctx, repository, number)
+		tree, treeErr := e.readTree(ctx, repository, number)
 		if treeErr == nil {
-			err = e.writeRead(ctx, repository.FullName, before, [][]copiedIssue{tree}, func(q *store.Queries) error {
+			err = e.writeRead(ctx, before, []copiedTree{tree}, func(q *store.Queries) error {
 				if err := reopenTx(q); err != nil || !reopened {
 					return err
 				}
-				if err := removeTree(ctx, q, repository.FullName, number); err != nil {
-					return err
-				}
-				return addTree(ctx, q, repository.FullName, number, tree)
+				return replaceTree(ctx, q, repository.FullName, number, tree)
 			})
 		} else {
 			log.Printf("copy the Workstream %s#%d: %v", repository.FullName, number, treeErr)
@@ -279,12 +263,6 @@ func (e *Engine) reopenWorkstream(ctx context.Context, repository github.Reposit
 	}
 	if err != nil || !reopened {
 		return copyFailed, err
-	}
-	if copyTree && !copyFailed {
-		if err := e.recopyBlockedByTree(ctx, repository, number, tree); err != nil {
-			log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, err)
-			copyFailed = true
-		}
 	}
 	e.publish(Change{Workstreams: true})
 	if err := e.sendNow(ctx, repository, changeID); err != nil {
@@ -304,27 +282,18 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 	var added int64
 	copyFailed := false
 	var err error
-	var tree []copiedIssue
 	if copyTree {
 		before := e.labelChangesNow()
-		var treeErr error
-		tree, treeErr = e.readTree(ctx, repository, number)
+		tree, treeErr := e.readTree(ctx, repository, number)
 		if treeErr == nil {
-			err = e.writeRead(ctx, repository.FullName, before, [][]copiedIssue{tree}, func(q *store.Queries) error {
+			err = e.writeRead(ctx, before, []copiedTree{tree}, func(q *store.Queries) error {
 				added, err = e.addWorkstreamRow(ctx, q, repository.FullName, issue)
 				if err != nil {
 					return err
 				}
-				if err := removeTree(ctx, q, repository.FullName, number); err != nil {
-					return err
-				}
-				return addTree(ctx, q, repository.FullName, number, tree)
+				return replaceTree(ctx, q, repository.FullName, number, tree)
 			})
 			if err == nil {
-				if recopyErr := e.recopyBlockedByTree(ctx, repository, number, tree); recopyErr != nil {
-					log.Printf("copy the blocked Workstreams of %s#%d: %v", repository.FullName, number, recopyErr)
-					copyFailed = true
-				}
 				e.publish(Change{Workstreams: true})
 			}
 		} else {
@@ -371,6 +340,9 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 func (e *Engine) removeWorkstream(ctx context.Context, repository github.Repository, number int64) error {
 	deleted := false
 	err := e.inTx(ctx, func(q *store.Queries) error {
+		if err := removeTree(ctx, q, repository.FullName, number); err != nil {
+			return err
+		}
 		n, err := q.DeleteCopiedWorkstream(ctx, store.DeleteCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
 		if err != nil || n == 0 {
 			return err
@@ -379,10 +351,7 @@ func (e *Engine) removeWorkstream(ctx context.Context, repository github.Reposit
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}
-		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
-			return err
-		}
-		return removeTree(ctx, q, repository.FullName, number)
+		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
 	})
 	if err != nil {
 		return err
@@ -453,48 +422,45 @@ type copiedTask struct {
 // afterCopiedTasksTree is a hook of the tests. copiedTasks calls it after ListCopiedTree.
 var afterCopiedTasksTree func()
 
-// copiedTasks gives the tasks of the copied tree of the Workstream number of repository, in the order of the tree. It
-// leaves out the same issues as walkTasks: a nested Workstream, and an issue in a repository that the App cannot read.
-// It keeps a bucket, because closeWorkstream closes it.
+// copiedTasks gives the buckets of the Workstream number of repository, and then the tasks of its copied tree in the
+// order of the tree. It leaves out an issue in a repository that the App cannot read. It keeps a bucket, because
+// closeWorkstream closes it.
 func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
-	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: number}
 	var rows []store.ListCopiedTreeRow
-	var labels []store.ListCopiedTreeLabelsRow
+	var storedBuckets string
 	err := e.readTx(ctx, func(q *store.Queries) error {
 		var err error
-		rows, err = q.ListCopiedTree(ctx, params)
+		rows, err = q.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: repository.FullName, Number: number})
 		if err != nil {
 			return err
 		}
 		if afterCopiedTasksTree != nil {
 			afterCopiedTasksTree()
 		}
-		labels, err = q.ListCopiedTreeLabels(ctx, store.ListCopiedTreeLabelsParams(params))
+		storedBuckets, err = q.GetCopiedBuckets(ctx, store.GetCopiedBucketsParams{Repository: repository.FullName, Number: number})
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	nested := map[int64]bool{}
-	buckets := map[int64]bool{}
-	for _, label := range labels {
-		switch label.Name {
-		case workstreamLabel:
-			nested[label.Position] = true
-		case bucketLabel:
-			buckets[label.Position] = true
-		}
+	tree, err := orderTree(rows)
+	if err != nil {
+		return nil, err
+	}
+	var buckets []copiedBucket
+	if err := json.Unmarshal([]byte(storedBuckets), &buckets); err != nil {
+		return nil, err
 	}
 	var tasks []copiedTask
-	for _, row := range rows {
-		if nested[row.Position] {
-			continue
-		}
-		source, ok := e.urlRepository(row.RepositoryUrl, repository)
+	for _, bucket := range buckets {
+		tasks = append(tasks, copiedTask{repository.FullName, bucket.Number, bucket.Title, bucket.State, issueLink(repository.FullName, bucket.Number), true})
+	}
+	for _, row := range tree {
+		source, ok := e.namedRepository(row.IssueRepository, repository)
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, row.HtmlUrl, buckets[row.Position]})
+		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, issueLink(source.FullName, row.Number), false})
 	}
 	return tasks, nil
 }

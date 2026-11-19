@@ -250,12 +250,13 @@ func TestListCopiedWorkstreams(t *testing.T) {
 			('o/a', 4, 'Task of the same number in another repository', '', 0, 'open'),
 			('o/a', 5, 'Closed Workstream', '', 0, 'closed'),
 			('o/b', 1, 'Other repository', '', 0, 'open');
-		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
-			('o/a', 2, 0, 20, 2, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
-			('o/a', 2, 1, 21, 2, 'o/a', 'Task', '', 'open', 'owner', '', ''),
-			('o/a', 3, 0, 30, 3, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
-			('o/a', 3, 1, 31, 30, 'o/a', 'Nested task', '', 'open', 'owner', '', ''),
-			('o/a', 4, 0, 40, 4, 'o/b', 'Child of an issue of another repository', '', 'closed', 'owner', '', '');
+		INSERT INTO issues (id, repository, number, title, body, state, author, workstream, parent) VALUES
+			(1, 'o/a', 20, 'Task', '', 'closed', 'owner', 2, NULL),
+			(2, 'o/a', 21, 'Task', '', 'open', 'owner', 2, NULL),
+			(3, 'o/a', 30, 'Task', '', 'closed', 'owner', 3, NULL),
+			(4, 'o/a', 31, 'Nested task', '', 'open', 'owner', 3, 3),
+			(5, 'o/b', 4, 'Issue of another repository', '', 'open', 'owner', 4, NULL),
+			(6, 'o/a', 40, 'Child of an issue of another repository', '', 'closed', 'owner', 4, 5);
 	`)
 	if err != nil {
 		t.Fatal(err)

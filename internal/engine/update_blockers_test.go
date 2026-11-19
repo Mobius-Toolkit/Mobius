@@ -216,14 +216,16 @@ func TestUpdateBlockersGivesTheResultAndListTasksShowsTheBlockerWhileTheCopyOfTh
 	copiedBlocker := func(issue, blocker int64) bool {
 		var count int
 		_ = server.DB.QueryRow(
-			"SELECT count(*) FROM copied_blockers b JOIN copied_issues i ON i.repository = b.repository AND i.workstream = b.workstream AND i.position = b.position WHERE b.repository = ? AND b.workstream = 12 AND i.number = ? AND b.blocker_repository = ? AND b.number = ?",
+			`SELECT count(*) FROM blockers b JOIN issues i ON i.id = b.issue JOIN workstreams w ON w.id = i.workstream
+			JOIN issues bi ON bi.id = b.blocker
+			WHERE w.repository = ? AND w.number = 12 AND i.number = ? AND bi.repository = ? AND bi.number = ?`,
 			shop, issue, shop, blocker,
 		).Scan(&count)
 		return count == 1
 	}
 	testkit.WaitFor(t, func() bool {
 		var count int
-		_ = server.DB.QueryRow("SELECT count(*) FROM copied_issues WHERE repository = ? AND workstream = 12 AND number = 41", shop).Scan(&count)
+		_ = server.DB.QueryRow("SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.number = 12 AND i.number = 41", shop).Scan(&count)
 		return count == 1
 	})
 	hold := make(chan struct{})

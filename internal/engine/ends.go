@@ -118,22 +118,15 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 	if err != nil || count != checkErrorPolls {
 		return err
 	}
-	rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.WorkstreamRepository, Workstream: task.Workstream, Number: task.Issue})
-	if err != nil {
+	title, err := e.queries.GetCopiedIssueTitle(ctx, store.GetCopiedIssueTitleParams{Repository: task.Repository, Number: task.Issue})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
-	}
-	var copied store.ListCopiedIssuesByNumberRow
-	for _, row := range rows {
-		if !otherRepository(row.RepositoryUrl, task.Repository) {
-			copied = row
-			break
-		}
 	}
 	pullRequest := ""
 	if task.PullRequest.Valid {
 		pullRequest = fmt.Sprintf(", pull request %s,", taskEventRef(task, task.PullRequest.Int64))
 	}
-	text := fmt.Sprintf("Mobius failed to check %s \"%s\"%s on %d polls in a row. The last error: %v.", taskEventRef(task, task.Issue), copied.Title, pullRequest, checkErrorPolls, checkErr)
+	text := fmt.Sprintf("Mobius failed to check %s \"%s\"%s on %d polls in a row. The last error: %v.", taskEventRef(task, task.Issue), title, pullRequest, checkErrorPolls, checkErr)
 	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
 }
 
@@ -418,43 +411,34 @@ func (e *Engine) setStateLabels(ctx context.Context, repository github.Repositor
 // item of a lost task keeps mobius:needs-human. A removal that GitHub refuses is logged, and the next poll tries it
 // again, because the local copy still has the label.
 func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Repository) error {
-	rows, err := e.queries.ListEndedTaskIssueLabels(ctx, store.ListEndedTaskIssueLabelsParams{
-		Repository: repository.FullName,
-		Working:    workingLabel,
-		Review:     reviewLabel,
-		Question:   questionLabel,
-		NeedsHuman: needsHumanLabel,
-	})
+	rows, err := e.queries.ListEndedTaskIssueLabels(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
 	type endedIssue struct {
-		repositoryURL string
-		number        int64
-		labels        []string
-	}
-	type endedRef struct {
-		repositoryURL string
-		number        int64
+		repository string
+		number     int64
+		labels     []string
 	}
 	var issues []endedIssue
-	index := map[endedRef]int{}
 	for _, row := range rows {
-		key := endedRef{row.RepositoryUrl, row.Number}
-		if idx, ok := index[key]; ok {
-			issues[idx].labels = append(issues[idx].labels, row.Name)
-		} else {
-			index[key] = len(issues)
-			issues = append(issues, endedIssue{
-				repositoryURL: row.RepositoryUrl,
-				number:        row.Number,
-				labels:        []string{row.Name},
-			})
+		stored, err := parseMetadata(row.Metadata)
+		if err != nil {
+			return err
+		}
+		item := endedIssue{repository: row.IssueRepository, number: row.Number}
+		for _, name := range []string{workingLabel, reviewLabel, questionLabel, needsHumanLabel} {
+			if slices.Contains(stored.Labels, name) && (name != needsHumanLabel || !row.Lost) {
+				item.labels = append(item.labels, name)
+			}
+		}
+		if len(item.labels) > 0 {
+			issues = append(issues, item)
 		}
 	}
 	changed := false
 	for _, item := range issues {
-		source, ok := e.urlRepository(item.repositoryURL, repository)
+		source, ok := e.namedRepository(item.repository, repository)
 		if !ok {
 			continue
 		}

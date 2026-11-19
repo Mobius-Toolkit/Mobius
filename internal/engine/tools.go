@@ -1398,7 +1398,7 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 				open = append(open, key)
 			}
 		}
-		if setErr := e.setCopiedBlockers(ctx, c.repository, issue.GetRepositoryURL(), input.N, open); setErr != nil {
+		if setErr := e.setCopiedBlockers(ctx, issue.GetRepositoryURL(), input.N, open); setErr != nil {
 			log.Printf("set the copied blockers of %s#%d: %v", repository.FullName, input.N, setErr)
 		}
 		workstream, recopyErr := e.repository(c.repository)

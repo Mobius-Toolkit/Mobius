@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestHeldWorkIsSortedByTheTimeAndNotByTheText(t *testing.T) {
 	_, queries := openQueries(t)
@@ -8,9 +11,13 @@ func TestHeldWorkIsSortedByTheTimeAndNotByTheText(t *testing.T) {
 	if _, err := queries.AddWorkstream(ctx, AddWorkstreamParams{Repository: "owner/shop", Number: 1, State: "open"}); err != nil {
 		t.Fatal(err)
 	}
+	workstream, err := queries.GetWorkstreamID(ctx, GetWorkstreamIDParams{Repository: "owner/shop", Number: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, issue := range []int64{2, 3} {
-		err := queries.AddCopiedIssue(ctx, AddCopiedIssueParams{Repository: "owner/shop", Workstream: 1, Position: issue, Number: issue,
-			Title: "Issue", State: "open", RepositoryUrl: "https://api.github.com/repos/owner/shop"})
+		_, err := queries.AddCopiedIssue(ctx, AddCopiedIssueParams{Repository: "owner/shop", Number: issue, Title: "Issue", State: "open",
+			Workstream: sql.NullInt64{Int64: workstream, Valid: true}, Kind: "task", Github: "{}"})
 		if err != nil {
 			t.Fatal(err)
 		}

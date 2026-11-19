@@ -119,7 +119,7 @@ func TestTheTasksTabShowsASubIssueOfAnotherRepository(t *testing.T) {
 	server.WaitForFirstPoll(t, shop)
 
 	foreign := taskLine{Number: 77, Title: "A task in another repository", State: "working", URL: "https://github.com/other/repo/issues/77", OtherRepository: true, BlockedBy: []taskBlocker{}}
-	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0), foreign, line(42, "Let customers change plans", "open", 0)})
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0), line(42, "Let customers change plans", "open", 0), foreign})
 }
 
 // The Start button of the Tasks tab adds mobius:ready to the number in the repository of the Workstream, so an open

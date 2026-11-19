@@ -2,14 +2,10 @@
 SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
        CAST(w.auto_merge AS BOOLEAN) AS auto_merge,
        CAST(w.evergreen AS BOOLEAN) AS evergreen,
-       CAST(EXISTS (SELECT 1 FROM copied_issues i
-               WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository)
-       AND NOT EXISTS (SELECT 1 FROM copied_issues i
-                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository
-                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
        CAST(w.finished_at IS NOT NULL
-       AND NOT EXISTS (SELECT 1 FROM copied_issues i
-                       WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number AND i.parent_repository = w.repository) AS BOOLEAN) AS reported_finished,
+       AND NOT EXISTS (SELECT 1 FROM issues i WHERE i.workstream = w.id AND i.parent IS NULL) AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
                WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM workstreams w
@@ -274,20 +270,19 @@ SELECT sqlc.embed(sessions), w.title AS workstream_title, i.title AS issue_title
         ORDER BY t.id DESC LIMIT 1) AS pull_request
 FROM sessions
 LEFT JOIN workstreams w ON w.repository = sessions.workstream_repository AND w.number = sessions.workstream AND w.state = 'open'
-LEFT JOIN copied_issues i
-  ON i.repository = sessions.workstream_repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
-  AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
+LEFT JOIN issues i ON i.workstream = w.id AND i.repository = sessions.repository AND i.number = sessions.issue
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
 -- name: GetSessionIssueTitle :one
-SELECT i.title FROM copied_issues i
-WHERE i.repository = sqlc.arg(workstream_repository) AND i.workstream = sqlc.arg(workstream) AND i.number = sqlc.arg(issue)
-  AND substr(lower(i.repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT));
+SELECT i.title FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE w.repository = sqlc.arg(workstream_repository) AND w.number = CAST(sqlc.arg(workstream) AS INTEGER) AND i.number = CAST(sqlc.arg(issue) AS INTEGER)
+  AND i.repository = sqlc.arg(repository);
 
 -- name: ListBoardTasks :many
 SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
        tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
-       i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title,
+       i.title AS issue_title, w.title AS workstream_title,
        coalesce(m.merging, 0) AS merging, coalesce(m.merge_refusal, '') AS merge_refusal
 FROM tasks
 LEFT JOIN inbox_items m ON m.id = (
@@ -295,9 +290,7 @@ LEFT JOIN inbox_items m ON m.id = (
   WHERE kind = 'ready for review' AND repository = tasks.repository AND issue = tasks.issue AND pull_request = tasks.pull_request
 )
 JOIN workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream AND w.state = 'open'
-JOIN copied_issues i
-  ON i.repository = tasks.workstream_repository AND i.workstream = tasks.workstream AND i.number = tasks.issue
-  AND substr(lower(i.repository_url), -(length(tasks.repository) + 7)) = '/repos/' || lower(tasks.repository)
+JOIN issues i ON i.workstream = w.id AND i.repository = tasks.repository AND i.number = tasks.issue
 ORDER BY tasks.id;
 
 -- name: ListQueuedTasks :many
@@ -335,9 +328,7 @@ SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.work
        w.title AS workstream_title, i.title AS issue_title
 FROM sessions s
 LEFT JOIN workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream AND w.state = 'open'
-LEFT JOIN copied_issues i
-  ON i.repository = s.workstream_repository AND i.workstream = s.workstream AND i.number = s.issue
-  AND substr(lower(i.repository_url), -(length(s.repository) + 7)) = '/repos/' || lower(s.repository)
+LEFT JOIN issues i ON i.workstream = w.id AND i.repository = s.repository AND i.number = s.issue
 WHERE s.ended_at IS NULL AND s.queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
 ORDER BY s.id;
 
@@ -621,9 +612,10 @@ ORDER BY event.workstream;
 SELECT * FROM lead_events AS event
 WHERE event.repository = sqlc.arg(repository) AND event.held = 1 AND event.delivered_at IS NULL
   AND NOT EXISTS (
-      SELECT 1 FROM copied_issues AS i
-      JOIN copied_issue_labels AS l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
-      WHERE i.repository = event.repository AND i.workstream = event.workstream AND i.state = 'open' AND l.name = sqlc.arg(question_label)
+      SELECT 1 FROM issues AS i
+      JOIN workstreams AS w ON w.id = i.workstream
+      WHERE w.repository = event.repository AND w.number = event.workstream AND i.state = 'open'
+        AND instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(question_label) AS TEXT))) > 0
   )
   AND NOT EXISTS (
       SELECT 1 FROM inbox_items AS n
@@ -911,26 +903,27 @@ SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? A
 -- name: IsWorkstreamClosePending :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND close_pending != 0);
 
--- name: DeleteCopiedIssuesOf :exec
-DELETE FROM copied_issues WHERE repository = ?;
+-- name: DeleteCopiedBlockersOfTrees :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
+);
 
--- name: DeleteCopiedIssueLabelsOf :exec
-DELETE FROM copied_issue_labels WHERE repository = ?;
-
--- name: DeleteCopiedBlockersOf :exec
-DELETE FROM copied_blockers WHERE repository = ?;
+-- name: DetachCopiedTrees :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?);
 
 -- name: DeleteCopiedWorkstream :execrows
 DELETE FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- name: DeleteCopiedIssues :exec
-DELETE FROM copied_issues WHERE repository = ? AND workstream = ?;
+-- name: DeleteCopiedBlockersOfTree :exec
+DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream = ?);
 
--- name: DeleteCopiedIssueLabels :exec
-DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ?;
+-- name: DetachCopiedTree :exec
+UPDATE issues SET workstream = NULL, parent = NULL WHERE workstream = ?;
 
--- name: DeleteCopiedBlockers :exec
-DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
+-- An issue that is in no tree and blocks no issue goes away.
+-- name: DeleteUnusedIssues :exec
+DELETE FROM issues WHERE workstream IS NULL AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);
 
 -- The row stays after its Workstream closes. It gives 1 when it added the row.
 -- name: AddWorkstream :execrows
@@ -994,48 +987,71 @@ SELECT CAST(autopilot AS BOOLEAN) AS autopilot, CAST(auto_merge AS BOOLEAN) AS a
        CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- name: AddCopiedIssue :exec
-INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+-- The GitHub data of a row is the JSON object $.github of its metadata.
+-- name: AddCopiedIssue :one
+INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, metadata)
+VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
+        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
+ON CONFLICT (repository, number) DO UPDATE SET
+    title = excluded.title, body = excluded.body, state = excluded.state, author = excluded.author,
+    workstream = excluded.workstream, parent = excluded.parent, kind = excluded.kind,
+    metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
+RETURNING id;
 
--- name: AddCopiedIssueLabel :exec
-INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?);
+-- A row that exists keeps its Workstream, parent, body and labels.
+-- name: AddCopiedBlockerIssue :one
+INSERT INTO issues (repository, number, title, body, state, author, kind, metadata)
+VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
+        sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
+ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
+RETURNING id;
 
 -- name: AddCopiedBlocker :exec
-INSERT INTO copied_blockers (repository, workstream, position, blocker_repository, number, blocker_workstream, blocker_workstream_title)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO blockers (issue, blocker) VALUES (?, ?)
+ON CONFLICT DO NOTHING;
+
+-- name: DeleteCopiedBlockersOfIssue :exec
+DELETE FROM blockers WHERE issue = ?;
+
+-- name: DeleteCopiedOpenBlockersOfIssue :exec
+DELETE FROM blockers WHERE issue = ? AND blocker IN (SELECT id FROM issues WHERE state = 'open');
+
+-- name: GetWorkstreamID :one
+SELECT id FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: SetCopiedBuckets :exec
+UPDATE workstreams
+SET metadata = json_set(metadata, '$.github', json(json_set(coalesce(json_extract(metadata, '$.github'), json_object()), '$.buckets', json(CAST(sqlc.arg(buckets) AS TEXT)))))
+WHERE id = sqlc.arg(id);
+
+-- name: GetCopiedBuckets :one
+SELECT CAST(coalesce(json_extract(metadata, '$.github.buckets'), '[]') AS TEXT) AS buckets
+FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: HasCopiedWorkstream :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open');
 
--- A row of another repository can have the number of an issue of this repository, so the repository URL must match.
 -- name: GetCopiedIssueWorkstream :one
-SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1;
+SELECT CAST(w.number AS INTEGER) AS number FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE w.repository = sqlc.arg(workstream_repository) AND i.repository = sqlc.arg(repository) AND i.number = CAST(sqlc.arg(number) AS INTEGER)
+LIMIT 1;
 
 -- name: HasCopiedWorkstreamAnyCase :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? COLLATE NOCASE AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open');
 
 -- name: GetCopiedIssueTree :one
-SELECT repository, workstream FROM copied_issues
-WHERE number = sqlc.arg(number)
-  AND substr(lower(repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT))
-ORDER BY repository, workstream
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE i.number = CAST(sqlc.arg(number) AS INTEGER) AND i.repository = sqlc.arg(repository)
+ORDER BY w.repository, w.number
 LIMIT 1;
 
--- name: ListCopiedTreesWithIssue :many
-SELECT DISTINCT repository, workstream FROM copied_issues
-WHERE number = sqlc.arg(number)
-  AND substr(lower(repository_url), -(length(CAST(sqlc.arg(repository) AS TEXT)) + 7)) = '/repos/' || lower(CAST(sqlc.arg(repository) AS TEXT))
-ORDER BY repository, workstream;
-
--- The issue can be in the trees of the copies of many repositories.
 -- name: ListCopiedWorkstreamsWithLabelChange :many
-SELECT i.repository, i.workstream FROM copied_issues i
-WHERE i.number = sqlc.arg(number) AND i.repository_url = sqlc.arg(repository_url)
-  AND EXISTS (
-      SELECT 1 FROM copied_issue_labels l
-      WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
-  ) != CAST(sqlc.arg(present) AS BOOLEAN);
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = sqlc.arg(repository) AND i.number = CAST(sqlc.arg(number) AS INTEGER)
+  AND (instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(name) AS TEXT))) > 0) != CAST(sqlc.arg(present) AS BOOLEAN);
 
 -- The Workstream with the label mobius:skills in a repository of the organization, with the lowest number.
 -- name: GetSkillsWorkstream :one
@@ -1051,14 +1067,10 @@ WHERE w.state = 'open' AND w.number IS NOT NULL AND w.maintenance AND w.reposito
 ORDER BY w.number
 LIMIT 1;
 
--- name: ListCopiedWorkstreamsWithBlockerIn :many
-SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_workstream = ?;
-
 -- name: ListCopiedWorkstreamsWithIssue :many
-SELECT DISTINCT repository, workstream FROM copied_issues WHERE number = ? AND repository_url = ?;
-
--- name: ListCopiedWorkstreamsWithBlocker :many
-SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetCopiedWorkstream :one
 SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills, created_at
@@ -1082,11 +1094,6 @@ WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS IN
 UPDATE workstreams SET skills = CAST(sqlc.arg(skills) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- name: UpdateCopiedBlockerTitles :execrows
-UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)
-WHERE repository = sqlc.arg(repository) AND blocker_workstream = sqlc.arg(workstream)
-  AND blocker_workstream_title IS NOT sqlc.arg(title);
-
 -- name: ListAutopilotWorkstreams :many
 SELECT CAST(number AS INTEGER) AS number FROM workstreams
 WHERE repository = ? AND state = 'open' AND number IS NOT NULL AND autopilot
@@ -1100,90 +1107,71 @@ WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 
 UPDATE workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN), auto_merge = CAST(sqlc.arg(auto_merge) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- A tree can hold the blocker of an issue of another repository, so the delete goes to the rows of all repositories.
--- name: DeleteCopiedBlocker :execrows
-DELETE FROM copied_blockers WHERE blocker_repository = ? AND number = ?;
-
--- A tree can hold an issue of another repository as a leaf, so the change goes to the rows of all repositories.
+-- The labels in the metadata are a copy of GitHub. The change of the title, the body, the state or the author gives
+-- the number of changed rows.
 -- name: UpdateCopiedIssue :execrows
-UPDATE copied_issues SET title = sqlc.arg(title), body = sqlc.arg(body), state = sqlc.arg(state), author = sqlc.arg(author)
-WHERE number = sqlc.arg(number) AND repository_url = sqlc.arg(repository_url)
+UPDATE issues SET title = sqlc.arg(title), body = sqlc.arg(body), state = sqlc.arg(state), author = sqlc.arg(author)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER)
   AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR state != sqlc.arg(state) OR author != sqlc.arg(author));
 
--- name: GetCopiedIssueState :one
-SELECT state FROM copied_issues WHERE number = ? AND repository_url = ? LIMIT 1;
+-- name: GetCopiedIssue :one
+SELECT id, state, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- name: ListCopiedIssueRows :many
-SELECT repository, workstream, position FROM copied_issues WHERE number = ? AND repository_url = ?;
+-- name: SetCopiedIssueLabels :exec
+UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(sqlc.arg(labels) AS TEXT))), kind = sqlc.arg(kind)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
--- name: ListCopiedIssueRowsByNumber :many
-SELECT repository, workstream, position, repository_url FROM copied_issues WHERE number = ?;
-
--- name: AddCopiedIssueLabelIfMissing :exec
-INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?)
-ON CONFLICT DO NOTHING;
-
--- name: DeleteCopiedIssueLabel :exec
-DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? AND name = ?;
-
--- name: ListCopiedIssueLabels :many
-SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? ORDER BY name;
-
--- name: DeleteCopiedIssueLabelsAt :exec
-DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ?;
-
--- name: DeleteCopiedBlockersAt :exec
-DELETE FROM copied_blockers WHERE repository = ? AND workstream = ? AND position = ?;
+-- name: GetCopiedIssueWorkstreamOf :one
+SELECT w.repository, CAST(w.number AS INTEGER) AS number FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListCopiedTree :many
-SELECT position, number, parent, parent_repository, title, state, author, html_url, repository_url FROM copied_issues
-WHERE repository = ? AND workstream = ? ORDER BY position;
+SELECT i.id, i.parent, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.metadata
+FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
+ORDER BY i.number, i.id;
 
--- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
--- name: ListCopiedIssuesByNumber :many
-SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?;
+-- name: GetCopiedIssueTitle :one
+SELECT title FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetCopiedIssueBody :one
-SELECT body FROM copied_issues WHERE repository = ? AND workstream = ? AND position = ?;
-
--- name: ListCopiedTreeLabels :many
-SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
+SELECT body FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListCopiedTreeBlockers :many
-SELECT position, blocker_repository, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
-WHERE repository = ? AND workstream = ? ORDER BY position, blocker_repository, number;
+SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
+       bw.number AS blocker_workstream, bw.title AS blocker_workstream_title
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+LEFT JOIN workstreams bw ON bw.id = bi.workstream AND bw.repository = w.repository AND bi.repository = w.repository
+WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
+ORDER BY b.issue, bi.repository, bi.number;
 
 -- name: ListCopiedIssuesWithLabels :many
-SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,
-    EXISTS (
-        SELECT 1 FROM copied_issue_labels l
-        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(needs_human)
-    ) AS has_needs_human,
-    EXISTS (
-        SELECT 1 FROM copied_issue_labels l
-        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(question)
-    ) AS has_question
-FROM copied_issues i
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository,
+    i.title, i.state, i.author,
+    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(needs_human) AS TEXT))) > 0 AS has_needs_human,
+    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(question) AS TEXT))) > 0 AS has_question
+FROM issues i
+JOIN workstreams w ON w.id = i.workstream
 WHERE has_needs_human OR has_question
-ORDER BY i.repository, i.workstream, i.number;
+ORDER BY w.repository, w.number, i.number;
 
 -- name: ListEndedTaskIssueLabels :many
-SELECT DISTINCT i.number, i.repository_url, l.name
-FROM copied_issues i
-JOIN copied_issue_labels l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
-WHERE i.repository = sqlc.arg(repository) AND i.state = 'open'
-  AND l.name IN (sqlc.arg(working), sqlc.arg(review), sqlc.arg(question), sqlc.arg(needs_human))
-  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended'
-      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
-  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended'
-      AND substr(lower(i.repository_url), -(length(t.repository) + 7)) = '/repos/' || lower(t.repository))
-  AND NOT (l.name = sqlc.arg(needs_human) AND EXISTS (
-      SELECT 1 FROM inbox_items n
-      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number
-        AND substr(lower(i.repository_url), -(length(n.repository) + 7)) = '/repos/' || lower(n.repository)
-  ))
-ORDER BY i.number, l.name;
+SELECT DISTINCT CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.metadata,
+    EXISTS (
+        SELECT 1 FROM inbox_items n
+        WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number AND i.repository = n.repository
+    ) AS lost
+FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE w.repository = sqlc.arg(repository) AND i.state = 'open'
+  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended' AND i.repository = t.repository)
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended' AND i.repository = t.repository)
+ORDER BY i.number;
 
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, file, time, author, reason, text) VALUES (?, ?, ?, ?, ?, ?);
@@ -1685,18 +1673,16 @@ RETURNING *;
 -- name: ListWorkstreamsNeedingBuckets :many
 SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
 WHERE w.repository = sqlc.arg(repository) AND w.state = 'open' AND w.number IS NOT NULL
-  AND ((SELECT COUNT(*) FROM copied_issues c
-        WHERE c.repository = w.repository AND c.workstream = w.number AND c.parent = w.number AND c.parent_repository = w.repository) > CAST(sqlc.arg(maximum) AS INTEGER)
+  AND ((SELECT COUNT(*) FROM issues c
+        WHERE c.workstream = w.id AND c.parent IS NULL AND json_extract(c.metadata, '$.github.bucket') IS NULL)
+       + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets')) > CAST(sqlc.arg(maximum) AS INTEGER)
        OR EXISTS (
-           SELECT 1 FROM copied_issues b
-           JOIN copied_issue_labels l
-             ON l.repository = b.repository AND l.workstream = b.workstream AND l.position = b.position AND l.name = 'mobius:bucket'
-           WHERE b.repository = w.repository AND b.workstream = w.number AND b.parent = w.number AND b.parent_repository = w.repository
-             AND b.state = 'open'
-             AND (NOT EXISTS (SELECT 1 FROM copied_issues c
-                              WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository)
-                  OR EXISTS (SELECT 1 FROM copied_issues c
-                             WHERE c.repository = b.repository AND c.workstream = b.workstream AND c.parent = b.number AND c.parent_repository = w.repository
+           SELECT 1 FROM json_each(w.metadata, '$.github.buckets') b
+           WHERE json_extract(b.value, '$.state') = 'open'
+             AND (NOT EXISTS (SELECT 1 FROM issues c
+                              WHERE c.workstream = w.id AND json_extract(c.metadata, '$.github.bucket') = json_extract(b.value, '$.number'))
+                  OR EXISTS (SELECT 1 FROM issues c
+                             WHERE c.workstream = w.id AND json_extract(c.metadata, '$.github.bucket') = json_extract(b.value, '$.number')
                                AND c.state = 'closed'))))
 ORDER BY w.number;
 
@@ -1730,16 +1716,14 @@ ON CONFLICT (kind, repository, issue) DO NOTHING;
 -- name: DeleteHeldWork :exec
 DELETE FROM held_work WHERE kind = ?;
 
--- The issue can be in the trees of the copies of many repositories, so a row can repeat. The API shows the first.
 -- name: ListHeldWork :many
-SELECT h.kind, h.repository, h.issue, h.held_at, i.title, i.repository AS workstream_repository, i.workstream,
+SELECT h.kind, h.repository, h.issue, h.held_at, i.title, w.repository AS workstream_repository, CAST(w.number AS INTEGER) AS workstream,
        w.title AS workstream_title
 FROM held_work h
 JOIN global_pauses p ON p.kind = h.kind
-JOIN copied_issues i ON i.number = h.issue AND i.state = 'open'
-  AND lower(substr(i.repository_url, instr(i.repository_url, '/repos/') + 7)) = lower(h.repository)
-JOIN workstreams w ON w.repository = i.repository AND w.number = i.workstream AND w.state = 'open'
-ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue, i.repository, i.workstream;
+JOIN issues i ON i.number = h.issue AND i.state = 'open' AND i.repository = h.repository
+JOIN workstreams w ON w.id = i.workstream AND w.state = 'open'
+ORDER BY julianday(h.held_at), h.kind, h.repository, h.issue;
 
 -- name: ListRoleSettings :many
 SELECT * FROM role_settings;
@@ -1761,8 +1745,7 @@ SELECT * FROM issue_bindings ORDER BY repository, issue, role;
 -- name: ListLiveIssueBindings :many
 SELECT b.* FROM issue_bindings b
 WHERE EXISTS (SELECT 1 FROM workstreams w WHERE b.repository = w.repository AND w.number = b.issue AND w.state = 'open')
-   OR EXISTS (SELECT 1 FROM copied_issues i WHERE i.number = b.issue AND i.state = 'open'
-              AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository))
+   OR EXISTS (SELECT 1 FROM issues i WHERE i.number = b.issue AND i.state = 'open' AND i.workstream IS NOT NULL AND i.repository = b.repository)
 ORDER BY b.repository, b.issue, b.role;
 
 -- name: ListWorkstreamSettingUsers :many
@@ -1771,15 +1754,13 @@ FROM issue_bindings b
 JOIN workstreams w ON b.repository = w.repository AND b.issue = w.number AND w.state = 'open'
 ORDER BY w.repository, b.issue, b.role;
 
--- The task can be in the trees of many Workstreams, so it can have many rows.
 -- name: ListTaskSettingUsers :many
-SELECT b.harness, b.role, b.repository, i.number, i.title,
-       i.repository AS workstream_repository, i.workstream, w.title AS workstream_title
+SELECT b.harness, b.role, b.repository, CAST(i.number AS INTEGER) AS number, i.title,
+       w.repository AS workstream_repository, CAST(w.number AS INTEGER) AS workstream, w.title AS workstream_title
 FROM issue_bindings b
-JOIN copied_issues i ON i.number = b.issue AND i.state = 'open'
-  AND substr(lower(i.repository_url), -(length(b.repository) + 7)) = '/repos/' || lower(b.repository)
-JOIN workstreams w ON w.repository = i.repository AND w.number = i.workstream AND w.state = 'open'
-ORDER BY b.repository, b.issue, b.role, i.repository, i.workstream;
+JOIN issues i ON i.number = b.issue AND i.state = 'open' AND i.repository = b.repository
+JOIN workstreams w ON w.id = i.workstream AND w.state = 'open'
+ORDER BY b.repository, b.issue, b.role;
 
 -- name: UpsertIssueBinding :exec
 INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1789,9 +1770,12 @@ ON CONFLICT (repository, issue, role) DO UPDATE SET harness = excluded.harness, 
 DELETE FROM issue_bindings WHERE repository = ? AND issue = ? AND role = ?;
 
 -- name: ListBlockerEdges :many
-SELECT b.repository, b.workstream, i.repository_url, i.number, b.blocker_repository, b.number AS blocker_number
-FROM copied_blockers b
-JOIN copied_issues i ON i.repository = b.repository AND i.workstream = b.workstream AND i.position = b.position;
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, i.repository AS issue_repository, CAST(i.number AS INTEGER) AS number,
+       bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS blocker_number
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN workstreams w ON w.id = i.workstream
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open';
 
 -- name: ListBlockerCycles :many
 SELECT cycle, repository, workstream FROM blocker_cycles;

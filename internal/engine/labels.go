@@ -31,6 +31,7 @@ const (
 	maintenanceLabel  = "mobius:maintenance"
 	skillsLabel       = "mobius:skills"
 	bucketLabel       = "mobius:bucket"
+	projectLabel      = "mobius:project"
 )
 
 // Labels are the Mobius labels.
