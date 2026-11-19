@@ -346,12 +346,16 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
+		treeRow, inTree, err := e.treeIssueOf(ctx, repository.FullName, number)
+		if err != nil {
+			return err
+		}
 		// An issue with an own write has the event of that write, also when a write removed its Workstream label.
 		writing, err := e.queries.HasOwnWrite(ctx, store.HasOwnWriteParams{Repository: repository.FullName, Number: number})
 		if err != nil {
 			return err
 		}
-		changing := labeled || stored || writing
+		changing := labeled || stored || inTree || writing
 		var events []*gh.IssueEvent
 		if changing || work {
 			if events, err = e.issueEvents(ctx, repository, number); err != nil {
@@ -368,8 +372,13 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 				changeEvents = append(changeEvents, changeEvent{number, event})
 			}
 		}
-		if stored && !firstPoll {
-			change, err := e.bodyChange(ctx, repository, issue, since)
+		if !firstPoll {
+			var change *store.AddIncomingChangeParams
+			if stored {
+				change, err = e.bodyChange(ctx, repository, issue, since)
+			} else if inTree {
+				change, err = e.treeBodyChange(ctx, repository, treeRow, issue, since)
+			}
 			if err != nil {
 				return err
 			}
@@ -406,11 +415,36 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			since = issue.GetUpdatedAt().Time
 		}
 	}
+	app := appLogin(repository.AppSlug)
 	return e.inTx(ctx, func(q *store.Queries) error {
 		if err := addEventChanges(ctx, q, repository, changeEvents); err != nil {
 			return err
 		}
 		for _, change := range bodyChanges {
+			if change.Metadata == "{}" {
+				known, err := q.HasIncomingChange(ctx, change.ExternalID)
+				if err != nil {
+					return err
+				}
+				if known {
+					continue
+				}
+				if strings.EqualFold(change.Actor, app) {
+					own, err := q.DeleteOldestOwnWrite(ctx, store.DeleteOldestOwnWriteParams{
+						Repository: repository.FullName,
+						Number:     change.Number,
+						Field:      bodyField,
+						Label:      "",
+						Change:     editedChange,
+					})
+					if err != nil {
+						return err
+					}
+					if own > 0 {
+						change.Status = "done"
+					}
+				}
+			}
 			if err := q.AddIncomingChange(ctx, change); err != nil {
 				return err
 			}
@@ -468,6 +502,43 @@ func (e *Engine) bodyChange(ctx context.Context, repository github.Repository, i
 		Change:     editedChange,
 		Actor:      edit.Editor,
 		Metadata:   string(metadata),
+		Status:     "pending",
+		CreatedAt:  now(),
+	}, nil
+}
+
+// treeBodyChange gives the incoming change of an edit of the body of the tree issue row that the issue cursor since did
+// not pass, or nil when the cleaned body equals the body of the row with no pending own write, when an outgoing body
+// change of the issue waits, or when the newest edit is older than since.
+func (e *Engine) treeBodyChange(ctx context.Context, repository github.Repository, row store.GetTreeIssueRow, issue *gh.Issue, since time.Time) (*store.AddIncomingChangeParams, error) {
+	number := int64(issue.GetNumber())
+	body := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(issue.GetBody()))
+	pending, err := e.pendingItemChanges(ctx, repository.FullName, changeItem{kind: "issue", id: row.ID})
+	if err != nil || slices.ContainsFunc(pending, func(change store.OutgoingChange) bool { return change.Field == bodyField }) {
+		return nil, err
+	}
+	ownBody, err := e.queries.HasFieldOwnWrite(ctx, store.HasFieldOwnWriteParams{Repository: repository.FullName, Number: number, Field: bodyField})
+	if err != nil {
+		return nil, err
+	}
+	if body == row.Body && !ownBody {
+		return nil, nil
+	}
+	edit, err := repository.IssueNewestBodyEdit(ctx, number)
+	if err != nil || edit == nil || edit.EditedAt.Before(since) {
+		return nil, err
+	}
+	if body == row.Body && !strings.EqualFold(edit.Editor, appLogin(repository.AppSlug)) {
+		return nil, nil
+	}
+	return &store.AddIncomingChangeParams{
+		ExternalID: edit.ID,
+		Repository: repository.FullName,
+		Number:     number,
+		Field:      bodyField,
+		Change:     editedChange,
+		Actor:      edit.Editor,
+		Metadata:   "{}",
 		Status:     "pending",
 		CreatedAt:  now(),
 	}, nil

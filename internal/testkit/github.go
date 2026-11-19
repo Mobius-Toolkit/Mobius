@@ -209,6 +209,8 @@ type FakeGitHub struct {
 	pullRequestsUnlisted bool
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
 	mergeRefusals map[issueKey]string
+	// autoCloseIssues holds the issue number that a merge of the pull request closes with the caller actor.
+	autoCloseIssues map[issueKey]int64
 	// branchDeletionRefusals holds the reason that the deletion of a branch gets, for each branch that refuses a
 	// deletion.
 	branchDeletionRefusals map[branchKey]string

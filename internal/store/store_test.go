@@ -985,8 +985,8 @@ func TestTheWorkstreamChangesMigrationKeepsTheRowsAndAcceptsTheWorkstreamFields(
 		}
 	}
 	if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
-		VALUES ('github', 'o/a', 2, 'body', '{}', '2027-03-01T10:00:01Z')`); err == nil {
-		t.Error("own_writes accepts the field body")
+		VALUES ('github', 'o/a', 2, 'unknown', '{}', '2027-03-01T10:00:01Z')`); err == nil {
+		t.Error("own_writes accepts an unknown field")
 	}
 }
 
@@ -1502,6 +1502,77 @@ func TestTheTreeChangesMigrationKeepsTheRowsAndAcceptsParentAndBlockers(t *testi
 	var indexes int
 	err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('incoming_changes_external', 'incoming_changes_pending', 'own_writes_item')`).Scan(&indexes)
 	if err != nil || indexes != 3 {
+		t.Errorf("indexes = %d, %v", indexes, err)
+	}
+}
+
+func TestTheIssueTextChangesMigrationKeepsTheRowsAndAcceptsBodyAndKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270420000000)
+	for _, statement := range []string{
+		`INSERT INTO workstreams (id, repository, number, title, body, created_at)
+			VALUES (5, 'o/a', 12, 'Work', 'Body', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO issues (id, repository, number, title, body, state, author, workstream)
+			VALUES (9, 'o/a', 41, 'Task', 'Old', 'open', 'owner', 5)`,
+		`INSERT INTO outgoing_changes (integration, repository, number, workstream, issue, field, text, status, created_at)
+			VALUES ('github', 'o/a', 41, NULL, 9, 'body', NULL, 'sent', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+			VALUES (7, 'github', '70', 'o/a', 41, 'title', 'renamed', 'owner', '{"title":"New"}', 'pending', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 41, 'title', '{"label":"","change":"renamed"}', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+		VALUES ('github', 'o/a', 41, 'body', '{}', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old own_writes accepts body")
+	}
+	if _, err := db.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+		VALUES ('github', 'old-kind', 'o/a', 41, 'kind', 'labeled', 'owner', 'pending', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old incoming_changes accepts kind")
+	}
+	if _, err := db.Exec(`INSERT INTO outgoing_changes (integration, repository, number, issue, field, status, created_at)
+		VALUES ('github', 'o/a', 41, 9, 'kind', 'pending', '2027-03-01T10:00:00Z')`); err == nil {
+		t.Fatal("the old outgoing_changes accepts kind")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM outgoing_changes WHERE id = 1 AND issue = 9 AND field = 'body' AND status = 'sent')
+		+ (SELECT count(*) FROM incoming_changes WHERE id = 7 AND external_id = '70' AND field = 'title' AND status = 'pending')
+		+ (SELECT count(*) FROM own_writes WHERE id = 8 AND field = 'title')`).Scan(&kept)
+	if err != nil || kept != 3 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	if _, err := db.Exec(`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, metadata, status, created_at)
+		VALUES ('github', 'kind-1', 'o/a', 41, 'kind', 'labeled', 'owner', '{"label":"mobius:project"}', 'pending', '2027-03-01T10:00:01Z')`); err != nil {
+		t.Errorf("incoming kind: %v", err)
+	}
+	for _, field := range []string{"body", "kind"} {
+		if _, err := db.Exec(`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 41, ?, '{}', '2027-03-01T10:00:01Z')`, field); err != nil {
+			t.Errorf("own write %s: %v", field, err)
+		}
+	}
+	var outID int64
+	err = db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, number, issue, field, status, created_at)
+		VALUES ('github', 'o/a', 41, 9, 'kind', 'pending', '2027-03-01T10:00:01Z') RETURNING id`).Scan(&outID)
+	if err != nil || outID != 2 {
+		t.Errorf("outgoing kind: id = %d, err = %v", outID, err)
+	}
+	var indexes int
+	err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('incoming_changes_external', 'incoming_changes_pending', 'own_writes_item', 'outgoing_changes_pending')`).Scan(&indexes)
+	if err != nil || indexes != 4 {
 		t.Errorf("indexes = %d, %v", indexes, err)
 	}
 }

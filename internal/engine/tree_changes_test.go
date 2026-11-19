@@ -343,7 +343,7 @@ func TestAFailedUpdateCopyRefreshesLabelsAndTextsOnSyncCopyWithoutChangingTreeOr
 		}
 		return reads
 	}
-	if _, err := server.DB.Exec(`CREATE TRIGGER fail_issue_update BEFORE UPDATE OF title ON issues WHEN NEW.number = 50 BEGIN SELECT RAISE(ABORT, 'busy'); END`); err != nil {
+	if _, err := server.DB.Exec(`CREATE TRIGGER fail_issue_update BEFORE UPDATE OF metadata ON issues WHEN NEW.number = 50 BEGIN SELECT RAISE(ABORT, 'busy'); END`); err != nil {
 		t.Fatal(err)
 	}
 	beforeReads := issueListReads()
@@ -367,7 +367,7 @@ func TestAFailedUpdateCopyRefreshesLabelsAndTextsOnSyncCopyWithoutChangingTreeOr
 	testkit.WaitFor(t, func() bool {
 		return copiedTitle(t, server, 50) == "Store integer cents" &&
 			slices.Equal(copiedLabels(t, server, 50), []string{"enhancement"}) &&
-			doneChangesOfPersons(t, server) == 2 &&
+			doneChangesOfPersons(t, server) == 5 &&
 			incomingChanges(t, server, "pending") == 0
 	})
 	waitForPolls(t, fake)

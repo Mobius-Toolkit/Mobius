@@ -1398,10 +1398,7 @@ func (e *Engine) editIssueBody(ctx context.Context, c caller, repository github.
 // setIssueBody stores body on the issue row id and adds an outgoing body change, then sends it at once.
 func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository, id int64, body string) (int64, error) {
 	e.copyWrite.Lock()
-	e.labelChangeMu.Lock()
 	var changeID int64
-	var issueRepo string
-	var issueNumber int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		row, err := q.GetIssueByID(ctx, id)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1416,8 +1413,6 @@ func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository,
 		if !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
 			return refuse("%s#%d is not in this Workstream.", row.Repository, row.Number.Int64)
 		}
-		issueRepo = row.Repository
-		issueNumber = row.Number.Int64
 		clean := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, body)
 		if _, err := q.SetIssueBody(ctx, store.SetIssueBodyParams{Body: clean, ID: id}); err != nil {
 			return err
@@ -1425,12 +1420,6 @@ func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository,
 		changeID, err = addIssueChange(ctx, q, repository.FullName, row.Number.Int64, id, bodyField)
 		return err
 	})
-	if err == nil {
-		repo := strings.ToLower(issueRepo)
-		e.bodyChanges[repo]++
-		e.bodyChangedAt[lowerRef(issueRepo, issueNumber)] = e.bodyChanges[repo]
-	}
-	e.labelChangeMu.Unlock()
 	e.copyWrite.Unlock()
 	if err != nil {
 		return 0, err
@@ -2216,7 +2205,7 @@ func (e *Engine) moveTreeNodeToWorkstream(ctx context.Context, issueRepo string,
 			return err
 		}
 		node, err := q.GetIssueTreeNode(ctx, store.GetIssueTreeNodeParams{Repository: issueRepo, Number: issueNum})
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !node.Workstream.Valid) {
 			metadata, err := githubMetadata(issue, 0)
 			if err != nil {
 				return err

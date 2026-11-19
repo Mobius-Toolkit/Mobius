@@ -695,16 +695,17 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
 			return err
 		}
-		if item.PullRequest {
+		switch {
+		case item.PullRequest:
 			err = source.ClosePullRequest(ctx, item.Number)
-		} else {
+		case item.Repository == repository.FullName && item.Number == number:
 			// The issue can be closed on GitHub after a failed call, so the own write stays.
-			if item.Repository == repository.FullName && item.Number == number {
-				if _, err := addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange); err != nil {
-					return err
-				}
+			if _, ownErr := addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange); ownErr != nil {
+				return ownErr
 			}
 			_, err = source.CloseIssue(ctx, item.Number, "not_planned")
+		default:
+			err = e.closeTreeIssue(ctx, source, item.Number, "not_planned")
 		}
 		if err != nil {
 			return err
@@ -874,7 +875,6 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		if issue.state != "open" {
 			return false, nil
 		}
-		// The row of issues shows a close of Mobius only after the next poll.
 		current, err := source.Issue(ctx, issue.number)
 		if err != nil || current == nil || current.GetState() != "open" {
 			return false, err
@@ -882,8 +882,26 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		if err := e.postCommentOnce(ctx, source, issue.number, closedText); err != nil {
 			return false, err
 		}
-		_, err = source.CloseIssue(ctx, issue.number, "not_planned")
-		return false, err
+		return false, e.closeTreeIssue(ctx, source, issue.number, "not_planned")
+	})
+	return err
+}
+
+func (e *Engine) closeTreeIssue(ctx context.Context, repository github.Repository, number int64, reason string) error {
+	ownWrite, err := addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange)
+	if err != nil {
+		return err
+	}
+	if _, err := repository.CloseIssue(ctx, number, reason); err != nil {
+		if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+			return errors.Join(err, delErr)
+		}
+		return err
+	}
+	_, err = e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+		State:      "closed",
+		Repository: repository.FullName,
+		Number:     number,
 	})
 	return err
 }

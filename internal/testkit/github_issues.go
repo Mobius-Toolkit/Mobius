@@ -432,6 +432,13 @@ func (g *FakeGitHub) ReopenIssue(repository string, number int64) {
 	g.setState(issueKey{repository, number}, "open", "", "owner")
 }
 
+// ReopenIssueBy opens the closed issue again as actor.
+func (g *FakeGitHub) ReopenIssueBy(repository string, number int64, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setState(issueKey{repository, number}, "open", "", actor)
+}
+
 // CloseIssueBy closes the issue as actor, with no reason.
 func (g *FakeGitHub) CloseIssueBy(repository string, number int64, actor string) {
 	g.mu.Lock()

@@ -293,20 +293,17 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, ?8, ?9, json_object('github', json(CAST(?10 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
-    title = excluded.title,
-    body = CASE
-        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE excluded.body
-    END,
-    state = excluded.state, author = excluded.author,
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    kind = CASE WHEN issues.workstream IS NULL THEN excluded.kind ELSE issues.kind END,
+    author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE
         WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'parent' AND c.status = 'pending')
         THEN issues.parent
         ELSE excluded.parent
     END,
-    kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id
 `
@@ -2314,8 +2311,9 @@ DELETE FROM own_writes
 WHERE id = (
     SELECT o.id FROM own_writes o
     WHERE o.repository = ?1 AND o.number = ?2
-      AND json_extract(o.metadata, '$.label') = CAST(?3 AS TEXT)
-      AND json_extract(o.metadata, '$.change') = CAST(?4 AS TEXT)
+      AND o.field = ?3
+      AND json_extract(o.metadata, '$.label') = CAST(?4 AS TEXT)
+      AND json_extract(o.metadata, '$.change') = CAST(?5 AS TEXT)
     ORDER BY o.id LIMIT 1
 )
 `
@@ -2323,6 +2321,7 @@ WHERE id = (
 type DeleteOldestOwnWriteParams struct {
 	Repository string
 	Number     int64
+	Field      string
 	Label      string
 	Change     string
 }
@@ -2331,6 +2330,7 @@ func (q *Queries) DeleteOldestOwnWrite(ctx context.Context, arg DeleteOldestOwnW
 	result, err := q.db.ExecContext(ctx, deleteOldestOwnWrite,
 		arg.Repository,
 		arg.Number,
+		arg.Field,
 		arg.Label,
 		arg.Change,
 	)
@@ -3745,7 +3745,7 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -3761,6 +3761,7 @@ type GetIssueByIDRow struct {
 	State                string
 	Workstream           sql.NullInt64
 	Parent               sql.NullInt64
+	Kind                 string
 	Metadata             string
 	WorkstreamRepository sql.NullString
 	WorkstreamNumber     sql.NullInt64
@@ -3778,6 +3779,7 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, 
 		&i.State,
 		&i.Workstream,
 		&i.Parent,
+		&i.Kind,
 		&i.Metadata,
 		&i.WorkstreamRepository,
 		&i.WorkstreamNumber,
@@ -5283,6 +5285,25 @@ func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams
 	return result.RowsAffected()
 }
 
+const hasClosedOwnWrite = `-- name: HasClosedOwnWrite :one
+SELECT EXISTS (
+    SELECT 1 FROM own_writes
+    WHERE repository = ? AND number = ? AND field = 'state' AND json_extract(metadata, '$.change') = 'closed'
+)
+`
+
+type HasClosedOwnWriteParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasClosedOwnWrite(ctx context.Context, arg HasClosedOwnWriteParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasClosedOwnWrite, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasCommentChangeWithText = `-- name: HasCommentChangeWithText :one
 SELECT EXISTS (
     SELECT 1 FROM outgoing_changes
@@ -5352,6 +5373,23 @@ SELECT EXISTS (
 
 func (q *Queries) HasDiagnosingHardCIBreak(ctx context.Context, repository string) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasDiagnosingHardCIBreak, repository)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasFieldOwnWrite = `-- name: HasFieldOwnWrite :one
+SELECT EXISTS (SELECT 1 FROM own_writes WHERE repository = ? AND number = ? AND field = ?)
+`
+
+type HasFieldOwnWriteParams struct {
+	Repository string
+	Number     int64
+	Field      string
+}
+
+func (q *Queries) HasFieldOwnWrite(ctx context.Context, arg HasFieldOwnWriteParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasFieldOwnWrite, arg.Repository, arg.Number, arg.Field)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -11427,26 +11465,14 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 
 const refreshCopiedTreeIssue = `-- name: RefreshCopiedTreeIssue :exec
 UPDATE issues
-SET title = ?1,
-    body = CASE
-        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE ?2
-    END,
-    state = ?3,
-    author = ?4,
-    kind = ?5,
+SET author = ?1,
     metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
-        '$.id', CAST(?6 AS INTEGER), '$.labels', json(CAST(?7 AS TEXT)))))
-WHERE issues.repository = ?8 AND issues.number = CAST(?9 AS INTEGER)
+        '$.id', CAST(?2 AS INTEGER), '$.labels', json(CAST(?3 AS TEXT)))))
+WHERE issues.repository = ?4 AND issues.number = CAST(?5 AS INTEGER)
 `
 
 type RefreshCopiedTreeIssueParams struct {
-	Title      string
-	Body       string
-	State      string
 	Author     string
-	Kind       string
 	GithubID   int64
 	Labels     string
 	Repository string
@@ -11455,11 +11481,7 @@ type RefreshCopiedTreeIssueParams struct {
 
 func (q *Queries) RefreshCopiedTreeIssue(ctx context.Context, arg RefreshCopiedTreeIssueParams) error {
 	_, err := q.db.ExecContext(ctx, refreshCopiedTreeIssue,
-		arg.Title,
-		arg.Body,
-		arg.State,
 		arg.Author,
-		arg.Kind,
 		arg.GithubID,
 		arg.Labels,
 		arg.Repository,
@@ -11962,24 +11984,18 @@ func (q *Queries) SetCopiedEvergreen(ctx context.Context, arg SetCopiedEvergreen
 }
 
 const setCopiedIssueLabels = `-- name: SetCopiedIssueLabels :exec
-UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(?1 AS TEXT))), kind = ?2
-WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(?1 AS TEXT)))
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
 `
 
 type SetCopiedIssueLabelsParams struct {
 	Labels     string
-	Kind       string
 	Repository string
 	Number     int64
 }
 
 func (q *Queries) SetCopiedIssueLabels(ctx context.Context, arg SetCopiedIssueLabelsParams) error {
-	_, err := q.db.ExecContext(ctx, setCopiedIssueLabels,
-		arg.Labels,
-		arg.Kind,
-		arg.Repository,
-		arg.Number,
-	)
+	_, err := q.db.ExecContext(ctx, setCopiedIssueLabels, arg.Labels, arg.Repository, arg.Number)
 	return err
 }
 
@@ -12300,7 +12316,7 @@ func (q *Queries) SetIssueAwaitsNumber(ctx context.Context, id int64) (int64, er
 }
 
 const setIssueBody = `-- name: SetIssueBody :execrows
-UPDATE issues SET body = ? WHERE id = ?
+UPDATE issues SET body = ?1 WHERE id = ?2 AND body != ?1
 `
 
 type SetIssueBodyParams struct {
@@ -12333,6 +12349,23 @@ type SetIssueBucketParams struct {
 func (q *Queries) SetIssueBucket(ctx context.Context, arg SetIssueBucketParams) error {
 	_, err := q.db.ExecContext(ctx, setIssueBucket, arg.Bucket, arg.ID)
 	return err
+}
+
+const setIssueKind = `-- name: SetIssueKind :execrows
+UPDATE issues SET kind = ?1 WHERE id = ?2 AND kind != ?1
+`
+
+type SetIssueKindParams struct {
+	Kind string
+	ID   int64
+}
+
+func (q *Queries) SetIssueKind(ctx context.Context, arg SetIssueKindParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueKind, arg.Kind, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setIssueNumber = `-- name: SetIssueNumber :execrows
@@ -12383,6 +12416,59 @@ type SetIssueRepositoryChoiceParams struct {
 func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
 	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
 	return err
+}
+
+const setIssueState = `-- name: SetIssueState :execrows
+UPDATE issues SET state = ?1 WHERE id = ?2 AND state != ?1
+`
+
+type SetIssueStateParams struct {
+	State string
+	ID    int64
+}
+
+func (q *Queries) SetIssueState(ctx context.Context, arg SetIssueStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueState, arg.State, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setIssueStateByRepoNumber = `-- name: SetIssueStateByRepoNumber :execrows
+UPDATE issues SET state = ?1
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER) AND state != ?1
+`
+
+type SetIssueStateByRepoNumberParams struct {
+	State      string
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetIssueStateByRepoNumber(ctx context.Context, arg SetIssueStateByRepoNumberParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueStateByRepoNumber, arg.State, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setIssueTitle = `-- name: SetIssueTitle :execrows
+UPDATE issues SET title = ?1 WHERE id = ?2 AND title != ?1
+`
+
+type SetIssueTitleParams struct {
+	Title string
+	ID    int64
+}
+
+func (q *Queries) SetIssueTitle(ctx context.Context, arg SetIssueTitleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueTitle, arg.Title, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setIssueWorkstream = `-- name: SetIssueWorkstream :exec
@@ -13469,46 +13555,20 @@ func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMess
 
 const updateCopiedIssue = `-- name: UpdateCopiedIssue :execrows
 UPDATE issues
-SET title = ?1,
-    body = CASE
-        WHEN CAST(?2 AS BOOLEAN)
-          OR EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
-        THEN issues.body
-        ELSE ?3
-    END,
-    state = ?4,
-    author = ?5
-WHERE issues.repository = ?6 AND issues.number = CAST(?7 AS INTEGER)
-  AND (
-      issues.title != ?1
-      OR (NOT CAST(?2 AS BOOLEAN) AND issues.body != ?3 AND NOT EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending'))
-      OR issues.state != ?4
-      OR issues.author != ?5
-  )
+SET author = ?1
+WHERE issues.repository = ?2 AND issues.number = CAST(?3 AS INTEGER)
+  AND issues.author != ?1
 `
 
 type UpdateCopiedIssueParams struct {
-	Title      string
-	KeepBody   bool
-	Body       string
-	State      string
 	Author     string
 	Repository string
 	Number     int64
 }
 
-// The labels in the metadata are a copy of GitHub. The change of the title, the body, the state or the author gives
-// the number of changed rows.
+// The labels in the metadata are a copy of GitHub. The change of the author gives the number of changed rows.
 func (q *Queries) UpdateCopiedIssue(ctx context.Context, arg UpdateCopiedIssueParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateCopiedIssue,
-		arg.Title,
-		arg.KeepBody,
-		arg.Body,
-		arg.State,
-		arg.Author,
-		arg.Repository,
-		arg.Number,
-	)
+	result, err := q.db.ExecContext(ctx, updateCopiedIssue, arg.Author, arg.Repository, arg.Number)
 	if err != nil {
 		return 0, err
 	}

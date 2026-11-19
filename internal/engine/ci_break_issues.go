@@ -178,9 +178,27 @@ func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Reposi
 		return true, nil
 	}
 	if err == nil {
-		_, err = repository.CloseIssue(ctx, number, "completed")
+		var ownWrite int64
+		ownWrite, err = addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange)
+		if err != nil {
+			return false, err
+		}
+		if _, err = repository.CloseIssue(ctx, number, "completed"); err != nil {
+			if delErr := e.queries.DeleteOwnWrite(ctx, ownWrite); delErr != nil {
+				return false, errors.Join(err, delErr)
+			}
+		}
 	}
 	if err == nil {
+		if changed, stateErr := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      "closed",
+			Repository: repository.FullName,
+			Number:     number,
+		}); stateErr != nil {
+			return false, stateErr
+		} else if changed > 0 {
+			e.publish(Change{Workstreams: true})
+		}
 		text := fmt.Sprintf("The workflow \"%s\" passed again on %s in the run %s. Mobius closes this issue.", ciBreak.WorkflowName, repository.DefaultBranch, passed.GetHTMLURL())
 		return true, e.postComment(ctx, repository, number, text)
 	}
