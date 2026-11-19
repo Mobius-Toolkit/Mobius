@@ -3,6 +3,7 @@ package engine_test
 import (
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -107,6 +108,35 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 
 	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
 		t.Errorf("labels of #41 = %v", fake.Labels(shop, 41))
+	}
+}
+
+func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 13, "Old Workstream")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.CloseIssue(shop, 13)
+	fake.AddIssue(shop, 51, "Old task")
+	fake.AddSubIssue(shop, 13, 51)
+	fake.AddLabel(shop, 51, "mobius:ready", "owner")
+	dispatchTask(fake, 43, "Price rounding")
+	liveTaskOf(t, server, 43)
+
+	waitForPolls(t, fake)
+
+	if hasLiveTask(t, server, 51) || hasIssueRow(t, server, 51) {
+		t.Fatal("the issue below the closed Workstream started or has a row")
+	}
+	readyReads := []int{}
+	for _, request := range fake.Requests() {
+		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {
+			readyReads = append(readyReads, request.Status)
+		}
+	}
+	if len(readyReads) == 0 || readyReads[len(readyReads)-1] != http.StatusNotModified {
+		t.Errorf("statuses of the mobius:ready list = %v", readyReads)
 	}
 }
 

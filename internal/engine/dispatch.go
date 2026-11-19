@@ -93,7 +93,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})
 		if errors.Is(err, sql.ErrNoRows) {
-			held = true
 			continue
 		}
 		if err != nil {
