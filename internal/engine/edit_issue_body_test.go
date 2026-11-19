@@ -7,18 +7,22 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
+func editBodyCall(when, arguments string) string {
+	return "[[prompts]]\nwhen = \"" + when + "\"\ncall = { tool = \"edit_issue_body\", arguments = " + arguments + " }\n\n"
+}
+
 func TestEditIssueBodyChangesIssuesBodyAndWritesGitHubWithChatLink(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake,
-		call("edit_issue_body", `{ repository = "owner/shop", n = 41, body = "Updated goal.\n\n- Check item" }`),
+		editBodyCall("Edit #41.", `{ repository = "owner/shop", n = 41, body = "Updated goal.\n\n- Check item" }`)+seen,
 		withUIURL)
 	fake.AddIssue(shop, 41, "Plan API")
 	fake.SetBody(shop, 41, "Old body")
 	fake.AddSubIssue(shop, 12, 41)
 	waitForTasks(t, server, []taskLine{line(41, "Plan API", "open", 0)})
 
-	session := run(t, server, leadSpec(t), "1. ")
+	session := run(t, server, leadSpec(t), "Edit #41.")
 
 	if got := reply(t, server, session); got != "Changed the body of owner/shop#41." {
 		t.Errorf("reply = %q", got)
@@ -58,7 +62,7 @@ func TestEditIssueBodyKeepsTheNewBodyAcrossAPollBeforeSend(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake,
-		call("edit_issue_body", `{ repository = "owner/shop", n = 41, body = "New body before send" }`),
+		editBodyCall("Edit #41.", `{ repository = "owner/shop", n = 41, body = "New body before send" }`)+seen,
 		withUIURL)
 	fake.AddIssue(shop, 41, "Plan API")
 	fake.SetBody(shop, 41, "Old body on GitHub")
@@ -66,7 +70,7 @@ func TestEditIssueBodyKeepsTheNewBodyAcrossAPollBeforeSend(t *testing.T) {
 	waitForTasks(t, server, []taskLine{line(41, "Plan API", "open", 0)})
 	fake.FailBodyWrites(true)
 
-	session := run(t, server, leadSpec(t), "1. ")
+	session := run(t, server, leadSpec(t), "Edit #41.")
 
 	if got := reply(t, server, session); got != "Mobius sends the body of owner/shop#41 to GitHub later." {
 		t.Errorf("reply = %q", got)
@@ -101,9 +105,10 @@ func TestEditIssueBodyRefusesAnIssueOfAnotherWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake,
-		call("edit_issue_body", `{ repository = "owner/shop", n = 60, body = "Other" }`)+
-			call("edit_issue_body", `{ repository = "owner/shop", n = 12, body = "Workstream" }`)+
-			call("edit_issue_body", `{ repository = "owner/shop", n = 45, body = "PR" }`),
+		editBodyCall("Edit #60.", `{ repository = "owner/shop", n = 60, body = "Other" }`)+
+			editBodyCall("Edit #12.", `{ repository = "owner/shop", n = 12, body = "Workstream" }`)+
+			editBodyCall("Edit #45.", `{ repository = "owner/shop", n = 45, body = "PR" }`)+
+			seen,
 		withUIURL)
 	fake.AddIssue(shop, 13, "Billing")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
@@ -117,7 +122,7 @@ func TestEditIssueBodyRefusesAnIssueOfAnotherWorkstream(t *testing.T) {
 		return count == 1
 	})
 
-	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+	session := run(t, server, leadSpec(t), "Edit #60.", "Edit #12.", "Edit #45.")
 
 	want := "error: owner/shop#60 is not in this Workstream." +
 		"error: owner/shop#12 is a Workstream issue." +
