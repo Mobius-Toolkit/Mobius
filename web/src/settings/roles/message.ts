@@ -31,6 +31,7 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   CompletedRequestLogin: {},
   CompletedFocusSheet: {},
+  CompletedScrollTab: {},
 });
 
 export type Message = typeof Message.Type;
