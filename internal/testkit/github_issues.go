@@ -458,6 +458,14 @@ func (g *FakeGitHub) FailIssueCreates(times int) {
 	g.failedIssueCreates = times
 }
 
+// FailIssueCreatesOf makes each create of an issue with the title fail with the status 500 and make no issue. The other
+// creates work.
+func (g *FakeGitHub) FailIssueCreatesOf(title string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedIssueCreateTitles = append(g.failedIssueCreateTitles, title)
+}
+
 // RefuseIssueCreates makes each create of an issue give the status and make no issue. The status 0 makes the create work.
 func (g *FakeGitHub) RefuseIssueCreates(status int) {
 	g.mu.Lock()
@@ -1019,6 +1027,10 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	if g.failedIssueCreates > 0 {
 		g.failedIssueCreates--
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if slices.Contains(g.failedIssueCreateTitles, request.Title) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}

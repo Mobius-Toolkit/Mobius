@@ -1363,6 +1363,28 @@ export interface EnvelopeArrayUnread {
 }
 
 /**
+ * WaitingWorkstream is an open Workstream that has no GitHub issue yet.
+ */
+export interface WaitingWorkstream {
+  /** Evergreen is true when the Workstream is evergreen */
+  evergreen: boolean;
+  /** ID is the key of the row in Mobius. A client uses it only as the key of a list row. */
+  id: number;
+  /** Repository is the repository where Mobius creates the Workstream issue, as "owner/name" */
+  repository: string;
+  /** Title is the title of the new Workstream issue */
+  title: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayWaitingWorkstream {
+  /** Data is the payload of the response */
+  data: WaitingWorkstream[];
+}
+
+/**
  * Autopilot is the Autopilot level: mobius:autopilot is the start part, and mobius:auto-merge is the merge part
  */
 export type WorkstreamAutopilot = typeof WorkstreamAutopilot[keyof typeof WorkstreamAutopilot];
@@ -8873,6 +8895,71 @@ export const listWorkstreams = async ( ): Promise<listWorkstreamsResponse> => {
 
   const data: listWorkstreamsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listWorkstreamsResponse
+}
+
+
+
+export type listWaitingWorkstreamsResponse200 = {
+  data: EnvelopeArrayWaitingWorkstream
+  status: 200
+}
+
+export type listWaitingWorkstreamsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listWaitingWorkstreamsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listWaitingWorkstreamsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listWaitingWorkstreamsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listWaitingWorkstreamsResponseSuccess = (listWaitingWorkstreamsResponse200) & {
+  headers: Headers;
+};
+export type listWaitingWorkstreamsResponseError = (listWaitingWorkstreamsResponse400 | listWaitingWorkstreamsResponse401 | listWaitingWorkstreamsResponse422 | listWaitingWorkstreamsResponse500) & {
+  headers: Headers;
+};
+
+export type listWaitingWorkstreamsResponse = (listWaitingWorkstreamsResponseSuccess | listWaitingWorkstreamsResponseError)
+
+export const getListWaitingWorkstreamsUrl = () => {
+
+
+
+
+  return `/api/workstreams/waiting`
+}
+
+/**
+ * ListWaitingWorkstreams returns the open Workstreams that wait for the send of their create to GitHub, the newest first. Such a Workstream has no number until the send writes it.
+ */
+export const listWaitingWorkstreams = async ( ): Promise<listWaitingWorkstreamsResponse> => {
+
+  const res = await fetch(getListWaitingWorkstreamsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listWaitingWorkstreamsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listWaitingWorkstreamsResponse
 }
 
 

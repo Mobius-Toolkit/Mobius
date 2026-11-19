@@ -25,6 +25,7 @@ export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
         storeValues(subscribeWorkstreams, currentWorkstreams, (state) =>
           Message.ReceivedWorkstreams({
             workstreams: Option.fromNullishOr(state.list),
+            waiting: state.waiting ?? [],
             working: [...state.working],
             error: state.error ?? "",
           }),

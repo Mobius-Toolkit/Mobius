@@ -1,9 +1,15 @@
-import { ListNeedsHumanResponse, ListUnreadResponse } from "@/api/schemas.gen";
+import {
+  ListNeedsHumanResponse,
+  ListUnreadResponse,
+  ListWaitingWorkstreamsResponse,
+} from "@/api/schemas.gen";
 
 export { Workstream } from "@/chat/schemas";
 
 export const NeedsHuman = ListNeedsHumanResponse.fields.data.value;
 export const Unread = ListUnreadResponse.fields.data.value;
+export const WaitingWorkstream = ListWaitingWorkstreamsResponse.fields.data.value;
 
 export type NeedsHuman = typeof NeedsHuman.Type;
 export type Unread = typeof Unread.Type;
+export type WaitingWorkstream = typeof WaitingWorkstream.Type;

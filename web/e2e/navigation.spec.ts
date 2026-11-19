@@ -27,6 +27,24 @@ test("back and forward move between the pages", async ({ page }) => {
   await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
 });
 
+test("a Workstream with no number shows Waits for GitHub, with no link, at the top of the list", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = main
+    .getByRole("listitem")
+    .filter({ hasText: "Hourly backup of the Mobius database" });
+
+  await page.goto("/workstreams");
+
+  await expect(row.getByText("Waits for GitHub", { exact: true })).toBeVisible();
+  await expect(row.getByRole("link")).toHaveCount(0);
+  await expect(main.getByRole("link").filter({ hasText: "Hourly backup" })).toHaveCount(0);
+  await expect(main.getByRole("list").last().getByRole("listitem").first()).toHaveText(
+    /Hourly backup of the Mobius database/,
+  );
+});
+
 test("the page of a Workstream that is not open shows the Workstream list", async ({ page }) => {
   await page.goto("/inbox");
   await expect(page).toHaveURL("/inbox");

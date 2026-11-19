@@ -946,6 +946,11 @@ VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(
         CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(maintenance) AS BOOLEAN), CAST(sqlc.arg(skills) AS BOOLEAN))
 RETURNING id;
 
+-- name: ListWaitingWorkstreams :many
+SELECT id, repository, title, CAST(evergreen AS BOOLEAN) AS evergreen
+FROM workstreams WHERE state = 'open' AND number IS NULL
+ORDER BY id DESC;
+
 -- name: GetWorkstreamToCreate :one
 SELECT number, title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
 FROM workstreams WHERE id = ?;

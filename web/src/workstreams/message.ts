@@ -1,10 +1,11 @@
 import { Schema } from "effect";
 import { defineMessageUnion } from "foldkit/message";
-import { NeedsHuman, Unread, Workstream } from "./schemas";
+import { NeedsHuman, Unread, WaitingWorkstream, Workstream } from "./schemas";
 
 export const Message = defineMessageUnion({
   ReceivedWorkstreams: {
     workstreams: Schema.Option(Schema.Array(Workstream)),
+    waiting: Schema.Array(WaitingWorkstream),
     working: Schema.Array(Schema.String),
     error: Schema.String,
   },
