@@ -75,6 +75,10 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 	number := row.Number.Int64
 	if !row.Number.Valid {
 		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, row.Body)
+		if permanentRefusal(err) {
+			log.Printf("create the Workstream %d of %s: %v", change.Workstream.Int64, change.Repository, err)
+			return false, e.dropCreate(ctx, change)
+		}
 		if err != nil {
 			return e.failed(ctx, repository, change, err)
 		}
@@ -91,6 +95,20 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 		return e.failed(ctx, repository, change, err)
 	}
 	return false, e.markSent(ctx, change)
+}
+
+// dropCreate marks the refused create change refused, deletes the row of the Workstream that has no issue, and clears
+// created_workstream of the action, so that a new approval of the action adds a new row and a new change.
+func (e *Engine) dropCreate(ctx context.Context, change store.OutgoingChange) error {
+	return e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "refused", ID: change.ID}); err != nil {
+			return err
+		}
+		if err := q.DeleteWorkstreamToCreate(ctx, change.Workstream.Int64); err != nil {
+			return err
+		}
+		return q.ClearPendingActionCreatedWorkstream(ctx, change.Workstream)
+	})
 }
 
 // findOrCreateIssue gives the issue of the change: the issue of the App that has its marker, or a new issue.

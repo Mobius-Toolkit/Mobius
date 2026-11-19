@@ -458,6 +458,13 @@ func (g *FakeGitHub) FailIssueCreates(times int) {
 	g.failedIssueCreates = times
 }
 
+// RefuseIssueCreates makes each create of an issue give the status and make no issue. The status 0 makes the create work.
+func (g *FakeGitHub) RefuseIssueCreates(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedIssueCreates = status
+}
+
 // LoseIssueCreateAnswers makes the next times creates of an issue make the issue, but give the status 500.
 func (g *FakeGitHub) LoseIssueCreateAnswers(times int) {
 	g.mu.Lock()
@@ -1010,6 +1017,10 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.refusedIssueCreates != 0 {
+		message(w, g.refusedIssueCreates, "Resource not accessible by integration")
+		return
+	}
 	if g.failedIssueCreates > 0 {
 		g.failedIssueCreates--
 		message(w, http.StatusInternalServerError, "Server Error")

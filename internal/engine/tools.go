@@ -1829,6 +1829,9 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		return "", err
 	}
 	row, err := e.queries.GetWorkstreamToCreate(ctx, workstream)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", refuse("GitHub refused the write.")
+	}
 	if err != nil {
 		return "", err
 	}

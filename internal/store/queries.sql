@@ -940,6 +940,9 @@ RETURNING id;
 SELECT number, title, body, CAST(evergreen AS BOOLEAN) AS evergreen, CAST(maintenance AS BOOLEAN) AS maintenance, CAST(skills AS BOOLEAN) AS skills
 FROM workstreams WHERE id = ?;
 
+-- name: DeleteWorkstreamToCreate :exec
+DELETE FROM workstreams WHERE id = ? AND number IS NULL;
+
 -- name: SetWorkstreamNumber :exec
 UPDATE workstreams SET number = ? WHERE id = ? AND number IS NULL;
 
@@ -1446,6 +1449,9 @@ RETURNING *;
 
 -- name: SetPendingActionCreatedWorkstream :exec
 UPDATE pending_actions SET created_workstream = ? WHERE id = ?;
+
+-- name: ClearPendingActionCreatedWorkstream :exec
+UPDATE pending_actions SET created_workstream = NULL WHERE created_workstream = ?;
 
 -- name: SetPendingActionOldBrief :exec
 UPDATE pending_actions SET old_brief = ? WHERE id = ?;

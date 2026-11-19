@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -119,6 +120,38 @@ func TestACreateThatGitHubMadeButAnsweredWith500IsFoundByItsMarkerAndGitHubHasOn
 	}
 	if got := creationEvents(t, server); got != 1 {
 		t.Errorf("creation events = %d", got)
+	}
+}
+
+func TestARefusedCreateDeletesTheRowAndASecondApprovalAddsANewRowAndCreatesTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, action := startCreate(t, fake)
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+
+	refused := decided(t, server, action, "approve", "")
+
+	if refused.State != "pending" || refused.Error != "GitHub refused the write." {
+		t.Errorf("action = %+v", refused)
+	}
+	if got := upkeepRows(t, server, "1 = 1"); got != 0 {
+		t.Errorf("rows = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'create' AND status = 'refused'"); got != 1 {
+		t.Errorf("refused create changes = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM pending_actions WHERE id = ? AND created_workstream IS NULL", action); got != 1 {
+		t.Errorf("actions with no created Workstream = %d", got)
+	}
+
+	fake.RefuseIssueCreates(0)
+	done := decided(t, server, action, "approve", "")
+
+	if done.State != "done" || done.Result != "Created the Workstream #13." {
+		t.Errorf("action = %+v", done)
+	}
+	if got := upkeepRows(t, server, "number = 13"); got != 1 {
+		t.Errorf("rows = %d", got)
 	}
 }
 

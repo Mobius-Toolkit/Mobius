@@ -1733,6 +1733,15 @@ func (q *Queries) ClearMcpServerOAuthTokens(ctx context.Context, server int64) e
 	return err
 }
 
+const clearPendingActionCreatedWorkstream = `-- name: ClearPendingActionCreatedWorkstream :exec
+UPDATE pending_actions SET created_workstream = NULL WHERE created_workstream = ?
+`
+
+func (q *Queries) ClearPendingActionCreatedWorkstream(ctx context.Context, createdWorkstream sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearPendingActionCreatedWorkstream, createdWorkstream)
+	return err
+}
+
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort, workstream_repository, continued, context_used, context_size
@@ -2398,6 +2407,15 @@ type DeleteWorkstreamRecurringTasksParams struct {
 
 func (q *Queries) DeleteWorkstreamRecurringTasks(ctx context.Context, arg DeleteWorkstreamRecurringTasksParams) error {
 	_, err := q.db.ExecContext(ctx, deleteWorkstreamRecurringTasks, arg.Repository, arg.Workstream)
+	return err
+}
+
+const deleteWorkstreamToCreate = `-- name: DeleteWorkstreamToCreate :exec
+DELETE FROM workstreams WHERE id = ? AND number IS NULL
+`
+
+func (q *Queries) DeleteWorkstreamToCreate(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkstreamToCreate, id)
 	return err
 }
 
