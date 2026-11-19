@@ -152,13 +152,13 @@ func TestACITaskTakesTheNextSlotBeforeAQueuedTask(t *testing.T) {
 	}
 }
 
-func TestAHardBreakWithoutAnIssueBelowTheWorkstreamStopsTheDispatchAndStartsNoTaskUntilTheIssueIsBelowIt(t *testing.T) {
+func TestAHardBreakWithoutAMaintenanceWorkstreamStopsTheDispatchAndStartsNoTaskUntilTheWorkstreamIsOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, false)
 	dispatchTask(fake, 41, "Add plan model")
 	fake.AddIssue(shop, ciIssue, "Fix the failed workflow")
-	server := startWithStatements(t, fake, hardBreakSQL(-ciIssue))
+	server := startWithStatements(t, fake, hardBreakSQL(ciIssue))
 	server.WaitForFirstPoll(t, shop)
 
 	waitForPolls(t, fake)

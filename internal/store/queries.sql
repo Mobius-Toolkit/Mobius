@@ -1270,6 +1270,12 @@ WHERE id = ? AND number IS NULL;
 -- name: DeleteIssueToCreate :exec
 DELETE FROM issues WHERE id = ? AND number IS NULL;
 
+-- name: HasPendingIssueParent :one
+SELECT EXISTS (
+  SELECT 1 FROM outgoing_changes c JOIN issues i ON i.id = c.issue
+  WHERE c.field = 'parent' AND c.status = 'pending' AND i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER)
+);
+
 -- name: SetIssueBody :execrows
 UPDATE issues SET body = ? WHERE id = ?;
 
@@ -1533,24 +1539,24 @@ SELECT CAST(COALESCE(MAX(run_id), 0) AS INTEGER) FROM ci_breaks WHERE repository
 
 -- name: ListCIBreaksWithoutIssue :many
 SELECT * FROM ci_breaks
-WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
 ORDER BY id;
 
 -- name: ListCIBreaksToDiagnose :many
 SELECT * FROM ci_breaks
-WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id)
 ORDER BY id;
 
 -- name: GetCIBreak :one
 SELECT * FROM ci_breaks WHERE id = ?;
 
--- name: ListCIBreaksNotBelowWorkstream :many
-SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
-
 -- name: SetCIBreakIssue :exec
 UPDATE ci_breaks SET issue = ? WHERE id = ?;
+
+-- name: SetCIBreakIssueRow :exec
+UPDATE ci_breaks SET issue_row = ? WHERE id = ?;
 
 -- name: AddCheckTimeout :exec
 INSERT INTO check_timeouts (repository, task_issue, session, timeout, output, created_at)
@@ -1560,8 +1566,8 @@ WHERE NOT EXISTS (SELECT 1 FROM check_timeouts WHERE repository = ?1 AND ended_a
 -- name: GetOpenCheckTimeout :one
 SELECT * FROM check_timeouts WHERE repository = ? AND ended_at = '';
 
--- name: SetCheckTimeoutIssue :exec
-UPDATE check_timeouts SET issue = ? WHERE id = ?;
+-- name: SetCheckTimeoutIssueRow :exec
+UPDATE check_timeouts SET issue_row = ? WHERE id = ?;
 
 -- name: EndCheckTimeout :exec
 UPDATE check_timeouts SET ended_at = ? WHERE id = ?;
@@ -1574,8 +1580,8 @@ WHERE NOT EXISTS (SELECT 1 FROM init_failures WHERE repository = ?1 AND ended_at
 -- name: GetOpenInitFailure :one
 SELECT * FROM init_failures WHERE repository = ? AND ended_at = '';
 
--- name: SetInitFailureIssue :exec
-UPDATE init_failures SET issue = ? WHERE id = ?;
+-- name: SetInitFailureIssueRow :exec
+UPDATE init_failures SET issue_row = ? WHERE id = ?;
 
 -- name: EndInitFailure :exec
 UPDATE init_failures SET ended_at = ? WHERE id = ?;
@@ -1714,7 +1720,7 @@ ON CONFLICT (failure, pull_request, ci_break) DO UPDATE SET head = excluded.head
 
 -- name: ListCIFailuresWithoutIssue :many
 SELECT ci_failures.* FROM ci_failures
-WHERE ci_failures.repository = ? AND issue = 0 AND ended_at = ''
+WHERE ci_failures.repository = ? AND issue = 0 AND issue_row IS NULL AND ended_at = ''
   AND (SELECT COUNT(*) FROM ci_failure_places WHERE failure = ci_failures.id) >= 2
   AND NOT EXISTS (
     SELECT 1 FROM ci_failure_places JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
@@ -1723,11 +1729,11 @@ WHERE ci_failures.repository = ? AND issue = 0 AND ended_at = ''
   )
 ORDER BY id;
 
--- name: ListCIFailuresNotBelowWorkstream :many
-SELECT * FROM ci_failures WHERE repository = ? AND issue < 0 AND ended_at = '' ORDER BY id;
-
 -- name: SetCIFailureIssue :exec
 UPDATE ci_failures SET issue = ? WHERE id = ?;
+
+-- name: SetCIFailureIssueRow :exec
+UPDATE ci_failures SET issue_row = ? WHERE id = ?;
 
 -- name: ListCIFailuresWithIssue :many
 SELECT * FROM ci_failures WHERE repository = ? AND issue <> 0 AND ended_at = '' ORDER BY id;
@@ -1755,25 +1761,53 @@ SELECT ci_failures.issue FROM ci_failures JOIN ci_failure_places ON ci_failure_p
 WHERE ci_failure_places.ci_break = ? AND ci_failures.issue != 0 AND ci_failures.ended_at = ''
 ORDER BY ci_failures.id LIMIT 1;
 
--- name: SetCIBreakFailuresIssue :exec
-UPDATE ci_failures SET issue = ?
-WHERE issue = 0 AND ended_at = '' AND id IN (SELECT failure FROM ci_failure_places WHERE ci_break = ?);
+-- The send of a create writes the number to each record with the row of the new issue. A failure record with a place of
+-- a break takes the issue of that break.
+-- name: SetCIBreakIssueOfRow :exec
+UPDATE ci_breaks SET issue = sqlc.arg(issue) WHERE issue_row = sqlc.arg(issue_row);
+
+-- name: SetCIBreakFailuresIssueOfRow :exec
+UPDATE ci_failures SET issue = sqlc.arg(issue)
+WHERE issue = 0 AND ended_at = '' AND id IN (
+  SELECT failure FROM ci_failure_places WHERE ci_break IN (SELECT ci_breaks.id FROM ci_breaks WHERE ci_breaks.issue_row = sqlc.arg(issue_row))
+);
+
+-- name: SetCIFailureIssueOfRow :exec
+UPDATE ci_failures SET issue = sqlc.arg(issue) WHERE issue_row = sqlc.arg(issue_row);
+
+-- name: SetCheckTimeoutIssueOfRow :exec
+UPDATE check_timeouts SET issue = sqlc.arg(issue) WHERE issue_row = sqlc.arg(issue_row);
+
+-- name: SetInitFailureIssueOfRow :exec
+UPDATE init_failures SET issue = sqlc.arg(issue) WHERE issue_row = sqlc.arg(issue_row);
+
+-- name: ClearCIBreakIssueRow :exec
+UPDATE ci_breaks SET issue_row = NULL WHERE issue_row = ?;
+
+-- name: ClearCIFailureIssueRow :exec
+UPDATE ci_failures SET issue_row = NULL WHERE issue_row = ?;
+
+-- name: ClearCheckTimeoutIssueRow :exec
+UPDATE check_timeouts SET issue_row = NULL WHERE issue_row = ?;
+
+-- name: ClearInitFailureIssueRow :exec
+UPDATE init_failures SET issue_row = NULL WHERE issue_row = ?;
 
 -- name: IsRepairIssue :one
 SELECT EXISTS (
-  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ci_breaks.issue = ?2
   UNION ALL
-  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND check_timeouts.issue = ?2
   UNION ALL
-  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND ABS(init_failures.issue) = ?2
+  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND init_failures.issue = ?2
   UNION ALL
-  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
+  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ci_failures.issue = ?2
 );
 
 -- name: HasOpenPullRequestFailureWithIssue :one
 SELECT EXISTS (
   SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
-  WHERE ci_failures.repository = ? AND ci_failures.ended_at = '' AND ABS(ci_failures.issue) = ? AND ci_failure_places.pull_request != 0
+  WHERE ci_failures.repository = ? AND ci_failures.ended_at = '' AND ci_failures.issue = ? AND ci_failure_places.pull_request != 0
 );
 
 -- name: ListCIFailurePlaces :many

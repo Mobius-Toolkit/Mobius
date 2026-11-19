@@ -32,15 +32,11 @@ func refusedByGitHub(err error) bool {
 // a flaky break. The issue stays in repository and goes below the maintenance Workstream of the organization. An
 // organization with no open maintenance Workstream, or with no issue repository that Mobius can find, gets no issue,
 // and the next poll tries again. The issue of a flaky break has mobius:ready, so the usual task flow starts
-// it. A hard break gets no label. The number of an issue that GitHub created but did not add below the Workstream is
-// stored as a negative number, and the next poll adds the issue below the Workstream.
+// it. A hard break gets no label. The issue is a row of issues, and its create goes to GitHub as an outgoing change: the
+// break keeps the id of the row until the send stores the number.
 func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repository) error {
 	breaks, err := e.queries.ListCIBreaksWithoutIssue(ctx, repository.FullName)
-	if err != nil {
-		return err
-	}
-	pending, err := e.queries.ListCIBreaksNotBelowWorkstream(ctx, repository.FullName)
-	if err != nil || len(breaks)+len(pending) == 0 {
+	if err != nil || len(breaks) == 0 {
 		return err
 	}
 	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
@@ -51,111 +47,55 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 	if err != nil || workstream.number == 0 {
 		return err
 	}
-	changed := false
-	for _, ciBreak := range pending {
-		added, err := e.addCIBreakIssueBelow(ctx, repository, workstream, ciBreak)
-		changed = changed || added
-		if err != nil {
-			return err
-		}
-	}
 	for _, ciBreak := range breaks {
-		number, err := e.createCIBreakIssue(ctx, repository, workstream, ciBreak)
-		changed = changed || number != 0
-		if err != nil {
+		if err := e.createCIBreakIssue(ctx, repository, workstream, ciBreak); err != nil {
 			return err
-		}
-	}
-	if changed {
-		if err := e.recopyTrees(ctx, workstream.repository, workstream.number); err != nil {
-			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, err)
 		}
 	}
 	return nil
 }
 
-// createCIBreakIssue creates the issue of ciBreak and stores its number in ciBreak and in each open failure record with
-// a place of ciBreak and no issue. When such a record already has an issue that is open, ciBreak takes that issue and
-// Mobius creates none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
-// the list of jobs, it creates no issue. When GitHub creates the issue but does not add it below the Workstream, the
-// stored number is negative.
-func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream issueAt, ciBreak store.CiBreak) (int, error) {
+// createCIBreakIssue creates the issue of ciBreak. The send of the create stores its number in ciBreak and in each open
+// failure record with a place of ciBreak and no issue. When such a record already has an issue that is open, ciBreak
+// takes that issue and Mobius creates none. When GitHub refuses the list of jobs, Mobius creates no issue.
+func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream issueAt, ciBreak store.CiBreak) error {
 	shared, err := e.queries.GetCIBreakFailureIssue(ctx, ciBreak.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
+		return err
 	}
 	if err == nil {
-		number := max(shared, -shared)
-		issue, err := repository.Issue(ctx, number)
+		issue, err := repository.Issue(ctx, shared)
 		if refusedByGitHub(err) {
-			log.Printf("read the issue #%d of %s: %v", number, repository.FullName, err)
-			return 0, nil
+			log.Printf("read the issue #%d of %s: %v", shared, repository.FullName, err)
+			return nil
 		}
 		if err != nil {
-			return 0, err
+			return err
 		}
 		if issue != nil && issue.GetState() == "open" {
 			if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: shared, ID: ciBreak.ID}); err != nil {
-				return 0, err
+				return err
 			}
 			e.publishCIStops(ciBreak.Result)
-			return 0, nil
+			return nil
 		}
 	}
 	body, err := ciBreakBody(ctx, repository, ciBreak)
 	if refusedByGitHub(err) {
 		log.Printf("read the jobs of the run %d of %s: %v", ciBreak.RunID, repository.FullName, err)
-		return 0, nil
+		return nil
 	}
 	if err != nil {
-		return 0, err
+		return err
 	}
 	var labels []string
 	if ciBreak.Result == "flaky" {
 		labels = []string{readyLabel}
 	}
 	title := fmt.Sprintf("Fix the failed workflow \"%s\" on %s", ciBreak.WorkflowName, repository.DefaultBranch)
-	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: body, parent: workstream}, labels)
-	if number != 0 {
-		stored := int64(number)
-		if err != nil {
-			stored = -stored
-		}
-		if storeErr := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: stored, ID: ciBreak.ID}); storeErr != nil {
-			return number, storeErr
-		}
-		if storeErr := e.queries.SetCIBreakFailuresIssue(ctx, store.SetCIBreakFailuresIssueParams{Issue: stored, CiBreak: ciBreak.ID}); storeErr != nil {
-			return number, storeErr
-		}
-		e.publishCIStops(ciBreak.Result)
-	}
-	if refusedByGitHub(err) {
-		log.Printf("create the issue of the CI break of %s: %v", repository.FullName, err)
-		return number, nil
-	}
-	return number, err
-}
-
-// addCIBreakIssueBelow adds the issue of ciBreak below the Workstream, and stores its number as a positive number. It
-// tells whether the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
-func (e *Engine) addCIBreakIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, ciBreak store.CiBreak) (bool, error) {
-	number := -ciBreak.Issue
-	issue, err := repository.Issue(ctx, number)
-	if err == nil && issue != nil {
-		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
-	}
-	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: number, ID: ciBreak.ID}); err != nil {
-		return issue != nil, err
-	}
-	e.publishCIStops(ciBreak.Result)
-	return issue != nil, nil
+	return e.createRecordIssue(ctx, repository, workstream, title, body, labels, func(q *store.Queries, row int64) error {
+		return q.SetCIBreakIssueRow(ctx, store.SetCIBreakIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: ciBreak.ID})
+	})
 }
 
 // ciBreakBody gives the body of the issue of ciBreak: the run, the result of the re-run, and each failed job of the
@@ -232,7 +172,7 @@ func jobLogTail(jobLog string, limit int) string {
 // open. It tells whether the issue needs no more close: it is closed, or GitHub does not find it. A 4xx answer of GitHub
 // is no error, and the break stays open until the next poll tries again.
 func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, passed *gh.WorkflowRun) (bool, error) {
-	number := max(ciBreak.Issue, -ciBreak.Issue)
+	number := ciBreak.Issue
 	issue, err := repository.Issue(ctx, number)
 	if err == nil && (issue == nil || issue.GetState() == "closed") {
 		return true, nil
@@ -283,7 +223,7 @@ func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool,
 	stop := map[int64]bool{}
 	for _, ciBreak := range breaks {
 		if ciBreak.Issue != 0 {
-			stop[max(ciBreak.Issue, -ciBreak.Issue)] = true
+			stop[ciBreak.Issue] = true
 		}
 	}
 	diagnosing, err := e.queries.HasDiagnosingHardCIBreak(ctx, repository)
@@ -343,7 +283,7 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		return err
 	}
 	for _, ciBreak := range breaks {
-		if ciBreak.Issue <= 0 {
+		if ciBreak.Issue == 0 {
 			continue
 		}
 		had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: ciBreak.Issue})

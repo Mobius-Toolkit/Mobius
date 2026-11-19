@@ -1749,12 +1749,48 @@ func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingActi
 	return i, err
 }
 
+const clearCIBreakIssueRow = `-- name: ClearCIBreakIssueRow :exec
+UPDATE ci_breaks SET issue_row = NULL WHERE issue_row = ?
+`
+
+func (q *Queries) ClearCIBreakIssueRow(ctx context.Context, issueRow sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearCIBreakIssueRow, issueRow)
+	return err
+}
+
+const clearCIFailureIssueRow = `-- name: ClearCIFailureIssueRow :exec
+UPDATE ci_failures SET issue_row = NULL WHERE issue_row = ?
+`
+
+func (q *Queries) ClearCIFailureIssueRow(ctx context.Context, issueRow sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearCIFailureIssueRow, issueRow)
+	return err
+}
+
 const clearChatMessageFailure = `-- name: ClearChatMessageFailure :exec
 UPDATE chat_messages SET failed_at = NULL WHERE id = ?
 `
 
 func (q *Queries) ClearChatMessageFailure(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, clearChatMessageFailure, id)
+	return err
+}
+
+const clearCheckTimeoutIssueRow = `-- name: ClearCheckTimeoutIssueRow :exec
+UPDATE check_timeouts SET issue_row = NULL WHERE issue_row = ?
+`
+
+func (q *Queries) ClearCheckTimeoutIssueRow(ctx context.Context, issueRow sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearCheckTimeoutIssueRow, issueRow)
+	return err
+}
+
+const clearInitFailureIssueRow = `-- name: ClearInitFailureIssueRow :exec
+UPDATE init_failures SET issue_row = NULL WHERE issue_row = ?
+`
+
+func (q *Queries) ClearInitFailureIssueRow(ctx context.Context, issueRow sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearInitFailureIssueRow, issueRow)
 	return err
 }
 
@@ -2947,7 +2983,7 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 }
 
 const findOpenCIFailure = `-- name: FindOpenCIFailure :one
-SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND ended_at = '' AND test = ? AND location = ? ORDER BY id LIMIT 1
+SELECT id, repository, reason, test, location, issue, created_at, ended_at, issue_row FROM ci_failures WHERE repository = ? AND ended_at = '' AND test = ? AND location = ? ORDER BY id LIMIT 1
 `
 
 type FindOpenCIFailureParams struct {
@@ -2968,6 +3004,7 @@ func (q *Queries) FindOpenCIFailure(ctx context.Context, arg FindOpenCIFailurePa
 		&i.Issue,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.IssueRow,
 	)
 	return i, err
 }
@@ -3067,7 +3104,7 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 }
 
 const getCIBreak = `-- name: GetCIBreak :one
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE id = ?
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks WHERE id = ?
 `
 
 func (q *Queries) GetCIBreak(ctx context.Context, id int64) (CiBreak, error) {
@@ -3088,6 +3125,7 @@ func (q *Queries) GetCIBreak(ctx context.Context, id int64) (CiBreak, error) {
 		&i.Issue,
 		&i.StartedAt,
 		&i.RunEvent,
+		&i.IssueRow,
 	)
 	return i, err
 }
@@ -4286,7 +4324,7 @@ func (q *Queries) GetNewestTaskPullRequest(ctx context.Context, arg GetNewestTas
 }
 
 const getOpenCIFailure = `-- name: GetOpenCIFailure :one
-SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE id = ? AND repository = ? AND ended_at = ''
+SELECT id, repository, reason, test, location, issue, created_at, ended_at, issue_row FROM ci_failures WHERE id = ? AND repository = ? AND ended_at = ''
 `
 
 type GetOpenCIFailureParams struct {
@@ -4306,12 +4344,13 @@ func (q *Queries) GetOpenCIFailure(ctx context.Context, arg GetOpenCIFailurePara
 		&i.Issue,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.IssueRow,
 	)
 	return i, err
 }
 
 const getOpenCheckTimeout = `-- name: GetOpenCheckTimeout :one
-SELECT id, repository, task_issue, session, timeout, output, issue, created_at, ended_at FROM check_timeouts WHERE repository = ? AND ended_at = ''
+SELECT id, repository, task_issue, session, timeout, output, issue, created_at, ended_at, issue_row FROM check_timeouts WHERE repository = ? AND ended_at = ''
 `
 
 func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (CheckTimeout, error) {
@@ -4327,6 +4366,7 @@ func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (C
 		&i.Issue,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.IssueRow,
 	)
 	return i, err
 }
@@ -4365,7 +4405,7 @@ func (q *Queries) GetOpenFailedItemOfMessage(ctx context.Context, chatMessage sq
 }
 
 const getOpenInitFailure = `-- name: GetOpenInitFailure :one
-SELECT id, repository, task_issue, session, commit_sha, result, output, issue, created_at, ended_at FROM init_failures WHERE repository = ? AND ended_at = ''
+SELECT id, repository, task_issue, session, commit_sha, result, output, issue, created_at, ended_at, issue_row FROM init_failures WHERE repository = ? AND ended_at = ''
 `
 
 func (q *Queries) GetOpenInitFailure(ctx context.Context, repository string) (InitFailure, error) {
@@ -4382,6 +4422,7 @@ func (q *Queries) GetOpenInitFailure(ctx context.Context, repository string) (In
 		&i.Issue,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.IssueRow,
 	)
 	return i, err
 }
@@ -5235,7 +5276,7 @@ func (q *Queries) HasLeadEventKind(ctx context.Context, arg HasLeadEventKindPara
 const hasOpenPullRequestFailureWithIssue = `-- name: HasOpenPullRequestFailureWithIssue :one
 SELECT EXISTS (
   SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
-  WHERE ci_failures.repository = ? AND ci_failures.ended_at = '' AND ABS(ci_failures.issue) = ? AND ci_failure_places.pull_request != 0
+  WHERE ci_failures.repository = ? AND ci_failures.ended_at = '' AND ci_failures.issue = ? AND ci_failure_places.pull_request != 0
 )
 `
 
@@ -5278,6 +5319,25 @@ type HasPendingIssueChangeParams struct {
 
 func (q *Queries) HasPendingIssueChange(ctx context.Context, arg HasPendingIssueChangeParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasPendingIssueChange, arg.Issue, arg.Field)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const hasPendingIssueParent = `-- name: HasPendingIssueParent :one
+SELECT EXISTS (
+  SELECT 1 FROM outgoing_changes c JOIN issues i ON i.id = c.issue
+  WHERE c.field = 'parent' AND c.status = 'pending' AND i.repository = ? AND i.number = CAST(?2 AS INTEGER)
+)
+`
+
+type HasPendingIssueParentParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) HasPendingIssueParent(ctx context.Context, arg HasPendingIssueParentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasPendingIssueParent, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -5432,13 +5492,13 @@ func (q *Queries) IsOwnerAnswer(ctx context.Context, arg IsOwnerAnswerParams) (b
 
 const isRepairIssue = `-- name: IsRepairIssue :one
 SELECT EXISTS (
-  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ABS(ci_breaks.issue) = ?2
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = ?1 AND ci_breaks.issue = ?2
   UNION ALL
-  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND ABS(check_timeouts.issue) = ?2
+  SELECT 1 FROM check_timeouts WHERE check_timeouts.repository = ?1 AND check_timeouts.issue = ?2
   UNION ALL
-  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND ABS(init_failures.issue) = ?2
+  SELECT 1 FROM init_failures WHERE init_failures.repository = ?1 AND init_failures.issue = ?2
   UNION ALL
-  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ABS(ci_failures.issue) = ?2
+  SELECT 1 FROM ci_failures WHERE ci_failures.repository = ?1 AND ci_failures.issue = ?2
 )
 `
 
@@ -5575,7 +5635,7 @@ func (q *Queries) ListAllMergeQueueTasks(ctx context.Context) ([]ListAllMergeQue
 }
 
 const listAllOpenHardCIBreaks = `-- name: ListAllOpenHardCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
 `
 
 func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error) {
@@ -5602,6 +5662,7 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 			&i.Issue,
 			&i.StartedAt,
 			&i.RunEvent,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -5949,51 +6010,9 @@ func (q *Queries) ListBranchesToCheck(ctx context.Context) ([]Task, error) {
 	return items, nil
 }
 
-const listCIBreaksNotBelowWorkstream = `-- name: ListCIBreaksNotBelowWorkstream :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id
-`
-
-func (q *Queries) ListCIBreaksNotBelowWorkstream(ctx context.Context, repository string) ([]CiBreak, error) {
-	rows, err := q.db.QueryContext(ctx, listCIBreaksNotBelowWorkstream, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CiBreak
-	for rows.Next() {
-		var i CiBreak
-		if err := rows.Scan(
-			&i.ID,
-			&i.Repository,
-			&i.WorkflowID,
-			&i.WorkflowName,
-			&i.RunID,
-			&i.RunUrl,
-			&i.RunAttempt,
-			&i.RerunAt,
-			&i.Result,
-			&i.EndedRunID,
-			&i.EndedAt,
-			&i.Issue,
-			&i.StartedAt,
-			&i.RunEvent,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCIBreaksToDiagnose = `-- name: ListCIBreaksToDiagnose :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks
-WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks
+WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id)
 ORDER BY id
 `
@@ -6022,6 +6041,7 @@ func (q *Queries) ListCIBreaksToDiagnose(ctx context.Context, repository string)
 			&i.Issue,
 			&i.StartedAt,
 			&i.RunEvent,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -6037,8 +6057,8 @@ func (q *Queries) ListCIBreaksToDiagnose(ctx context.Context, repository string)
 }
 
 const listCIBreaksWithoutIssue = `-- name: ListCIBreaksWithoutIssue :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks
-WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks
+WHERE ci_breaks.repository = ? AND issue = 0 AND issue_row IS NULL AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
   AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
 ORDER BY id
 `
@@ -6067,6 +6087,7 @@ func (q *Queries) ListCIBreaksWithoutIssue(ctx context.Context, repository strin
 			&i.Issue,
 			&i.StartedAt,
 			&i.RunEvent,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -6135,44 +6156,8 @@ func (q *Queries) ListCIFailurePlaces(ctx context.Context, failure int64) ([]Lis
 	return items, nil
 }
 
-const listCIFailuresNotBelowWorkstream = `-- name: ListCIFailuresNotBelowWorkstream :many
-SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND issue < 0 AND ended_at = '' ORDER BY id
-`
-
-func (q *Queries) ListCIFailuresNotBelowWorkstream(ctx context.Context, repository string) ([]CiFailure, error) {
-	rows, err := q.db.QueryContext(ctx, listCIFailuresNotBelowWorkstream, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CiFailure
-	for rows.Next() {
-		var i CiFailure
-		if err := rows.Scan(
-			&i.ID,
-			&i.Repository,
-			&i.Reason,
-			&i.Test,
-			&i.Location,
-			&i.Issue,
-			&i.CreatedAt,
-			&i.EndedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCIFailuresWithIssue = `-- name: ListCIFailuresWithIssue :many
-SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND issue <> 0 AND ended_at = '' ORDER BY id
+SELECT id, repository, reason, test, location, issue, created_at, ended_at, issue_row FROM ci_failures WHERE repository = ? AND issue <> 0 AND ended_at = '' ORDER BY id
 `
 
 func (q *Queries) ListCIFailuresWithIssue(ctx context.Context, repository string) ([]CiFailure, error) {
@@ -6193,6 +6178,7 @@ func (q *Queries) ListCIFailuresWithIssue(ctx context.Context, repository string
 			&i.Issue,
 			&i.CreatedAt,
 			&i.EndedAt,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -6208,8 +6194,8 @@ func (q *Queries) ListCIFailuresWithIssue(ctx context.Context, repository string
 }
 
 const listCIFailuresWithoutIssue = `-- name: ListCIFailuresWithoutIssue :many
-SELECT ci_failures.id, ci_failures.repository, ci_failures.reason, ci_failures.test, ci_failures.location, ci_failures.issue, ci_failures.created_at, ci_failures.ended_at FROM ci_failures
-WHERE ci_failures.repository = ? AND issue = 0 AND ended_at = ''
+SELECT ci_failures.id, ci_failures.repository, ci_failures.reason, ci_failures.test, ci_failures.location, ci_failures.issue, ci_failures.created_at, ci_failures.ended_at, ci_failures.issue_row FROM ci_failures
+WHERE ci_failures.repository = ? AND issue = 0 AND issue_row IS NULL AND ended_at = ''
   AND (SELECT COUNT(*) FROM ci_failure_places WHERE failure = ci_failures.id) >= 2
   AND NOT EXISTS (
     SELECT 1 FROM ci_failure_places JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
@@ -6237,6 +6223,7 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 			&i.Issue,
 			&i.CreatedAt,
 			&i.EndedAt,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -8433,7 +8420,7 @@ func (q *Queries) ListOpenBlockersOfIssue(ctx context.Context, arg ListOpenBlock
 }
 
 const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
@@ -8460,6 +8447,7 @@ func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]Ci
 			&i.Issue,
 			&i.StartedAt,
 			&i.RunEvent,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -8620,7 +8608,7 @@ func (q *Queries) ListOpenFailedItemsOfMessage(ctx context.Context, chatMessage 
 }
 
 const listOpenHardCIBreaks = `-- name: ListOpenHardCIBreaks :many
-SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at, run_event, issue_row FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
 `
 
 func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
@@ -8647,6 +8635,7 @@ func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) (
 			&i.Issue,
 			&i.StartedAt,
 			&i.RunEvent,
+			&i.IssueRow,
 		); err != nil {
 			return nil, err
 		}
@@ -11264,18 +11253,20 @@ func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams
 	return err
 }
 
-const setCIBreakFailuresIssue = `-- name: SetCIBreakFailuresIssue :exec
-UPDATE ci_failures SET issue = ?
-WHERE issue = 0 AND ended_at = '' AND id IN (SELECT failure FROM ci_failure_places WHERE ci_break = ?)
+const setCIBreakFailuresIssueOfRow = `-- name: SetCIBreakFailuresIssueOfRow :exec
+UPDATE ci_failures SET issue = ?1
+WHERE issue = 0 AND ended_at = '' AND id IN (
+  SELECT failure FROM ci_failure_places WHERE ci_break IN (SELECT ci_breaks.id FROM ci_breaks WHERE ci_breaks.issue_row = ?2)
+)
 `
 
-type SetCIBreakFailuresIssueParams struct {
-	Issue   int64
-	CiBreak int64
+type SetCIBreakFailuresIssueOfRowParams struct {
+	Issue    int64
+	IssueRow sql.NullInt64
 }
 
-func (q *Queries) SetCIBreakFailuresIssue(ctx context.Context, arg SetCIBreakFailuresIssueParams) error {
-	_, err := q.db.ExecContext(ctx, setCIBreakFailuresIssue, arg.Issue, arg.CiBreak)
+func (q *Queries) SetCIBreakFailuresIssueOfRow(ctx context.Context, arg SetCIBreakFailuresIssueOfRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakFailuresIssueOfRow, arg.Issue, arg.IssueRow)
 	return err
 }
 
@@ -11290,6 +11281,36 @@ type SetCIBreakIssueParams struct {
 
 func (q *Queries) SetCIBreakIssue(ctx context.Context, arg SetCIBreakIssueParams) error {
 	_, err := q.db.ExecContext(ctx, setCIBreakIssue, arg.Issue, arg.ID)
+	return err
+}
+
+const setCIBreakIssueOfRow = `-- name: SetCIBreakIssueOfRow :exec
+UPDATE ci_breaks SET issue = ?1 WHERE issue_row = ?2
+`
+
+type SetCIBreakIssueOfRowParams struct {
+	Issue    int64
+	IssueRow sql.NullInt64
+}
+
+// The send of a create writes the number to each record with the row of the new issue. A failure record with a place of
+// a break takes the issue of that break.
+func (q *Queries) SetCIBreakIssueOfRow(ctx context.Context, arg SetCIBreakIssueOfRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakIssueOfRow, arg.Issue, arg.IssueRow)
+	return err
+}
+
+const setCIBreakIssueRow = `-- name: SetCIBreakIssueRow :exec
+UPDATE ci_breaks SET issue_row = ? WHERE id = ?
+`
+
+type SetCIBreakIssueRowParams struct {
+	IssueRow sql.NullInt64
+	ID       int64
+}
+
+func (q *Queries) SetCIBreakIssueRow(ctx context.Context, arg SetCIBreakIssueRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakIssueRow, arg.IssueRow, arg.ID)
 	return err
 }
 
@@ -11363,6 +11384,34 @@ func (q *Queries) SetCIFailureIssue(ctx context.Context, arg SetCIFailureIssuePa
 	return err
 }
 
+const setCIFailureIssueOfRow = `-- name: SetCIFailureIssueOfRow :exec
+UPDATE ci_failures SET issue = ?1 WHERE issue_row = ?2
+`
+
+type SetCIFailureIssueOfRowParams struct {
+	Issue    int64
+	IssueRow sql.NullInt64
+}
+
+func (q *Queries) SetCIFailureIssueOfRow(ctx context.Context, arg SetCIFailureIssueOfRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCIFailureIssueOfRow, arg.Issue, arg.IssueRow)
+	return err
+}
+
+const setCIFailureIssueRow = `-- name: SetCIFailureIssueRow :exec
+UPDATE ci_failures SET issue_row = ? WHERE id = ?
+`
+
+type SetCIFailureIssueRowParams struct {
+	IssueRow sql.NullInt64
+	ID       int64
+}
+
+func (q *Queries) SetCIFailureIssueRow(ctx context.Context, arg SetCIFailureIssueRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCIFailureIssueRow, arg.IssueRow, arg.ID)
+	return err
+}
+
 const setCIFailurePlaceUpdated = `-- name: SetCIFailurePlaceUpdated :exec
 UPDATE ci_failure_places SET branch_updated_at = ? WHERE id = ?
 `
@@ -11413,17 +11462,31 @@ func (q *Queries) SetChatSeen(ctx context.Context, arg SetChatSeenParams) error 
 	return err
 }
 
-const setCheckTimeoutIssue = `-- name: SetCheckTimeoutIssue :exec
-UPDATE check_timeouts SET issue = ? WHERE id = ?
+const setCheckTimeoutIssueOfRow = `-- name: SetCheckTimeoutIssueOfRow :exec
+UPDATE check_timeouts SET issue = ?1 WHERE issue_row = ?2
 `
 
-type SetCheckTimeoutIssueParams struct {
-	Issue int64
-	ID    int64
+type SetCheckTimeoutIssueOfRowParams struct {
+	Issue    int64
+	IssueRow sql.NullInt64
 }
 
-func (q *Queries) SetCheckTimeoutIssue(ctx context.Context, arg SetCheckTimeoutIssueParams) error {
-	_, err := q.db.ExecContext(ctx, setCheckTimeoutIssue, arg.Issue, arg.ID)
+func (q *Queries) SetCheckTimeoutIssueOfRow(ctx context.Context, arg SetCheckTimeoutIssueOfRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCheckTimeoutIssueOfRow, arg.Issue, arg.IssueRow)
+	return err
+}
+
+const setCheckTimeoutIssueRow = `-- name: SetCheckTimeoutIssueRow :exec
+UPDATE check_timeouts SET issue_row = ? WHERE id = ?
+`
+
+type SetCheckTimeoutIssueRowParams struct {
+	IssueRow sql.NullInt64
+	ID       int64
+}
+
+func (q *Queries) SetCheckTimeoutIssueRow(ctx context.Context, arg SetCheckTimeoutIssueRowParams) error {
+	_, err := q.db.ExecContext(ctx, setCheckTimeoutIssueRow, arg.IssueRow, arg.ID)
 	return err
 }
 
@@ -11761,17 +11824,31 @@ func (q *Queries) SetIncomingChangeDone(ctx context.Context, id int64) error {
 	return err
 }
 
-const setInitFailureIssue = `-- name: SetInitFailureIssue :exec
-UPDATE init_failures SET issue = ? WHERE id = ?
+const setInitFailureIssueOfRow = `-- name: SetInitFailureIssueOfRow :exec
+UPDATE init_failures SET issue = ?1 WHERE issue_row = ?2
 `
 
-type SetInitFailureIssueParams struct {
-	Issue int64
-	ID    int64
+type SetInitFailureIssueOfRowParams struct {
+	Issue    int64
+	IssueRow sql.NullInt64
 }
 
-func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIssueParams) error {
-	_, err := q.db.ExecContext(ctx, setInitFailureIssue, arg.Issue, arg.ID)
+func (q *Queries) SetInitFailureIssueOfRow(ctx context.Context, arg SetInitFailureIssueOfRowParams) error {
+	_, err := q.db.ExecContext(ctx, setInitFailureIssueOfRow, arg.Issue, arg.IssueRow)
+	return err
+}
+
+const setInitFailureIssueRow = `-- name: SetInitFailureIssueRow :exec
+UPDATE init_failures SET issue_row = ? WHERE id = ?
+`
+
+type SetInitFailureIssueRowParams struct {
+	IssueRow sql.NullInt64
+	ID       int64
+}
+
+func (q *Queries) SetInitFailureIssueRow(ctx context.Context, arg SetInitFailureIssueRowParams) error {
+	_, err := q.db.ExecContext(ctx, setInitFailureIssueRow, arg.IssueRow, arg.ID)
 	return err
 }
 

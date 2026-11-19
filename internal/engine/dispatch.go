@@ -89,6 +89,12 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			return err
 		}
 		if workstream == 0 {
+			// The link below the Workstream does not change the list of the issues with mobius:ready.
+			pending, err := e.queries.HasPendingIssueParent(ctx, store.HasPendingIssueParentParams{Repository: repository.FullName, Number: number})
+			if err != nil {
+				return err
+			}
+			held = held || pending
 			continue
 		}
 		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})

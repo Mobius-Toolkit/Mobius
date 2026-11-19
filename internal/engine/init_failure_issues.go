@@ -8,8 +8,6 @@ import (
 	"log"
 	"strings"
 
-	gh "github.com/google/go-github/v92/github"
-
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -67,6 +65,9 @@ func (e *Engine) createInitFailureIssue(ctx context.Context, repository github.R
 		}
 		return e.queries.EndInitFailure(ctx, store.EndInitFailureParams{EndedAt: now(), ID: failure.ID})
 	}
+	if failure.IssueRow.Valid {
+		return nil
+	}
 	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
 	if Refused(err) {
 		log.Printf("find the maintenance Workstream for %s: %v", repository.FullName, err)
@@ -76,56 +77,10 @@ func (e *Engine) createInitFailureIssue(ctx context.Context, repository github.R
 		return err
 	}
 	if workstream.number == 0 {
-		if failure.Issue < 0 {
-			return nil
-		}
 		return e.queries.EndInitFailure(ctx, store.EndInitFailureParams{EndedAt: now(), ID: failure.ID})
 	}
-	var changed bool
-	if failure.Issue < 0 {
-		changed, err = e.addInitFailureIssueBelow(ctx, repository, workstream, failure)
-	} else {
-		changed, err = e.createInitFailureIssueBelow(ctx, repository, workstream, failure)
-	}
-	if changed {
-		if copyErr := e.recopyTrees(ctx, workstream.repository, workstream.number); copyErr != nil {
-			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, copyErr)
-		}
-	}
-	return err
-}
-
-func (e *Engine) createInitFailureIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, failure store.InitFailure) (bool, error) {
 	title := fmt.Sprintf("Fix the setup script .mobius/init of %s", repository.FullName)
-	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: initFailureBody(failure, e.config.CheckTimeout.String()), parent: workstream}, []string{readyLabel})
-	if number != 0 {
-		stored := int64(number)
-		if err != nil {
-			stored = -stored
-		}
-		if storeErr := e.queries.SetInitFailureIssue(ctx, store.SetInitFailureIssueParams{Issue: stored, ID: failure.ID}); storeErr != nil {
-			return true, storeErr
-		}
-	}
-	if refusedByGitHub(err) {
-		log.Printf("create the issue of the init failure of %s: %v", repository.FullName, err)
-		return number != 0, nil
-	}
-	return number != 0, err
-}
-
-func (e *Engine) addInitFailureIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, failure store.InitFailure) (bool, error) {
-	number := -failure.Issue
-	issue, err := repository.Issue(ctx, number)
-	if err == nil && issue != nil {
-		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
-	}
-	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return issue != nil, e.queries.SetInitFailureIssue(ctx, store.SetInitFailureIssueParams{Issue: number, ID: failure.ID})
+	return e.createRecordIssue(ctx, repository, workstream, title, initFailureBody(failure, e.config.CheckTimeout.String()), []string{readyLabel}, func(q *store.Queries, row int64) error {
+		return q.SetInitFailureIssueRow(ctx, store.SetInitFailureIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: failure.ID})
+	})
 }
