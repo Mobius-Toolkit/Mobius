@@ -1850,16 +1850,16 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		}
 		issue = updated
 	}
+	// The label can be on GitHub after a failed call, so the own write stays.
+	if _, err := addOwnWrite(ctx, e.queries, repository.FullName, int64(issue.GetNumber()), workstreamField, workstreamLabel, labeledChange); err != nil {
+		return "", fmt.Errorf("GitHub created #%d, but Mobius could not save the own write of the Workstream label. Approve the action again: %w", issue.GetNumber(), err)
+	}
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
-	if err := e.inTx(ctx, func(q *store.Queries) error {
-		_, err := e.addWorkstreamRow(ctx, q, repository.FullName, issue)
-		return err
-	}); err != nil {
-		log.Printf("add the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
+	if _, err := e.addWorkstreamFromEvent(ctx, repository, issue, appLogin(repository.AppSlug), false); err != nil {
+		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream failed. Approve the action again: %w", issue.GetNumber(), err)
 	}
-	e.publish(Change{Workstreams: true})
 	if c.role == CoordinatorRole {
 		e.publish(Change{Created: &Created{repository.FullName, int64(issue.GetNumber())}})
 	}

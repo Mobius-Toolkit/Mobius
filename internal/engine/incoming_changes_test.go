@@ -173,7 +173,7 @@ func TestAFailedLabelWriteLeavesNoOwnWrite(t *testing.T) {
 	}
 }
 
-func TestATrustedChangeWaitsForTheCopyOfTheRepositoryAndThenChangesTheNewWorkstream(t *testing.T) {
+func TestATrustedChangeOfTheLevelAfterTheWorkstreamLabelChangesTheNewWorkstreamWhileTheTreeCopyFails(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
@@ -183,14 +183,7 @@ func TestATrustedChangeWaitsForTheCopyOfTheRepositoryAndThenChangesTheNewWorkstr
 	fake.AddLabel(shop, 13, "mobius:autopilot", "owner")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 
-	testkit.WaitFor(t, func() bool { return incomingChanges(t, server, "pending") == 1 })
-	waitForPolls(t, fake)
-	if got := incomingChanges(t, server, "pending"); got != 1 {
-		t.Errorf("pending incoming changes = %d", got)
-	}
-	fake.FailSubIssues(shop, 13, false)
-
-	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 2 })
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(workstreams(t, server), func(w workstream) bool { return w.Number == 13 && w.Autopilot == "start" })
 	})

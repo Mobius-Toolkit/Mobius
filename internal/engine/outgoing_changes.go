@@ -33,6 +33,8 @@ const (
 	skillsField            = "skills"
 	bodyField              = "body"
 	stateField             = "state"
+	workstreamField        = "workstream"
+	titleField             = "title"
 	approvalCommentField   = "approval_comment"
 )
 
@@ -231,7 +233,7 @@ func (e *Engine) send(ctx context.Context, repository github.Repository, change 
 	if _, setting := settingLabels[change.Field]; setting {
 		return e.sendSetting(ctx, repository, change)
 	}
-	if change.Field == bodyField || change.Field == stateField {
+	if slices.Contains([]string{workstreamField, stateField, titleField, bodyField}, change.Field) {
 		return e.sendWorkstream(ctx, repository, change)
 	}
 	if read {
@@ -466,41 +468,60 @@ func (e *Engine) sendSetting(ctx context.Context, repository github.Repository, 
 		maintenanceField: settings.Maintenance,
 		skillsField:      settings.Skills,
 	}[change.Field]
-	label := settingLabels[change.Field]
-	if hasLabel(issue, label) != on {
-		kind := unlabeledChange
-		if on {
-			kind = labeledChange
-		}
-		ownWrite, err := addOwnWrite(ctx, e.queries, change, label, kind)
-		if err != nil {
-			return false, err
-		}
-		if on {
-			err = repository.AddLabel(ctx, change.Number, label)
-		} else {
-			err = repository.RemoveLabel(ctx, change.Number, label)
-		}
-		if err != nil {
-			if err := e.queries.DeleteOwnWrite(ctx, ownWrite); err != nil {
-				return false, err
-			}
-			return e.failed(ctx, repository, change, err)
-		}
-	}
-	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
+	return e.sendLabel(ctx, repository, change, issue, settingLabels[change.Field], on)
 }
 
-// sendWorkstream writes the body or state of the Workstream from workstreams to the issue on GitHub when GitHub
-// differs. A Workstream with no row or no issue is refused.
-func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
-	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: change.Number})
-	if errors.Is(err, sql.ErrNoRows) {
-		log.Printf("write the %s of %s#%d: the Workstream has no row", change.Field, change.Repository, change.Number)
-		return false, e.refuse(ctx, change)
+// sendLabel adds the label to the issue when on is true and the issue lacks it, and removes the label when on is false
+// and the issue has it.
+func (e *Engine) sendLabel(ctx context.Context, repository github.Repository, change store.OutgoingChange, issue *gh.Issue, label string, on bool) (bool, error) {
+	if hasLabel(issue, label) == on {
+		return false, e.markSent(ctx, change)
 	}
+	kind := unlabeledChange
+	if on {
+		kind = labeledChange
+	}
+	return e.sendWrite(ctx, repository, change, label, kind, func() error {
+		if on {
+			return repository.AddLabel(ctx, change.Number, label)
+		}
+		return repository.RemoveLabel(ctx, change.Number, label)
+	})
+}
+
+// sendWrite adds the own write of the change for the event of kind that write makes, calls write, and marks the change
+// sent. A failed write deletes the own write, because GitHub made no event.
+func (e *Engine) sendWrite(ctx context.Context, repository github.Repository, change store.OutgoingChange, label, kind string, write func() error) (bool, error) {
+	ownWrite, err := addOwnWrite(ctx, e.queries, change.Repository, change.Number, change.Field, label, kind)
 	if err != nil {
 		return false, err
+	}
+	if err := write(); err != nil {
+		if err := e.queries.DeleteOwnWrite(ctx, ownWrite); err != nil {
+			return false, err
+		}
+		return e.failed(ctx, repository, change, err)
+	}
+	return false, e.markSent(ctx, change)
+}
+
+func (e *Engine) markSent(ctx context.Context, change store.OutgoingChange) error {
+	return e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
+}
+
+// sendWorkstream writes the field of the Workstream from workstreams to the issue on GitHub when GitHub differs: the
+// label mobius:workstream, the state, the title or the body. The label is on the issue only when the issue has a row.
+// The removal of the label of an issue with no row copies the trees again, because the poll copied them with the label.
+// The other fields are refused for an issue with no row. A Workstream with no issue is refused.
+func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: change.Repository, Number: change.Number})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	stored := err == nil
+	if !stored && change.Field != workstreamField {
+		log.Printf("write the %s of %s#%d: the Workstream has no row", change.Field, change.Repository, change.Number)
+		return false, e.refuse(ctx, change)
 	}
 	issue, err := repository.Issue(ctx, change.Number)
 	if err != nil {
@@ -509,28 +530,44 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 	if issue == nil {
 		return false, e.refuse(ctx, change)
 	}
+	update := func(request gh.UpdateIssueRequest) error {
+		_, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), request)
+		return err
+	}
 	switch change.Field {
+	case workstreamField:
+		pending, err := e.sendLabel(ctx, repository, change, issue, workstreamLabel, stored)
+		if pending || err != nil || stored {
+			return pending, err
+		}
+		if err := e.recopyAfterRemoval(ctx, repository, change.Number); err != nil {
+			log.Printf("copy the trees after the removal of the label of %s#%d: %v", change.Repository, change.Number, err)
+		}
+		return false, nil
 	case bodyField:
 		body := e.withChatLink(repository, change.Number, row.Body)
 		if issue.GetBody() != body {
-			if _, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), gh.UpdateIssueRequest{Body: &body}); err != nil {
+			if err := update(gh.UpdateIssueRequest{Body: &body}); err != nil {
 				return e.failed(ctx, repository, change, err)
 			}
+		}
+	case titleField:
+		if issue.GetTitle() != row.Title {
+			return e.sendWrite(ctx, repository, change, "", renamedChange, func() error { return update(gh.UpdateIssueRequest{Title: &row.Title}) })
 		}
 	case stateField:
-		if issue.GetState() != row.State {
-			var err error
-			if row.State == "closed" {
-				_, err = repository.CloseIssue(ctx, change.Number, "completed")
-			} else {
-				_, _, err = repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(change.Number), gh.UpdateIssueRequest{State: new("open")})
-			}
-			if err != nil {
-				return e.failed(ctx, repository, change, err)
-			}
+		switch {
+		case issue.GetState() == row.State:
+		case row.State == "closed":
+			return e.sendWrite(ctx, repository, change, "", closedChange, func() error {
+				_, err := repository.CloseIssue(ctx, change.Number, "completed")
+				return err
+			})
+		default:
+			return e.sendWrite(ctx, repository, change, "", reopenedChange, func() error { return update(gh.UpdateIssueRequest{State: new("open")}) })
 		}
 	}
-	return false, e.queries.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: change.ID})
+	return false, e.markSent(ctx, change)
 }
 
 // deleteOldIncomingChanges deletes each done incoming change and each own write that is older than finishedChangeLife.

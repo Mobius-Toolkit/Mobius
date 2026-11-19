@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -162,6 +163,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.applyIncomingChanges(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.retryWorkstreamCloses(ctx, repository); err != nil {
+		return err
+	}
 	e.checkCopiedTrees(ctx, repository)
 	e.fillBuckets(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
@@ -223,8 +227,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
-// call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
-// moves the cursors to the last change. It adds the incoming changes of the new setting label events in the transaction
+// call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, and
+// moves the cursors to the last change. It adds the incoming changes of the new events of the fields of a Workstream
+// (the labels, the state and the title), and of a new edit of the Brief of a Workstream, in the transaction
 // of the issue cursor. The first poll of a repository has no issues row in the cursors, so it reads
 // all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
 // issue cursor. A repository with no issue has a row with no time, so its next poll is not a first poll.
@@ -291,7 +296,8 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	listChanged := false
-	var settingEvents []settingEvent
+	var changeEvents []changeEvent
+	var bodyChanges []store.AddIncomingChangeParams
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
 		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since, firstPoll)
@@ -320,8 +326,14 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
+		// An issue with an own write has the event of that write, also when a write removed its Workstream label.
+		writing, err := e.queries.HasOwnWrite(ctx, store.HasOwnWriteParams{Repository: repository.FullName, Number: number})
+		if err != nil {
+			return err
+		}
+		changing := labeled || stored || writing
 		var events []*gh.IssueEvent
-		if labeled || work || stored {
+		if changing || work {
 			if events, err = e.issueEvents(ctx, repository, number); err != nil {
 				return err
 			}
@@ -330,15 +342,19 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			if event.Actor == nil || event.GetCreatedAt().Before(since) {
 				continue
 			}
-			if event.GetCreatedAt().After(since) {
-				if err := e.workstreamEvent(ctx, repository, issue, event, firstPoll); err != nil {
-					return err
-				}
+			// The cursor has a precision of one second, so an event in the second of the cursor can be new. An incoming
+			// change keeps the id of each event that the poll read, so a second read does nothing.
+			if changing && !firstPoll {
+				changeEvents = append(changeEvents, changeEvent{number, event})
 			}
-			// The cursor has a precision of one second, so a setting label event in the second of the cursor can be new.
-			// An incoming change keeps the id of each event that the poll read, so a second read does nothing.
-			if labeled && !firstPoll {
-				settingEvents = append(settingEvents, settingEvent{number, event})
+		}
+		if stored && !firstPoll {
+			change, err := e.bodyChange(ctx, repository, issue, since)
+			if err != nil {
+				return err
+			}
+			if change != nil {
+				bodyChanges = append(bodyChanges, *change)
 			}
 		}
 		// After a failed update, the next poll copies the repository again.
@@ -371,8 +387,13 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 	}
 	return e.inTx(ctx, func(q *store.Queries) error {
-		if err := addSettingChanges(ctx, q, repository, settingEvents); err != nil {
+		if err := addEventChanges(ctx, q, repository, changeEvents); err != nil {
 			return err
+		}
+		for _, change := range bodyChanges {
+			if err := q.AddIncomingChange(ctx, change); err != nil {
+				return err
+			}
 		}
 		return q.SetSyncCursor(ctx, store.SetSyncCursorParams{
 			Repository: repository.FullName,
@@ -392,35 +413,41 @@ func (e *Engine) routeComments(ctx context.Context, repository github.Repository
 	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
-// workstreamEvent acts on a new event of the issue. A Workstream label of a trusted actor adds, after the first poll,
-// the Workstream and a creation event for the Lead. After the first poll, a removal of the Workstream label deletes the
-// Workstream and stops its work, and a close or a reopen of a trusted actor closes or reopens the Workstream.
-func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, event *gh.IssueEvent, firstPoll bool) error {
-	if firstPoll {
-		return nil
-	}
+// bodyChange gives the incoming change of an edit of the body of the Workstream issue that the issue cursor since did
+// not pass, or nil when the body of the issue with no link line of the Lead chat equals the Brief in workstreams, when an
+// outgoing body change of the issue waits, or when the newest edit is older than since. The body of the issue differs
+// from the row while that change waits, so the edit is no change of a person.
+func (e *Engine) bodyChange(ctx context.Context, repository github.Repository, issue *gh.Issue, since time.Time) (*store.AddIncomingChangeParams, error) {
 	number := int64(issue.GetNumber())
-	actor := event.GetActor().GetLogin()
-	trusted := e.TrustedAuthor(repository.AppSlug, actor)
-	workstreamChange := event.GetLabel().GetName() == workstreamLabel
-	switch {
-	case event.GetEvent() == "labeled" && workstreamChange && trusted:
-		copyFailed, err := e.addWorkstreamFromEvent(ctx, repository, issue, actor, e.copied[repository.FullName])
-		if copyFailed {
-			delete(e.copied, repository.FullName)
-		}
-		return err
-	// A removal from any actor counts, because it only stops work.
-	case event.GetEvent() == "unlabeled" && workstreamChange:
-		return e.removeWorkstream(ctx, repository, number)
-	case event.GetEvent() == "closed" && trusted:
-		return e.handleWorkstreamClose(ctx, repository, number)
-	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
-		copyFailed, err := e.reopenWorkstream(ctx, repository, issue, actor, e.copied[repository.FullName])
-		if copyFailed {
-			delete(e.copied, repository.FullName)
-		}
-		return err
+	row, err := e.queries.GetWorkstream(ctx, store.GetWorkstreamParams{Repository: repository.FullName, Number: number})
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	brief := e.WithoutChatLink(repository.FullName, number, issue.GetBody())
+	if brief == row.Body {
+		return nil, nil
+	}
+	pending, err := e.pendingChanges(ctx, repository.FullName, number)
+	if err != nil || slices.ContainsFunc(pending, func(change store.OutgoingChange) bool { return change.Field == bodyField }) {
+		return nil, err
+	}
+	edit, err := repository.IssueNewestBodyEdit(ctx, number)
+	if err != nil || edit == nil || edit.EditedAt.Before(since) {
+		return nil, err
+	}
+	metadata, err := json.Marshal(map[string]string{"body": brief})
+	if err != nil {
+		return nil, err
+	}
+	return &store.AddIncomingChangeParams{
+		ExternalID: edit.ID,
+		Repository: repository.FullName,
+		Number:     number,
+		Field:      bodyField,
+		Change:     editedChange,
+		Actor:      edit.Editor,
+		Metadata:   string(metadata),
+		Status:     "pending",
+		CreatedAt:  now(),
+	}, nil
 }

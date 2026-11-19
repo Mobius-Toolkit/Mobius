@@ -140,7 +140,7 @@ func TestACloseAsWontDoOfAClosedWorkstreamIsRefused(t *testing.T) {
 	if status, body := closeWontDo(t, server, 41); status != http.StatusConflict {
 		t.Errorf("status of a task = %d: %s", status, body)
 	}
-	waitForPoll(t, server, fake)
+	testkit.WaitFor(t, func() bool { return !slices.Contains(workstreamNumbers(t, server), 12) })
 	if status, body := send(t, server, http.MethodGet, "/api/workstreams/owner/shop/12/closure", ""); status != http.StatusConflict {
 		t.Errorf("closure status = %d: %s", status, body)
 	}
@@ -227,6 +227,29 @@ func startClose(t *testing.T, server *testserver.Server) <-chan int {
 func waitForNoWorkstream(t *testing.T, server *testserver.Server) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
+}
+
+func TestTheCloseOfTheWorkstreamIssueByAWontDoCloseAddsNoWriteBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	waitForPolls(t, fake)
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE number = 12 AND field = 'state'"); got != 0 {
+		t.Errorf("state outgoing changes = %d", got)
+	}
+	if got := incomingChanges(t, server, "pending"); got != 0 {
+		t.Errorf("pending incoming changes = %d", got)
+	}
+	if state, _ := fake.State(shop, 12); state != "closed" {
+		t.Errorf("state = %s", state)
+	}
 }
 
 func TestACloseAsWontDoHidesTheWorkstreamWhileTheCloseRuns(t *testing.T) {
