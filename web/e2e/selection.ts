@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 // Selects the first text of the element that holds the words, as the Owner does with a pointer.
 export async function selectText(element: Locator, words: string) {
@@ -42,18 +42,16 @@ export const routeBrief = (page: Page, repository: string, number: number, brief
     await route.fulfill({ response, json: body });
   });
 
-// A phone shows the Brief in its own sheet. A desktop shows it in the tab Brief of the side panel.
-export const briefOf = (page: Page) =>
-  page
-    .getByRole("tabpanel", { name: "Brief" })
-    .or(page.getByRole("dialog", { name: "Brief" }))
-    .filter({ visible: true });
+// A phone shows the Brief in its own sheet. A desktop shows it in a dialog.
+export const briefOf = (page: Page) => page.getByRole("dialog", { name: "Brief" });
 
-export async function openBriefTab(page: Page, device: string) {
-  if (device === "phone") {
-    await page.getByRole("banner").getByRole("button", { name: "Brief", exact: true }).click();
-  } else {
-    await page.getByRole("tab", { name: "Brief" }).click();
-  }
+// The Brief button of the top bar of a phone, or of the chat head of a desktop.
+export const briefButton = (page: Page) =>
+  page.getByRole("button", { name: "Brief", exact: true }).filter({ visible: true });
+
+export async function showBrief(page: Page) {
+  await briefButton(page).click();
+  // The Mount of the dialog moves it to the body and focuses it. The move ends a selection inside the dialog.
+  await expect(briefOf(page)).toBeFocused();
   return briefOf(page);
 }

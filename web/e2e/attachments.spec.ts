@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { png } from "./images.js";
 import {
-  openBriefTab,
+  showBrief,
   routeBrief,
   selectionBottom,
   selectionIsEmpty,
@@ -460,7 +460,7 @@ for (const [device, viewport] of [
     });
   });
 
-  test.describe(`a selection in the Brief tab on a ${device}`, () => {
+  test.describe(`a selection in the Brief on a ${device}`, () => {
     test.use({ viewport });
 
     const brief =
@@ -476,7 +476,7 @@ for (const [device, viewport] of [
 
       await page.goto(shop);
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
-      const tab = await openBriefTab(page, device);
+      const tab = await showBrief(page);
       await expect(tab.getByText("Points on every order")).toBeVisible();
       await expect(popover).toHaveCount(0);
 
@@ -494,9 +494,7 @@ for (const [device, viewport] of [
       await expect(card).toContainText("Brief of #12 · Scope");
       await expect(card).toContainText("Points on every order");
       await expect(popover).toHaveCount(0);
-      if (device === "phone") {
-        await expect(page.getByRole("dialog", { name: "Brief" })).toHaveCount(0);
-      }
+      await expect(page.getByRole("dialog", { name: "Brief" })).toHaveCount(0);
       expect(await selectionIsEmpty(page)).toBe(true);
     });
 
@@ -510,7 +508,7 @@ for (const [device, viewport] of [
 
       await page.goto(shop);
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
-      const tab = await openBriefTab(page, device);
+      const tab = await showBrief(page);
       await selectText(tab, "price of a plan");
       await page.getByRole("button", { name: "Add to chat" }).click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(1);

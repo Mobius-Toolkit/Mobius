@@ -105,8 +105,7 @@ func TestTheDetailsOfAWorkstreamCountTheIssuesBelowABucketAndNotTheBucketAndTheC
 func TestAnOpenBucketThatTheLeadCreatedWithNoWorkstreamStartsNoTriager(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectLeadWrites(t, fake, "gh issue create -R owner/shop --title 'Bucket 1 of #12' --label mobius:bucket")
-	leadWrites(t, server, 1)
+	server, _ := connectTriager(t, fake)
 
 	fake.CreateLabeledIssue(shop, 52, "Bucket 1 of #12", "A bucket.", app, "mobius:bucket")
 

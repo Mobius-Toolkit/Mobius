@@ -16,9 +16,10 @@ export const McpSearch = Schema.Struct({
 
 export type McpSearch = typeof McpSearch.Type;
 
-// task is "<owner>/<name>/<number>" of the task whose setting opens.
+// task is "<owner>/<name>/<number>" of the task whose setting opens. The tab "brief" opens the Brief, which is no tab
+// of the panel.
 export const WorkstreamSearch = Schema.Struct({
-  tab: lenient(Tab),
+  tab: lenient(Schema.Union([Tab, Schema.Literal("brief")])),
   setting: lenient(Session),
   task: lenient(Schema.String),
 });

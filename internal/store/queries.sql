@@ -793,6 +793,9 @@ SELECT EXISTS (SELECT 1 FROM outgoing_changes WHERE issue = ? AND field = ? AND 
 -- name: ListPendingBlockerIssues :many
 SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'blockers' AND status = 'pending' AND issue IS NOT NULL;
 
+-- name: ListPendingParentIssues :many
+SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'parent' AND status = 'pending' AND issue IS NOT NULL;
+
 -- name: GetCreateChange :one
 SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
 
@@ -808,6 +811,9 @@ SELECT EXISTS (
 
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
+
+-- name: RefuseIssueChanges :exec
+UPDATE outgoing_changes SET status = 'refused' WHERE status = 'pending' AND issue = ?;
 
 -- name: DeleteFinishedOutgoingChanges :exec
 DELETE FROM outgoing_changes WHERE status <> 'pending' AND julianday(created_at) < julianday(?);
@@ -927,16 +933,32 @@ UPDATE issues SET workstream = NULL, parent = NULL
 WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?);
 
 -- The tree of a Workstream with a pending close stays, because the close reads it.
+-- An issue with no number, a pending create or parent change, or a recent parent change stays.
 -- name: DeleteCopiedBlockersOfSettledTrees :exec
 DELETE FROM blockers WHERE issue IN (
-    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream
+    WHERE w.repository = sqlc.arg(repository) AND w.close_pending = 0
+      AND i.number IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM outgoing_changes c
+          WHERE c.issue = i.id
+            AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+                 OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(sqlc.arg(keep_since))))
+      )
 ) AND NOT EXISTS (
     SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
 );
 
 -- name: DetachCopiedSettledTrees :exec
 UPDATE issues SET workstream = NULL, parent = NULL
-WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0);
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = sqlc.arg(repository) AND w.close_pending = 0)
+  AND number IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM outgoing_changes c
+      WHERE c.issue = issues.id
+        AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+             OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(sqlc.arg(keep_since))))
+  );
 
 -- name: DeleteCopiedWorkstream :execrows
 DELETE FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
@@ -949,6 +971,32 @@ DELETE FROM blockers WHERE issue IN (SELECT i.id FROM issues i WHERE i.workstrea
 
 -- name: DetachCopiedTree :exec
 UPDATE issues SET workstream = NULL, parent = NULL WHERE workstream = ?;
+
+-- name: DeleteCopiedBlockersOfOpenTree :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i
+    WHERE i.workstream = sqlc.arg(workstream)
+      AND i.number IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM outgoing_changes c
+          WHERE c.issue = i.id
+            AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+                 OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(sqlc.arg(keep_since))))
+      )
+) AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
+);
+
+-- name: DetachCopiedOpenTree :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE issues.workstream = sqlc.arg(workstream)
+  AND issues.number IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM outgoing_changes c
+      WHERE c.issue = issues.id
+        AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+             OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(sqlc.arg(keep_since))))
+  );
 
 -- An issue that is in no tree keeps no pending outgoing change and no blockers row, so deleting an unused issue
 -- row leaves no orphan blocker or pending change for a reused id.
@@ -1038,7 +1086,13 @@ ON CONFLICT (repository, number) DO UPDATE SET
         ELSE excluded.body
     END,
     state = excluded.state, author = excluded.author,
-    workstream = excluded.workstream, parent = excluded.parent, kind = excluded.kind,
+    workstream = excluded.workstream,
+    parent = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'parent' AND c.status = 'pending')
+        THEN issues.parent
+        ELSE excluded.parent
+    END,
+    kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id;
 
@@ -1189,11 +1243,32 @@ LEFT JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
 WHERE i.id = ?;
+
+-- The row has no number until the send of its create writes it.
+-- name: AddIssueToCreate :one
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, metadata)
+VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(author),
+        sqlc.arg(workstream), sqlc.arg(parent), 'task', sqlc.arg(metadata))
+RETURNING id;
+
+-- name: SetIssueNumber :execrows
+UPDATE issues
+SET number = sqlc.arg(number),
+    metadata = json_remove(json_set(metadata, '$.github.id', sqlc.arg(github_id)), '$.mobius')
+WHERE id = sqlc.arg(id) AND number IS NULL;
+
+-- name: SetIssueAwaitsNumber :execrows
+UPDATE issues
+SET metadata = json_set(metadata, '$.mobius.awaits_number', json('true'))
+WHERE id = ? AND number IS NULL;
+
+-- name: DeleteIssueToCreate :exec
+DELETE FROM issues WHERE id = ? AND number IS NULL;
 
 -- name: SetIssueBody :execrows
 UPDATE issues SET body = ? WHERE id = ?;
@@ -1257,7 +1332,7 @@ SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) 
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
-JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' AND bi.number IS NOT NULL
 LEFT JOIN workstreams bw ON bw.id = coalesce(bi.workstream, json_extract(bi.metadata, '$.github.workstream'))
   AND bw.repository = w.repository AND bi.repository = w.repository
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
@@ -1276,7 +1351,7 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS I
     instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(question) AS TEXT))) > 0 AS has_question
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
-WHERE has_needs_human OR has_question
+WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (has_needs_human OR has_question)
 ORDER BY w.repository, w.number, i.number;
 
 -- name: ListEndedTaskIssueLabels :many
@@ -1714,7 +1789,7 @@ ORDER BY ci_failure_places.id;
 INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListLeadWrites :many
-SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR kind = 'created') ORDER BY id;
+SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND issue = ? ORDER BY id;
 
 -- name: SetLeadWriteItem :exec
 UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;

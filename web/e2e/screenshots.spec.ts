@@ -36,7 +36,7 @@ import {
 } from "./missing-workstreams.js";
 import { addMcpServer, deleteMcpServers, selectMcpServers } from "./mcp-servers.js";
 import { png } from "./images.js";
-import { briefOf, openBriefTab, routeBrief, selectText } from "./selection.js";
+import { briefOf, showBrief, routeBrief, selectText } from "./selection.js";
 import { retryFailure, retryUpgrade, routeUpgrade, upgradeRoute } from "./upgrade.js";
 import { longTaskTitle, routeLongTask, tasksUrl } from "./long-task.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -654,19 +654,15 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-brief-sheet",
     "/workstreams/plants/garden/19",
-    (device) => [
-      ...briefFrame(device, 19),
-      ...(device === "desktop" ? [page.getByRole("tab", { name: "Brief" })] : []),
-      briefOf(page).getByText("Put bark on the beds."),
-    ],
-    (device) => openBriefTab(page, device).then(() => undefined),
+    (device) => [...briefFrame(device, 19), briefOf(page).getByText("Put bark on the beds.")],
+    () => showBrief(page).then(() => undefined),
   );
   await screenshot(page, "chat-phone-top-bar", "/workstreams/plants/garden/18", (device) => [
     ...briefFrame(device, 18),
     page.getByRole("button", { name: "Brief" }).filter({ visible: true }),
     ...(device === "phone" ? [page.getByRole("button", { name: "Tasks", exact: true })] : []),
   ]);
-  // The Brief of a phone has its own sheet, so the panel sheet has no tab Brief.
+  // The Brief has its own dialog, so the panel has no tab Brief.
   await screenshot(
     page,
     "chat-panel-sheet",
@@ -679,8 +675,8 @@ test("screenshots", async ({ page }) => {
     async (device) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
-        await expect(page.getByRole("tab", { name: "Brief" })).toHaveCount(0);
       }
+      await expect(page.getByRole("tab", { name: "Brief" })).toHaveCount(0);
     },
   );
   // The nav shows the Workstream rows before it reads the "needs you" list and the unread counts, the organization dot
@@ -1216,9 +1212,9 @@ test("screenshots", async ({ page }) => {
     "chat-brief-selection-popover",
     "/workstreams/owner/shop/12",
     (device) => [...briefReady(device), briefOf(page).getByText("Points on every order")],
-    async (device) => {
+    async () => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
-      const tab = await openBriefTab(page, device);
+      const tab = await showBrief(page);
       await selectText(tab, "Points on every order");
     },
     () => page.evaluate("getSelection().removeAllRanges()"),
@@ -1233,9 +1229,9 @@ test("screenshots", async ({ page }) => {
       composer.locator("[data-selection-card]"),
       chatEnd,
     ],
-    async (device) => {
+    async () => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
-      const tab = await openBriefTab(page, device);
+      const tab = await showBrief(page);
       await selectText(tab, "Points on every order");
       await quotePopover.click();
       await expect(composer.locator("[data-selection-card]")).toHaveCount(1);

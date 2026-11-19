@@ -158,7 +158,7 @@ export const Model = Schema.Struct({
   // Screen UI state
   openMenu: Schema.Option(Schema.String),
   mobileTasksOpen: Schema.Boolean,
-  mobileBriefOpen: Schema.Boolean,
+  briefOpen: Schema.Boolean,
   wide: Schema.Boolean,
   autopilotBusy: Schema.Boolean,
   autopilotError: Schema.String,
@@ -259,7 +259,7 @@ export const initialModel = (route: AppRoute): Model => {
     upgrade: initialUpgradeState,
     openMenu: Option.none(),
     mobileTasksOpen: false,
-    mobileBriefOpen: false,
+    briefOpen: false,
     wide: typeof window !== "undefined" ? window.matchMedia(wideQuery).matches : true,
     autopilotBusy: false,
     autopilotError: "",

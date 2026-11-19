@@ -53,12 +53,6 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 	labeled := hasLabel(issue, triageLabel)
 	labeledAt := ""
 	trustedCreator := e.trustedUser(issue.GetUser().GetLogin())
-	if !trustedCreator {
-		var err error
-		if trustedCreator, err = e.leadCreated(ctx, repository, issue); err != nil {
-			return false, err
-		}
-	}
 	if !labeled && (!trustedCreator || issue.GetCreatedAt().Before(since)) {
 		return false, nil
 	}

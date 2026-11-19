@@ -119,6 +119,10 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	// depths holds the depth of the sub-issues of each issue by its id. The id 0 is the Workstream issue.
 	depths := map[int64]int64{}
 	for _, row := range tree {
+		if row.Number == 0 {
+			depths[row.ID] = depths[row.Parent.Int64]
+			continue
+		}
 		issueRepositoryName := repositoryName
 		own := strings.EqualFold(row.IssueRepository, repositoryName)
 		if !own {

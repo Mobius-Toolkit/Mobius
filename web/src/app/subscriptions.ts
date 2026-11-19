@@ -257,7 +257,7 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
           Option.isSome(model.heldSheet) ||
           model.loginShown ||
           (model.mobileTasksOpen && !Option.exists(model.panel, hasOpenOverlay)) ||
-          model.mobileBriefOpen,
+          model.briefOpen,
       }),
       dependenciesToStream: ({ open }) =>
         open ? escapeKey(Message.PressedEscape()) : Stream.empty,

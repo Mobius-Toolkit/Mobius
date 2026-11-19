@@ -26,13 +26,12 @@ const (
 
 // leadItem is an item of the Mobius App on GitHub that can be a write of the Lead.
 type leadItem struct {
-	// kind is labeled, unlabeled, created or commented.
-	kind string
-	// id is the id of the event or the comment, or the number of the issue for created.
+	// kind is labeled, unlabeled or commented.
+	kind  string
 	id    int64
 	issue int64
 	label string
-	// text is the title of the issue for created, or the body of the comment.
+	// text is the body of the comment.
 	text string
 	at   time.Time
 }
@@ -61,28 +60,19 @@ func (a *Agent) recordGHWrites(ctx context.Context, writes []mcp.GHWrite) error 
 }
 
 // matchesLeadWrite tells if the item of the repository is the write. A write that already has an item matches only that
-// item. A label event on the issue that a created write made also matches that write.
+// item.
 func matchesLeadWrite(write store.LeadWrite, repository string, item leadItem) bool {
-	if !strings.EqualFold(write.Repository, repository) {
+	if !strings.EqualFold(write.Repository, repository) || write.Kind != item.kind || write.Issue != item.issue {
 		return false
 	}
-	labelOfCreated := write.Kind == "created" && item.kind == "labeled"
-	switch {
-	case labelOfCreated:
-		if !write.Item.Valid || write.Item.Int64 != item.issue {
-			return false
-		}
-	case write.Kind != item.kind || write.Kind != "created" && write.Issue != item.issue:
-		return false
-	case write.Item.Valid:
+	if write.Item.Valid {
 		return write.Item.Int64 == item.id
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, write.CreatedAt)
 	if err != nil || item.at.Before(createdAt.Add(-leadWriteBefore)) || item.at.After(createdAt.Add(leadWriteAfter)) {
 		return false
 	}
-	switch item.kind {
-	case "commented", "created":
+	if item.kind == "commented" {
 		return strings.TrimSpace(write.Text) == strings.TrimSpace(item.text)
 	}
 	var labels []string
@@ -96,7 +86,7 @@ func (e *Engine) matchLeadWrite(ctx context.Context, writes []store.LeadWrite, r
 		if !matchesLeadWrite(write, repository, item) {
 			continue
 		}
-		if write.Item.Valid || write.Kind == "created" && item.kind != "created" {
+		if write.Item.Valid {
 			return true, nil
 		}
 		writes[i].Item = sql.NullInt64{Int64: item.id, Valid: true}
@@ -140,20 +130,6 @@ func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, 
 		}
 	}
 	return result, nil
-}
-
-// leadCreated tells if the issue is a new issue of the Mobius App that is a write of the Lead.
-func (e *Engine) leadCreated(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
-	if !strings.EqualFold(issue.GetUser().GetLogin(), appLogin(repository.AppSlug)) {
-		return false, nil
-	}
-	number := int64(issue.GetNumber())
-	writes, err := e.queries.ListLeadWrites(ctx, store.ListLeadWritesParams{Repository: repository.FullName, Issue: number})
-	if err != nil {
-		return false, err
-	}
-	item := leadItem{kind: "created", id: number, issue: number, text: issue.GetTitle(), at: issue.GetCreatedAt().Time}
-	return e.matchLeadWrite(ctx, writes, repository.FullName, item)
 }
 
 // leadCommented tells if the comment is a comment of the Mobius App that is a write of the Lead.

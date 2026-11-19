@@ -80,7 +80,7 @@ describe("the tabs of the panel", () => {
   it("reads the data of a tab when the Owner opens it, and tells the host the tab", () => {
     story(
       update,
-      given(createModel("brief")),
+      given(createModel("agents")),
       message(Message.SelectedTab({ tab: "tasks" })),
       model((m) => {
         expect(m.tab).toBe("tasks");
@@ -133,19 +133,6 @@ describe("the tabs of the panel", () => {
     );
   });
 
-  it("reads nothing for the Brief tab", () => {
-    story(
-      update,
-      given(createModel("tasks")),
-      message(Message.SelectedTab({ tab: "brief" })),
-      model((m) => {
-        expect(m.tab).toBe("brief");
-      }),
-      StoryCommand.expectHas(ReportTab),
-      StoryCommand.resolve(ReportTab, Message.CompletedReportTab()),
-    );
-  });
-
   it("starts a tab with no data from the earlier visit", () => {
     const stale = createModel("details");
     const withAgent = {
@@ -191,7 +178,7 @@ describe("the tabs of the panel", () => {
   it("keeps the Brief that the store gives", () => {
     story(
       update,
-      given(createModel("brief")),
+      given(createModel("tasks")),
       message(Message.ReceivedBrief({ brief: "Build the shop." })),
       model((m) => {
         expect(m.brief).toBe("Build the shop.");
@@ -289,11 +276,11 @@ describe("the task that the host asks for", () => {
   });
 });
 
-describe("the selection in the Brief tab", () => {
+describe("the selection in the Brief", () => {
   it("puts a selection of the Brief in the draft of the Lead chat of the Workstream", () => {
     story(
       update,
-      given(createModel("brief")),
+      given(createModel("tasks")),
       message(Message.GotSelectionMessage({ message: SelectionFixture.selected })),
       message(Message.GotSelectionMessage({ message: SelectionFixture.addClicked })),
       model((m) => {
@@ -324,7 +311,7 @@ describe("the selection in the Brief tab", () => {
     story(
       update,
       given(
-        createModel("brief", {
+        createModel("agents", {
           selection: {
             owner: "brief",
             text: "x",
@@ -437,17 +424,6 @@ describe("the reads after a live change", () => {
       update,
       given(createModel("tasks")),
       message(Message.RecurringChanged({ repository: "owner/shop", number: 12 })),
-      StoryCommand.expectNone(),
-    );
-  });
-
-  it("does not read the Brief tab again", () => {
-    story(
-      update,
-      given(createModel("brief")),
-      message(Message.ConnectionOpened()),
-      StoryCommand.expectNone(),
-      message(Message.WorkstreamsChanged()),
       StoryCommand.expectNone(),
     );
   });

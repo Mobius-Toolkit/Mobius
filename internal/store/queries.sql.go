@@ -300,7 +300,13 @@ ON CONFLICT (repository, number) DO UPDATE SET
         ELSE excluded.body
     END,
     state = excluded.state, author = excluded.author,
-    workstream = excluded.workstream, parent = excluded.parent, kind = excluded.kind,
+    workstream = excluded.workstream,
+    parent = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'parent' AND c.status = 'pending')
+        THEN issues.parent
+        ELSE excluded.parent
+    END,
+    kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id
 `
@@ -677,6 +683,39 @@ func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) 
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const addIssueToCreate = `-- name: AddIssueToCreate :one
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, metadata)
+VALUES (?1, ?2, ?3, 'open', ?4,
+        ?5, ?6, 'task', ?7)
+RETURNING id
+`
+
+type AddIssueToCreateParams struct {
+	Repository string
+	Title      string
+	Body       string
+	Author     string
+	Workstream sql.NullInt64
+	Parent     sql.NullInt64
+	Metadata   string
+}
+
+// The row has no number until the send of its create writes it.
+func (q *Queries) AddIssueToCreate(ctx context.Context, arg AddIssueToCreateParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addIssueToCreate,
+		arg.Repository,
+		arg.Title,
+		arg.Body,
+		arg.Author,
+		arg.Workstream,
+		arg.Parent,
+		arg.Metadata,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const addLeadEvent = `-- name: AddLeadEvent :one
@@ -1940,17 +1979,57 @@ func (q *Queries) DeleteCopiedBlockersOfIssue(ctx context.Context, issue int64) 
 	return err
 }
 
-const deleteCopiedBlockersOfSettledTrees = `-- name: DeleteCopiedBlockersOfSettledTrees :exec
+const deleteCopiedBlockersOfOpenTree = `-- name: DeleteCopiedBlockersOfOpenTree :exec
 DELETE FROM blockers WHERE issue IN (
-    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+    SELECT i.id FROM issues i
+    WHERE i.workstream = ?1
+      AND i.number IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM outgoing_changes c
+          WHERE c.issue = i.id
+            AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+                 OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(?2)))
+      )
 ) AND NOT EXISTS (
     SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
 )
 `
 
+type DeleteCopiedBlockersOfOpenTreeParams struct {
+	Workstream sql.NullInt64
+	KeepSince  interface{}
+}
+
+func (q *Queries) DeleteCopiedBlockersOfOpenTree(ctx context.Context, arg DeleteCopiedBlockersOfOpenTreeParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfOpenTree, arg.Workstream, arg.KeepSince)
+	return err
+}
+
+const deleteCopiedBlockersOfSettledTrees = `-- name: DeleteCopiedBlockersOfSettledTrees :exec
+DELETE FROM blockers WHERE issue IN (
+    SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream
+    WHERE w.repository = ?1 AND w.close_pending = 0
+      AND i.number IS NOT NULL
+      AND NOT EXISTS (
+          SELECT 1 FROM outgoing_changes c
+          WHERE c.issue = i.id
+            AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+                 OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(?2)))
+      )
+) AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
+)
+`
+
+type DeleteCopiedBlockersOfSettledTreesParams struct {
+	Repository string
+	KeepSince  interface{}
+}
+
 // The tree of a Workstream with a pending close stays, because the close reads it.
-func (q *Queries) DeleteCopiedBlockersOfSettledTrees(ctx context.Context, repository string) error {
-	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfSettledTrees, repository)
+// An issue with no number, a pending create or parent change, or a recent parent change stays.
+func (q *Queries) DeleteCopiedBlockersOfSettledTrees(ctx context.Context, arg DeleteCopiedBlockersOfSettledTreesParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOfSettledTrees, arg.Repository, arg.KeepSince)
 	return err
 }
 
@@ -2121,6 +2200,15 @@ type DeleteIssueBindingParams struct {
 
 func (q *Queries) DeleteIssueBinding(ctx context.Context, arg DeleteIssueBindingParams) error {
 	_, err := q.db.ExecContext(ctx, deleteIssueBinding, arg.Repository, arg.Issue, arg.Role)
+	return err
+}
+
+const deleteIssueToCreate = `-- name: DeleteIssueToCreate :exec
+DELETE FROM issues WHERE id = ? AND number IS NULL
+`
+
+func (q *Queries) DeleteIssueToCreate(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteIssueToCreate, id)
 	return err
 }
 
@@ -2423,13 +2511,47 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 	return err
 }
 
-const detachCopiedSettledTrees = `-- name: DetachCopiedSettledTrees :exec
+const detachCopiedOpenTree = `-- name: DetachCopiedOpenTree :exec
 UPDATE issues SET workstream = NULL, parent = NULL
-WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w.close_pending = 0)
+WHERE issues.workstream = ?1
+  AND issues.number IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM outgoing_changes c
+      WHERE c.issue = issues.id
+        AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+             OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(?2)))
+  )
 `
 
-func (q *Queries) DetachCopiedSettledTrees(ctx context.Context, repository string) error {
-	_, err := q.db.ExecContext(ctx, detachCopiedSettledTrees, repository)
+type DetachCopiedOpenTreeParams struct {
+	Workstream sql.NullInt64
+	KeepSince  interface{}
+}
+
+func (q *Queries) DetachCopiedOpenTree(ctx context.Context, arg DetachCopiedOpenTreeParams) error {
+	_, err := q.db.ExecContext(ctx, detachCopiedOpenTree, arg.Workstream, arg.KeepSince)
+	return err
+}
+
+const detachCopiedSettledTrees = `-- name: DetachCopiedSettledTrees :exec
+UPDATE issues SET workstream = NULL, parent = NULL
+WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?1 AND w.close_pending = 0)
+  AND number IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM outgoing_changes c
+      WHERE c.issue = issues.id
+        AND ((c.field IN ('create', 'parent') AND c.status = 'pending')
+             OR (c.field = 'parent' AND c.status = 'sent' AND julianday(c.created_at) >= julianday(?2)))
+  )
+`
+
+type DetachCopiedSettledTreesParams struct {
+	Repository string
+	KeepSince  interface{}
+}
+
+func (q *Queries) DetachCopiedSettledTrees(ctx context.Context, arg DetachCopiedSettledTreesParams) error {
+	_, err := q.db.ExecContext(ctx, detachCopiedSettledTrees, arg.Repository, arg.KeepSince)
 	return err
 }
 
@@ -3484,7 +3606,7 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -3495,9 +3617,11 @@ type GetIssueByIDRow struct {
 	ID                   int64
 	Repository           string
 	Number               sql.NullInt64
+	Title                string
 	Body                 string
 	State                string
 	Workstream           sql.NullInt64
+	Parent               sql.NullInt64
 	Metadata             string
 	WorkstreamRepository sql.NullString
 	WorkstreamNumber     sql.NullInt64
@@ -3510,9 +3634,11 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, 
 		&i.ID,
 		&i.Repository,
 		&i.Number,
+		&i.Title,
 		&i.Body,
 		&i.State,
 		&i.Workstream,
+		&i.Parent,
 		&i.Metadata,
 		&i.WorkstreamRepository,
 		&i.WorkstreamNumber,
@@ -6301,7 +6427,7 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS I
     instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(?2 AS TEXT))) > 0 AS has_question
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
-WHERE has_needs_human OR has_question
+WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (has_needs_human OR has_question)
 ORDER BY w.repository, w.number, i.number
 `
 
@@ -6446,7 +6572,7 @@ SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) 
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
-JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' AND bi.number IS NOT NULL
 LEFT JOIN workstreams bw ON bw.id = coalesce(bi.workstream, json_extract(bi.metadata, '$.github.workstream'))
   AND bw.repository = w.repository AND bi.repository = w.repository
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
@@ -7685,7 +7811,7 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 }
 
 const listLeadWrites = `-- name: ListLeadWrites :many
-SELECT id, session, repository, issue, kind, labels, text, created_at, item FROM lead_writes WHERE repository = ? COLLATE NOCASE AND (issue = ? OR kind = 'created') ORDER BY id
+SELECT id, session, repository, issue, kind, labels, text, created_at, item FROM lead_writes WHERE repository = ? COLLATE NOCASE AND issue = ? ORDER BY id
 `
 
 type ListLeadWritesParams struct {
@@ -9051,6 +9177,33 @@ func (q *Queries) ListPendingOutgoingChanges(ctx context.Context, repository str
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingParentIssues = `-- name: ListPendingParentIssues :many
+SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'parent' AND status = 'pending' AND issue IS NOT NULL
+`
+
+func (q *Queries) ListPendingParentIssues(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listPendingParentIssues)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -10927,6 +11080,15 @@ func (q *Queries) RefuseDetachedIssueChanges(ctx context.Context) error {
 	return err
 }
 
+const refuseIssueChanges = `-- name: RefuseIssueChanges :exec
+UPDATE outgoing_changes SET status = 'refused' WHERE status = 'pending' AND issue = ?
+`
+
+func (q *Queries) RefuseIssueChanges(ctx context.Context, issue sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, refuseIssueChanges, issue)
+	return err
+}
+
 const rejectPendingAction = `-- name: RejectPendingAction :one
 UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
@@ -11635,6 +11797,20 @@ func (q *Queries) SetInitFailureIssue(ctx context.Context, arg SetInitFailureIss
 	return err
 }
 
+const setIssueAwaitsNumber = `-- name: SetIssueAwaitsNumber :execrows
+UPDATE issues
+SET metadata = json_set(metadata, '$.mobius.awaits_number', json('true'))
+WHERE id = ? AND number IS NULL
+`
+
+func (q *Queries) SetIssueAwaitsNumber(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueAwaitsNumber, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setIssueBody = `-- name: SetIssueBody :execrows
 UPDATE issues SET body = ? WHERE id = ?
 `
@@ -11646,6 +11822,27 @@ type SetIssueBodyParams struct {
 
 func (q *Queries) SetIssueBody(ctx context.Context, arg SetIssueBodyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setIssueBody, arg.Body, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setIssueNumber = `-- name: SetIssueNumber :execrows
+UPDATE issues
+SET number = ?1,
+    metadata = json_remove(json_set(metadata, '$.github.id', ?2), '$.mobius')
+WHERE id = ?3 AND number IS NULL
+`
+
+type SetIssueNumberParams struct {
+	Number   sql.NullInt64
+	GithubID interface{}
+	ID       int64
+}
+
+func (q *Queries) SetIssueNumber(ctx context.Context, arg SetIssueNumberParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueNumber, arg.Number, arg.GithubID, arg.ID)
 	if err != nil {
 		return 0, err
 	}

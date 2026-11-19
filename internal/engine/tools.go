@@ -1030,14 +1030,38 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if err != nil {
 		return "", err
 	}
+	var parentAdd *parentToAdd
 	if parent.repository.FullName != workstream.FullName || parent.number != c.workstream {
-		in, err := e.inWorkstream(ctx, workstream.FullName, c.workstream, parent.repository, parent.number)
-		if err != nil {
+		found, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: parent.repository.FullName, Number: parent.number})
+		switch {
+		case err == nil:
+			if !found.Workstream.Valid || !strings.EqualFold(found.WorkstreamRepository.String, workstream.FullName) || found.WorkstreamNumber.Int64 != c.workstream {
+				return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
+			}
+			parentAdd = &parentToAdd{id: found.ID}
+		case errors.Is(err, sql.ErrNoRows):
+			in, err := e.inWorkstream(ctx, workstream.FullName, c.workstream, parent.repository, parent.number)
+			if err != nil {
+				return "", err
+			}
+			if !in {
+				return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
+			}
+			parentIssue, err := parent.repository.Issue(ctx, parent.number)
+			if err != nil {
+				return "", err
+			}
+			if parentIssue == nil {
+				return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
+			}
+			parentAdd = &parentToAdd{at: parent, issue: parentIssue}
+		default:
 			return "", err
 		}
-		if !in {
-			return "", refuse("%s#%d is not in this Workstream.", parent.repository.FullName, parent.number)
-		}
+	}
+	resolved, err := e.resolveBlockers(ctx, blockers)
+	if err != nil {
+		return "", err
 	}
 	setting := input.Implementer
 	if setting != nil && *setting == (implementerSettingInput{}) {
@@ -1054,36 +1078,52 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title}
-	issue, err := c.agent.claimLeadIssue(ctx, key)
-	if err != nil {
-		return "", err
-	}
-	if issue.number != 0 {
-		return fmt.Sprintf("Created %s#%d.", repository.FullName, issue.number), nil
-	}
-	created, err := e.postIssue(ctx, repository, issueAt{workstream, c.workstream}, newIssue{title: input.Title, body: input.Body, mark: mark, parent: parent, blockers: blockers}, nil)
-	number := created.GetNumber()
-	c.agent.finishLeadIssue(key, issue, number)
-	if err != nil {
-		return "", err
-	}
-	if err := e.addIssueToCopy(ctx, issueRef{workstream.FullName, c.workstream}, created, parent, blockers); err != nil {
-		log.Printf("add %s#%d to the copy of %s#%d: %v", repository.FullName, number, workstream.FullName, c.workstream, err)
-	}
-	text := fmt.Sprintf("Created %s#%d.", repository.FullName, number)
-	if setting != nil {
-		if err := e.putIssueBinding(ctx, "implementer", repository.FullName, int64(number), config.Harness(setting.Harness), setting.Model, setting.Effort); err != nil {
-			return "", fmt.Errorf("%s The store of its Implementer setting failed. Set it with set_implementer_binding: %w", text, err)
+	var claimed *leadIssue
+	for {
+		claimed, err = c.agent.claimLeadIssue(ctx, key)
+		if err != nil {
+			return "", err
 		}
-		text += fmt.Sprintf(" Its Implementer setting is %s.", settingText(setting.Harness, setting.Model, setting.Effort))
-	}
-	if e.tryTrack() {
-		go func() {
-			defer e.untrack()
-			if err := e.recopyTrees(context.WithoutCancel(ctx), workstream, c.workstream); err != nil {
-				log.Printf("copy the tree of %s#%d: %v", workstream.FullName, c.workstream, err)
+		if claimed.issueID == 0 {
+			break
+		}
+		row, err := e.queries.GetIssueByID(ctx, claimed.issueID)
+		if err == nil {
+			if row.Number.Valid {
+				return fmt.Sprintf("Created %s#%d.", repository.FullName, row.Number.Int64), nil
 			}
-		}()
+			return fmt.Sprintf("Mobius creates the issue %q on GitHub later. A Lead event gives its number.", input.Title), nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		c.agent.clearLeadIssue(key, claimed)
+	}
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false)
+	if err != nil {
+		c.agent.finishLeadIssue(key, claimed, 0)
+		return "", err
+	}
+	if err := e.sendIssueCreateNow(ctx, repository, issueID, createID); err != nil {
+		c.agent.finishLeadIssue(key, claimed, issueID)
+		return "", err
+	}
+	row, err := e.queries.GetIssueByID(ctx, issueID)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.agent.finishLeadIssue(key, claimed, 0)
+		return "", refuse("GitHub refused the write.")
+	}
+	if err != nil {
+		c.agent.finishLeadIssue(key, claimed, issueID)
+		return "", err
+	}
+	c.agent.finishLeadIssue(key, claimed, issueID)
+	if !row.Number.Valid {
+		return fmt.Sprintf("Mobius creates the issue %q on GitHub later. A Lead event gives its number.", input.Title), nil
+	}
+	text := fmt.Sprintf("Created %s#%d.", repository.FullName, row.Number.Int64)
+	if setting != nil {
+		text += fmt.Sprintf(" Its Implementer setting is %s.", settingText(setting.Harness, setting.Model, setting.Effort))
 	}
 	return text, nil
 }
@@ -1096,18 +1136,18 @@ type leadIssueKey struct {
 	title            string
 }
 
-// leadIssue is the issue that a call of create_issue creates. done closes when the call ends. number is 0 when the call
-// created no issue.
+// leadIssue is the issue that a call of create_issue creates. done closes when the call ends. issueID is 0 when the
+// call added no issue row.
 type leadIssue struct {
-	done   chan struct{}
-	number int
+	done    chan struct{}
+	issueID int64
 }
 
 // beforeLeadIssueWait is a hook of the tests. claimLeadIssue calls it before it waits for the call that creates the issue.
 var beforeLeadIssueWait func()
 
 // claimLeadIssue gives the issue of key that the session created. When no call creates it, the caller gets a leadIssue
-// with number 0, and it must call finishLeadIssue. When a call creates it, claimLeadIssue waits for that call. When
+// with issueID 0, and it must call finishLeadIssue. When a call creates it, claimLeadIssue waits for that call. When
 // that call created no issue, the caller creates it.
 func (a *Agent) claimLeadIssue(ctx context.Context, key leadIssueKey) (*leadIssue, error) {
 	for {
@@ -1131,23 +1171,31 @@ func (a *Agent) claimLeadIssue(ctx context.Context, key leadIssueKey) (*leadIssu
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
-		if first.number != 0 {
+		if first.issueID != 0 {
 			return first, nil
 		}
 	}
 }
 
-// finishLeadIssue ends the call that created issue. It keeps the issue when the call created it, also when a later write
-// of the call failed, and forgets it when number is 0.
-func (a *Agent) finishLeadIssue(key leadIssueKey, issue *leadIssue, number int) {
+// finishLeadIssue ends the call that created issue. It keeps the issue when the call added a row, and forgets it when
+// issueID is 0.
+func (a *Agent) finishLeadIssue(key leadIssueKey, issue *leadIssue, issueID int64) {
 	a.issuesMu.Lock()
-	if number != 0 {
-		issue.number = number
+	if issueID != 0 {
+		issue.issueID = issueID
 	} else {
 		delete(a.leadIssues, key)
 	}
 	a.issuesMu.Unlock()
 	close(issue.done)
+}
+
+func (a *Agent) clearLeadIssue(key leadIssueKey, issue *leadIssue) {
+	a.issuesMu.Lock()
+	if a.leadIssues[key] == issue {
+		delete(a.leadIssues, key)
+	}
+	a.issuesMu.Unlock()
 }
 
 // checkNewTaskBinding checks the Implementer setting of a task that does not exist yet. spec is the spec of an Implementer
@@ -1257,17 +1305,35 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	for i, number := range input.BlockedBy {
 		blockers[i] = issueAt{repository, number}
 	}
+	resolved, err := e.resolveBlockers(ctx, blockers)
+	if err != nil {
+		return "", err
+	}
 	mark, err := e.mark(ctx, c, repository.FullName)
 	if err != nil {
 		return "", err
 	}
-	number, err := e.addIssueAt(ctx, repository, c.agent.maintenance, newIssue{title: input.Title, body: input.Body, mark: mark, parent: c.agent.maintenance, blockers: blockers}, []string{triageLabel})
+	workstream := issueRef{c.agent.maintenance.repository.FullName, c.agent.maintenance.number}
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil, true)
+	if err != nil {
+		return "", err
+	}
+	if err := e.sendIssueCreateNow(ctx, repository, issueID, createID); err != nil {
+		return "", err
+	}
+	row, err := e.queries.GetIssueByID(ctx, issueID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", refuse("GitHub refused the write.")
+	}
 	if err != nil {
 		return "", err
 	}
 	c.agent.issues++
 	c.agent.issueTitles = append(c.agent.issueTitles, input.Title)
-	return fmt.Sprintf("Created %s.", eventRef(c.agent.maintenance.repository.FullName, repository.FullName, int64(number))), nil
+	if !row.Number.Valid {
+		return fmt.Sprintf("Mobius creates the issue %q on GitHub later.", input.Title), nil
+	}
+	return fmt.Sprintf("Created %s.", eventRef(c.agent.maintenance.repository.FullName, repository.FullName, row.Number.Int64)), nil
 }
 
 func checkIssue(input issueInput) error {
@@ -1468,35 +1534,9 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 	if !row.Number.Valid || !row.Workstream.Valid || !strings.EqualFold(row.WorkstreamRepository.String, c.repository) || row.WorkstreamNumber.Int64 != c.workstream {
 		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
 	}
-	seen := map[issueRef]bool{}
-	resolved := make([]resolvedBlocker, len(blockers))
-	for i, blocker := range blockers {
-		ref := lowerRef(blocker.repository.FullName, blocker.number)
-		reference := fmt.Sprintf("%s#%d", blocker.repository.FullName, blocker.number)
-		found, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blocker.repository.FullName, Number: blocker.number})
-		if errors.Is(err, sql.ErrNoRows) {
-			ghIssue, err := blocker.repository.Issue(ctx, blocker.number)
-			if err != nil {
-				return "", err
-			}
-			if ghIssue == nil || ghIssue.IsPullRequest() {
-				return "", refuse("%s is not an issue.", reference)
-			}
-			if seen[ref] {
-				return "", refuse("%s is two times in blocked_by.", reference)
-			}
-			seen[ref] = true
-			resolved[i] = resolvedBlocker{at: blocker, reference: reference, issue: ghIssue}
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if seen[ref] {
-			return "", refuse("%s is two times in blocked_by.", reference)
-		}
-		seen[ref] = true
-		resolved[i] = resolvedBlocker{at: blocker, reference: reference, id: found.ID}
+	resolved, err := e.resolveBlockers(ctx, blockers)
+	if err != nil {
+		return "", err
 	}
 	changeID, text, err := e.setIssueBlockers(ctx, repository, row.ID, input.N, resolved)
 	if err != nil {
@@ -1506,6 +1546,40 @@ func (e *Engine) updateBlockers(ctx context.Context, c caller, repository github
 		return text, nil
 	}
 	return e.sentOrLater(ctx, changeID, text, text)
+}
+
+func (e *Engine) resolveBlockers(ctx context.Context, blockers []issueAt) ([]resolvedBlocker, error) {
+	seen := map[issueRef]bool{}
+	resolved := make([]resolvedBlocker, len(blockers))
+	for i, blocker := range blockers {
+		ref := lowerRef(blocker.repository.FullName, blocker.number)
+		reference := fmt.Sprintf("%s#%d", blocker.repository.FullName, blocker.number)
+		found, err := e.queries.GetTreeIssue(ctx, store.GetTreeIssueParams{Repository: blocker.repository.FullName, Number: blocker.number})
+		if errors.Is(err, sql.ErrNoRows) {
+			ghIssue, err := blocker.repository.Issue(ctx, blocker.number)
+			if err != nil {
+				return nil, err
+			}
+			if ghIssue == nil || ghIssue.IsPullRequest() {
+				return nil, refuse("%s is not an issue.", reference)
+			}
+			if seen[ref] {
+				return nil, refuse("%s is two times in blocked_by.", reference)
+			}
+			seen[ref] = true
+			resolved[i] = resolvedBlocker{at: blocker, reference: reference, issue: ghIssue}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if seen[ref] {
+			return nil, refuse("%s is two times in blocked_by.", reference)
+		}
+		seen[ref] = true
+		resolved[i] = resolvedBlocker{at: blocker, reference: reference, id: found.ID}
+	}
+	return resolved, nil
 }
 
 // setIssueBlockers replaces the open blockers of issueID in blockers with resolved, adds an outgoing blockers change,
