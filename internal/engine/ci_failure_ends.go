@@ -45,12 +45,11 @@ func (e *Engine) endCIFailures(ctx context.Context, repository github.Repository
 // endCIFailure ends failure when its issue is closed. A close with no merged pull request ends the record with no update
 // of a branch.
 func (e *Engine) endCIFailure(ctx context.Context, repository github.Repository, failure store.CiFailure) error {
-	issue := max(failure.Issue, -failure.Issue)
-	closed, err := e.ciBreakIssueClosed(ctx, repository, issue)
+	closed, err := e.ciBreakIssueClosed(ctx, repository, failure.Issue)
 	if err != nil || !closed {
 		return err
 	}
-	merged, err := e.fixMerged(ctx, repository, issue)
+	merged, err := e.fixMerged(ctx, repository, failure.Issue)
 	if err != nil {
 		return err
 	}

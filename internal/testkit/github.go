@@ -151,7 +151,6 @@ type FakeGitHub struct {
 	failedLabels                               map[issueKey]bool
 	failedRemoveLabels                         map[issueKey]bool
 	refusedLabels                              map[issueKey]int
-	refusedLabelOnce                           map[issueKey]int
 	botKeptLabels                              map[issueKey]string
 	labelWrites                                map[issueKey]int
 	reactions                                  map[reactionKey][]storedReaction
@@ -344,7 +343,6 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedLabels:            map[issueKey]bool{},
 		failedRemoveLabels:      map[issueKey]bool{},
 		refusedLabels:           map[issueKey]int{},
-		refusedLabelOnce:        map[issueKey]int{},
 		botKeptLabels:           map[issueKey]string{},
 		labelWrites:             map[issueKey]int{},
 		holds:                   map[issueKey]*hold{},

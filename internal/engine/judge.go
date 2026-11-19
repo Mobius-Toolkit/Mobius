@@ -149,7 +149,7 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 		return work, nil
 	}
 	delete(e.quiet, task.ID)
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}
@@ -269,7 +269,7 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if err != nil || kept == "" {
 		return true, err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return true, err
 	}

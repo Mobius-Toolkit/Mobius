@@ -3,6 +3,8 @@ package engine
 import (
 	"cmp"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // searchedComments is the number of comments that searchIssues gives for a closed issue.
@@ -54,8 +57,15 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 	if issue.IsPullRequest() {
 		kind = "pull request"
 	}
+	title, state, body := issue.GetTitle(), issue.GetState(), issue.GetBody()
+	row, err := e.queries.GetIssueText(ctx, store.GetIssueTextParams{Repository: repository.FullName, Number: number})
+	if err == nil {
+		title, state, body = row.Title, row.State, row.Body
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "%s#%d %s (%s, %s)\n\n%s\n\n# Comments\n", repository.FullName, number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
+	fmt.Fprintf(&text, "%s#%d %s (%s, %s)\n\n%s\n\n# Comments\n", repository.FullName, number, title, kind, state, body)
 	comments, err := conversationComments(ctx, repository, number, trusted)
 	if err != nil {
 		return "", err

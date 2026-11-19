@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 
-	gh "github.com/google/go-github/v92/github"
-
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
@@ -57,9 +55,9 @@ func (e *Engine) recordCheckTimeout(ctx context.Context, a *Agent, j *job, outpu
 // createCheckTimeoutIssue acts on the open record of a check timeout of repository. A record with no issue gets an
 // issue in repository below the maintenance Workstream of the organization, with mobius:ready. An organization with no
 // open maintenance Workstream gets no issue, and the record ends. When Mobius cannot find the issue repository, the
-// record stays open and the next poll tries again. The number of an issue that GitHub created but did not add below the Workstream is
-// stored as a negative number, and the next poll adds it. Until the Workstream is open, that record stays open. The record ends when its issue is closed, or GitHub does not
-// find it. A 4xx answer of GitHub is no error, and the next poll tries again.
+// record stays open and the next poll tries again. The issue is a row of issues, and its create goes to GitHub as an
+// outgoing change: the record keeps the id of the row until the send stores the number. The record ends when its issue
+// is closed, or GitHub does not find it.
 func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.Repository) error {
 	timeout, err := e.queries.GetOpenCheckTimeout(ctx, repository.FullName)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -75,6 +73,9 @@ func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.
 		}
 		return e.queries.EndCheckTimeout(ctx, store.EndCheckTimeoutParams{EndedAt: now(), ID: timeout.ID})
 	}
+	if timeout.IssueRow.Valid {
+		return nil
+	}
 	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
 	if Refused(err) {
 		log.Printf("find the maintenance Workstream for %s: %v", repository.FullName, err)
@@ -84,56 +85,10 @@ func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.
 		return err
 	}
 	if workstream.number == 0 {
-		if timeout.Issue < 0 {
-			return nil
-		}
 		return e.queries.EndCheckTimeout(ctx, store.EndCheckTimeoutParams{EndedAt: now(), ID: timeout.ID})
 	}
-	var changed bool
-	if timeout.Issue < 0 {
-		changed, err = e.addCheckTimeoutIssueBelow(ctx, repository, workstream, timeout)
-	} else {
-		changed, err = e.createCheckTimeoutIssueBelow(ctx, repository, workstream, timeout)
-	}
-	if changed {
-		if copyErr := e.recopyTrees(ctx, workstream.repository, workstream.number); copyErr != nil {
-			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, copyErr)
-		}
-	}
-	return err
-}
-
-func (e *Engine) createCheckTimeoutIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, timeout store.CheckTimeout) (bool, error) {
 	title := fmt.Sprintf("Examine the time of the local check of %s", repository.FullName)
-	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: checkTimeoutBody(timeout), parent: workstream}, []string{readyLabel})
-	if number != 0 {
-		stored := int64(number)
-		if err != nil {
-			stored = -stored
-		}
-		if storeErr := e.queries.SetCheckTimeoutIssue(ctx, store.SetCheckTimeoutIssueParams{Issue: stored, ID: timeout.ID}); storeErr != nil {
-			return true, storeErr
-		}
-	}
-	if refusedByGitHub(err) {
-		log.Printf("create the issue of the check timeout of %s: %v", repository.FullName, err)
-		return number != 0, nil
-	}
-	return number != 0, err
-}
-
-func (e *Engine) addCheckTimeoutIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, timeout store.CheckTimeout) (bool, error) {
-	number := -timeout.Issue
-	issue, err := repository.Issue(ctx, number)
-	if err == nil && issue != nil {
-		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
-	}
-	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return issue != nil, e.queries.SetCheckTimeoutIssue(ctx, store.SetCheckTimeoutIssueParams{Issue: number, ID: timeout.ID})
+	return e.createRecordIssue(ctx, repository, workstream, title, checkTimeoutBody(timeout), []string{readyLabel}, func(q *store.Queries, row int64) error {
+		return q.SetCheckTimeoutIssueRow(ctx, store.SetCheckTimeoutIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: timeout.ID})
+	})
 }

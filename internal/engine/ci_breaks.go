@@ -318,7 +318,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	}
 	if passedAgain {
 		if ciBreak.Result == "hard" && ciBreak.Issue != 0 {
-			shared, err := e.queries.HasOpenPullRequestFailureWithIssue(ctx, store.HasOpenPullRequestFailureWithIssueParams{Repository: repository.FullName, Issue: max(ciBreak.Issue, -ciBreak.Issue)})
+			shared, err := e.queries.HasOpenPullRequestFailureWithIssue(ctx, store.HasOpenPullRequestFailureWithIssueParams{Repository: repository.FullName, Issue: ciBreak.Issue})
 			if err != nil {
 				return err
 			}
@@ -330,7 +330,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		}
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
-	if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
+	if ciBreak.Result == "hard" && ciBreak.Issue != 0 {
 		closed, err := e.ciBreakIssueClosed(ctx, repository, ciBreak.Issue)
 		if err != nil {
 			return err
