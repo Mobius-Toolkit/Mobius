@@ -129,6 +129,31 @@ func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyList
 	if hasLiveTask(t, server, 51) || hasIssueRow(t, server, 51) {
 		t.Fatal("the issue below the closed Workstream started or has a row")
 	}
+	requireReadyListNotModified(t, fake)
+}
+
+func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 50, "Nested Workstream")
+	fake.AddLabel(shop, 50, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 50)
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+	dispatchTask(fake, 43, "Price rounding")
+	liveTaskOf(t, server, 43)
+
+	waitForPolls(t, fake)
+
+	if hasLiveTask(t, server, 50) {
+		t.Fatal("the nested Workstream started as a task")
+	}
+	requireReadyListNotModified(t, fake)
+}
+
+// requireReadyListNotModified fails when the last read of the list of the issues with mobius:ready gave no 304.
+func requireReadyListNotModified(t *testing.T, fake *testkit.FakeGitHub) {
+	t.Helper()
 	readyReads := []int{}
 	for _, request := range fake.Requests() {
 		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {

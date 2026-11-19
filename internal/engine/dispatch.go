@@ -51,7 +51,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	}
 	held := false
 	for _, issue := range page.Issues {
-		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) {
+		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
 			continue
 		}
 		number := int64(issue.GetNumber())
