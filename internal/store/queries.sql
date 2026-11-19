@@ -950,6 +950,15 @@ DELETE FROM blockers WHERE issue IN (SELECT i.id FROM issues i WHERE i.workstrea
 -- name: DetachCopiedTree :exec
 UPDATE issues SET workstream = NULL, parent = NULL WHERE workstream = ?;
 
+-- An issue that is in no tree keeps no pending outgoing change and no blockers row, so deleting an unused issue
+-- row leaves no orphan blocker or pending change for a reused id.
+-- name: RefuseDetachedIssueChanges :exec
+UPDATE outgoing_changes SET status = 'refused'
+WHERE status = 'pending' AND issue IN (SELECT id FROM issues WHERE workstream IS NULL);
+
+-- name: DeleteBlockersOfDetachedIssues :exec
+DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream IS NULL);
+
 -- An issue that is in no tree and blocks no issue goes away.
 -- name: DeleteUnusedIssues :exec
 DELETE FROM issues WHERE workstream IS NULL AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);

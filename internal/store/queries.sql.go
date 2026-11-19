@@ -1913,6 +1913,15 @@ func (q *Queries) DeleteBlockerCycle(ctx context.Context, cycle string) error {
 	return err
 }
 
+const deleteBlockersOfDetachedIssues = `-- name: DeleteBlockersOfDetachedIssues :exec
+DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream IS NULL)
+`
+
+func (q *Queries) DeleteBlockersOfDetachedIssues(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteBlockersOfDetachedIssues)
+	return err
+}
+
 const deleteChatMessage = `-- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?
 `
@@ -10882,6 +10891,18 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const refuseDetachedIssueChanges = `-- name: RefuseDetachedIssueChanges :exec
+UPDATE outgoing_changes SET status = 'refused'
+WHERE status = 'pending' AND issue IN (SELECT id FROM issues WHERE workstream IS NULL)
+`
+
+// An issue that is in no tree keeps no pending outgoing change and no blockers row, so deleting an unused issue
+// row leaves no orphan blocker or pending change for a reused id.
+func (q *Queries) RefuseDetachedIssueChanges(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, refuseDetachedIssueChanges)
+	return err
 }
 
 const rejectPendingAction = `-- name: RejectPendingAction :one

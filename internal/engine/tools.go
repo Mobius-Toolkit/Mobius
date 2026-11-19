@@ -1516,6 +1516,13 @@ func (e *Engine) setIssueBlockers(ctx context.Context, repository github.Reposit
 	var changeID int64
 	var added, removed []string
 	err := e.inTx(ctx, func(q *store.Queries) error {
+		row, err := q.GetIssueByID(ctx, issueID)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !row.Workstream.Valid) {
+			return refuse("%s#%d is not in this Workstream.", repository.FullName, number)
+		}
+		if err != nil {
+			return err
+		}
 		current, err := q.ListBlockersOfIssue(ctx, issueID)
 		if err != nil {
 			return err

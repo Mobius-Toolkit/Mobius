@@ -384,3 +384,57 @@ func TestUpdateBlockersRefusesACycleFromTheBlockersTableAndChangesNothing(t *tes
 		t.Errorf("github writes of 41 = %d", got)
 	}
 }
+
+func TestRemovingASubIssueWithPendingBlockersRefusesTheChangeAndDropsItsBlockers(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := issueRepositoryShop(t, fake, call("update_blockers", `{ repository = "owner/shop", n = 41, blocked_by = ["owner/shop#40"] }`))
+	fake.AddIssue(shop, 40, "Add plan model")
+	fake.AddIssue(shop, 41, "Plan API")
+	fake.AddSubIssue(shop, 12, 41)
+	waitForTasks(t, server, []taskLine{line(41, "Plan API", "open", 0)})
+	fake.FailBlockerWrites(true)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got := reply(t, server, session); got != "Added owner/shop#40 as blockers of owner/shop#41." {
+		t.Errorf("reply = %q", got)
+	}
+	var id41 int64
+	if err := server.DB.QueryRow(`SELECT id FROM issues WHERE repository = ? AND number = 41`, shop).Scan(&id41); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.RemoveSubIssue(shop, 12, 41)
+	testkit.WaitFor(t, func() bool {
+		var count int
+		_ = server.DB.QueryRow(`SELECT count(*) FROM issues WHERE repository = ? AND number = 41`, shop).Scan(&count)
+		return count == 0
+	})
+	var blockerRows, pendingRows, refusedRows, count40 int
+	if err := server.DB.QueryRow(`SELECT count(*) FROM blockers`).Scan(&blockerRows); err != nil || blockerRows != 0 {
+		t.Errorf("blockers rows after removal = %d, %v", blockerRows, err)
+	}
+	if err := server.DB.QueryRow(`SELECT count(*) FROM issues WHERE repository = ? AND number = 40`, shop).Scan(&count40); err != nil || count40 != 0 {
+		t.Errorf("unused blocker issue 40 rows = %d, %v", count40, err)
+	}
+	if err := server.DB.QueryRow(`SELECT count(*) FROM outgoing_changes WHERE issue = ? AND status = 'pending'`, id41).Scan(&pendingRows); err != nil || pendingRows != 0 {
+		t.Errorf("pending changes after removal = %d, %v", pendingRows, err)
+	}
+	if err := server.DB.QueryRow(`SELECT count(*) FROM outgoing_changes WHERE issue = ? AND field = 'blockers' AND status = 'refused'`, id41).Scan(&refusedRows); err != nil || refusedRows != 1 {
+		t.Errorf("refused changes after removal = %d, %v", refusedRows, err)
+	}
+
+	// Add a new sub-issue with its own blocker so SQLite can reuse id41 without inheriting #41's old change.
+	fake.AddIssue(shop, 42, "Cache")
+	fake.AddIssue(shop, 50, "Billing API")
+	fake.AddBlockedBy(shop, 50, 42)
+	fake.AddSubIssue(shop, 12, 50)
+	waitForTasks(t, server, []taskLine{withBlockers(line(50, "Billing API", "open", 0), taskBlocker{Number: 42})})
+
+	fake.FailBlockerWrites(false)
+	waitForPolls(t, fake)
+	if got := fake.BlockerNumbers(shop, 50); !slices.Equal(got, []int64{42}) {
+		t.Errorf("github blockers of 50 = %v, want [42]", got)
+	}
+}

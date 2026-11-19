@@ -142,7 +142,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 					return err
 				}
 			}
-			return q.DeleteUnusedIssues(ctx)
+			return deleteUnusedIssues(ctx, q)
 		})
 		if err != nil {
 			return err
@@ -170,7 +170,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 				return err
 			}
 		}
-		return q.DeleteUnusedIssues(ctx)
+		return deleteUnusedIssues(ctx, q)
 	})
 	if err != nil {
 		return err
@@ -193,7 +193,7 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := detachAllTrees(ctx, q, name); err != nil {
 				return err
 			}
-			if err := q.DeleteUnusedIssues(ctx); err != nil {
+			if err := deleteUnusedIssues(ctx, q); err != nil {
 				return err
 			}
 			if err := q.DeleteCopiedWorkstreamsOf(ctx, name); err != nil {
@@ -1163,7 +1163,7 @@ func removeTree(ctx context.Context, q *store.Queries, repository string, workst
 	if err := detachTree(ctx, q, repository, workstream); err != nil {
 		return err
 	}
-	return q.DeleteUnusedIssues(ctx)
+	return deleteUnusedIssues(ctx, q)
 }
 
 // removeClosedTree is removeTree for a Workstream that stays as a closed row. An issue that stays as a blocker keeps the
@@ -1199,6 +1199,18 @@ func replaceTree(ctx context.Context, q *store.Queries, repository string, works
 		return err
 	}
 	if err := addTree(ctx, q, repository, workstream, tree); err != nil {
+		return err
+	}
+	return deleteUnusedIssues(ctx, q)
+}
+
+// deleteUnusedIssues refuses pending changes and removes blockers of detached issues before deleting unused issue rows,
+// so SQLite id reuse cannot inherit orphan blockers or pending outgoing changes.
+func deleteUnusedIssues(ctx context.Context, q *store.Queries) error {
+	if err := q.RefuseDetachedIssueChanges(ctx); err != nil {
+		return err
+	}
+	if err := q.DeleteBlockersOfDetachedIssues(ctx); err != nil {
 		return err
 	}
 	return q.DeleteUnusedIssues(ctx)
