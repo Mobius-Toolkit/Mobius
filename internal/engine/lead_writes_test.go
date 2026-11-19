@@ -69,12 +69,11 @@ func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake,
 		"gh issue edit 41 42 -R owner/shop --add-label mobius:ready --remove-label mobius:triage",
-		"gh issue create -R owner/shop --title 'Add points' --label mobius:triage,bug",
 		"gh pr comment 42 -R owner/shop --body 'Please rebase.'",
 		"gh issue list -R owner/shop",
 	)
 
-	for n := 1; n <= 4; n++ {
+	for n := 1; n <= 3; n++ {
 		leadWrites(t, server, n)
 	}
 
@@ -100,7 +99,6 @@ func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t
 		`owner/shop#41 unlabeled ["mobius:triage"] ""`,
 		`owner/shop#42 labeled ["mobius:ready"] ""`,
 		`owner/shop#42 unlabeled ["mobius:triage"] ""`,
-		`owner/shop#0 created ["mobius:triage","bug"] "Add points"`,
 		fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark)),
 	}
 	if !slices.Equal(got, want) {
@@ -165,62 +163,6 @@ func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
-}
-
-func TestANewIssueThatTheLeadCreatedGetsATriagerAndTheLabelThatTheLeadAdded(t *testing.T) {
-	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := connectLeadWrites(t, fake, "gh issue create -R owner/shop --title 'Add loyalty points' --label mobius:triage")
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-
-			fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", app)
-			fake.AddLabel(shop, 52, "mobius:triage", app)
-
-			if recorded {
-				proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
-				testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
-				return
-			}
-			waitForPolls(t, fake)
-			if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
-				t.Errorf("sessions = %+v", got)
-			}
-		})
-	}
-}
-
-func TestANewIssueThatTheLeadCreatedWithNoLabelGetsMobiusTriageAndATriager(t *testing.T) {
-	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := connectLeadWrites(t, fake, "gh issue create -R owner/shop --title 'Add loyalty points'")
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-
-			fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", app)
-
-			if recorded {
-				proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
-				testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
-				if got := fake.Labels(shop, 52); !slices.Equal(got, []string{"mobius:triage"}) {
-					t.Errorf("labels = %v", got)
-				}
-				return
-			}
-			waitForPolls(t, fake)
-			if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || len(fake.Labels(shop, 52)) != 0 {
-				t.Errorf("sessions = %+v, labels = %v", got, fake.Labels(shop, 52))
-			}
-		})
-	}
 }
 
 func TestTheAddOfMobiusTriageThatTheLeadMadeStartsATriager(t *testing.T) {

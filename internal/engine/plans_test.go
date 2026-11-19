@@ -172,8 +172,10 @@ func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{89}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if title, body := fake.Issue(shop, 89); title != "Add plan model" || body != marked("Plans have a price.", leadMark) {
+	if title, body := fake.Issue(shop, 89); title != "Add plan model" {
 		t.Errorf("issue = %s, %s", title, body)
+	} else if got, ok := withoutWriteMarkerText(body); !ok || got != marked("Plans have a price.", leadMark) {
+		t.Errorf("body = %q", body)
 	}
 	if got := fake.BlockerNumbers(shop, 89); !slices.Equal(got, []int64{88}) {
 		t.Errorf("blockers = %v", got)

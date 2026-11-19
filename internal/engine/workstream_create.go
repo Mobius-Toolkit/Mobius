@@ -77,7 +77,7 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 	}
 	number := row.Number.Int64
 	if !row.Number.Valid {
-		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, row.Body)
+		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, row.Body, nil)
 		if permanentRefusal(err) {
 			log.Printf("create the Workstream %d of %s: %v", change.Workstream.Int64, change.Repository, err)
 			err := e.dropCreate(ctx, change)
@@ -161,7 +161,7 @@ func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
 }
 
 // findOrCreateIssue gives the issue of the change: the issue of the App that has its marker, or a new issue.
-func (e *Engine) findOrCreateIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange, title, brief string) (*gh.Issue, error) {
+func (e *Engine) findOrCreateIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange, title, brief string, labels []string) (*gh.Issue, error) {
 	issues, err := repository.NewestIssues(ctx)
 	if err != nil {
 		return nil, err
@@ -174,7 +174,7 @@ func (e *Engine) findOrCreateIssue(ctx context.Context, repository github.Reposi
 		}
 	}
 	body := brief + "\n\n" + marker
-	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: title, Body: &body})
+	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: title, Body: &body, Labels: labels})
 	return issue, err
 }
 

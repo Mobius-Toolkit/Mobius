@@ -158,11 +158,6 @@ func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) 
 				writes = append(writes, withKind(target, "unlabeled", []string{label}, ""))
 			}
 		}
-	case args[0] == "issue" && args[1] == "create":
-		title, titled := parsed.flag("title")
-		if repository := parsed.repository(); repository != "" && titled {
-			writes = append(writes, withKind(mcp.GHWrite{Repository: repository}, "created", parsed.labels("label"), title))
-		}
 	case args[1] == "comment" || args[0] == "issue" && args[1] == "close":
 		var text string
 		var found bool

@@ -491,6 +491,9 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		tasks = append(tasks, copiedTask{repository.FullName, bucket.Number, bucket.Title, bucket.State, issueLink(repository.FullName, bucket.Number), true})
 	}
 	for _, row := range tree {
+		if row.Number == 0 {
+			continue
+		}
 		source, ok := e.namedRepository(row.IssueRepository, repository)
 		if !ok {
 			continue

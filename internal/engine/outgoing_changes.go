@@ -38,6 +38,7 @@ const (
 	approvalCommentField   = "approval_comment"
 	createField            = "create"
 	blockersField          = "blockers"
+	parentField            = "parent"
 )
 
 // settingLabels gives the label of each field of an outgoing change that writes a setting of a Workstream.
@@ -117,6 +118,17 @@ func addIssueChange(ctx context.Context, q *store.Queries, repository string, nu
 		Number:     sql.NullInt64{Int64: number, Valid: true},
 		Issue:      sql.NullInt64{Int64: issue, Valid: true},
 		Field:      field,
+		CreatedAt:  now(),
+	})
+}
+
+// addNewIssueChange adds a pending outgoing change with optional text for the unnumbered tree issue row issue.
+func addNewIssueChange(ctx context.Context, q *store.Queries, repository string, issue int64, field, text string) (int64, error) {
+	return q.AddOutgoingChange(ctx, store.AddOutgoingChangeParams{
+		Repository: repository,
+		Issue:      sql.NullInt64{Int64: issue, Valid: true},
+		Field:      field,
+		Text:       sql.NullString{String: text, Valid: text != ""},
 		CreatedAt:  now(),
 	})
 }
@@ -623,8 +635,9 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 	return false, e.markSent(ctx, change)
 }
 
-// sendIssue writes the field of the tree issue from issues to the issue on GitHub when GitHub differs: the body or
-// the blockers. An issue with no row, no number, or no Workstream is refused.
+// sendIssue writes the field of the tree issue from issues to the issue on GitHub when GitHub differs: the create, the
+// parent, the body or the blockers. An issue with no row or no Workstream is refused. A field other than create
+// waits when the row has no number yet.
 func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
 	row, err := e.queries.GetIssueByID(ctx, change.Issue.Int64)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -634,12 +647,20 @@ func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, ch
 	if err != nil {
 		return false, err
 	}
-	if !row.Number.Valid || !row.Workstream.Valid || !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
+	if !row.Workstream.Valid || !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
 		log.Printf("write the %s of %s: the issue is not in a Workstream", change.Field, change.Repository)
 		return false, e.refuse(ctx, change)
 	}
+	if change.Field == createField {
+		return e.sendIssueCreate(ctx, repository, change, row)
+	}
+	if !row.Number.Valid {
+		return true, nil
+	}
 	number := row.Number.Int64
 	switch change.Field {
+	case parentField:
+		return e.sendIssueParent(ctx, repository, change, row)
 	case bodyField:
 		issue, err := repository.Issue(ctx, number)
 		if err != nil {
