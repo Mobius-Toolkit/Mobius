@@ -76,6 +76,7 @@ const (
 	curatorAuthor     = "Curator"
 	coordinatorAuthor = "Coordinator"
 	mobiusAuthor      = "Mobius"
+	changelogAuthor   = "Changelog"
 	eventAuthor       = "Event"
 	actionAuthor      = "Action"
 	questionAuthor    = "Question"
@@ -318,7 +319,7 @@ func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key Cha
 
 // announceChatMessage sends the stored message to the listeners, and its unread count when the author changes it.
 func (e *Engine) announceChatMessage(ctx context.Context, key ChatKey, author string, message store.ChatMessage) error {
-	if author == researcherAuthor || author == operatorAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor {
+	if author == researcherAuthor || author == operatorAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor || author == questionAuthor || author == changelogAuthor {
 		return nil
 	}
 	e.publish(Change{Message: &message})
@@ -1474,7 +1475,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	c.current = &current
 	e.chatsMu.Unlock()
 	author := ""
-	if current.message != nil && current.message.Author != operatorAuthor {
+	if current.message != nil && current.message.Author != operatorAuthor && current.message.Author != changelogAuthor {
 		author = leadAuthor
 		if c.key.Workstream == 0 {
 			author = coordinatorAuthor
@@ -1939,17 +1940,29 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 	return "Mobius holds the event. It sends the event again after your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream.", nil
 }
 
-// tellOwner adds text to the Lead chat as a message of the Lead to the Owner. The reply text after the call, in the
-// same turn, goes only to the Transcript.
+// tellOwner adds text to the chat as a message to the Owner. The reply text after the call, in the same turn, goes only
+// to the Transcript. The Coordinator can call it only in a turn for a Changelog message.
 func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, input tellInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
+	}
+	if c.role == CoordinatorRole && !e.changelogTurn(c) {
+		return "", refuse("tell_owner works only in a turn for a changelog.")
 	}
 	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", "", nil, nil, false); err != nil {
 		return "", err
 	}
 	c.agent.setAuthor("")
 	return "Sent to the Owner.", nil
+}
+
+// changelogTurn tells if the running turn of the chat of c is a turn for a Changelog message.
+func (e *Engine) changelogTurn(c caller) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	running, ok := e.chats[ChatKey{c.organization, c.repository, c.workstream}]
+	return ok && running.agent != nil && running.agent.ID() == c.session && running.current != nil &&
+		running.current.message != nil && running.current.message.Author == changelogAuthor
 }
 
 // firstPrompt gives the first prompt of a session with the item first: the Role prompt, the context and the chat

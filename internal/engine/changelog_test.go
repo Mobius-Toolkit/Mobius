@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -48,10 +49,10 @@ func lastRelease(t *testing.T, server *testserver.Server) string {
 	return tag
 }
 
-// changelogs gives the text of each message of the Mobius author in the Coordinator chat of each organization.
+// changelogs gives the text of each message of the Changelog author in the Coordinator chat of each organization.
 func changelogs(t *testing.T, server *testserver.Server) map[string][]string {
 	t.Helper()
-	rows, err := server.DB.Query("SELECT organization, text FROM chat_messages WHERE repository = '' AND workstream = 0 AND author = 'Mobius' ORDER BY id")
+	rows, err := server.DB.Query("SELECT organization, text FROM chat_messages WHERE repository = '' AND workstream = 0 AND author = 'Changelog' ORDER BY id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,5 +245,108 @@ func TestAFailedReadOfOneAppSendsNoChangelogUntilTheReadSucceeds(t *testing.T) {
 	texts := changelogs(t, server)
 	if len(texts["owner"]) != 1 || len(texts["other"]) != 1 {
 		t.Errorf("changelogs = %q", texts)
+	}
+}
+
+const changelogHead = "Changelog from v0.1.4 to v0.1.6"
+
+// startGatedRelease starts a release with the script of the fake agent. No changelog goes to a chat until
+// openGate, because the read of the second App fails.
+func startGatedRelease(t *testing.T, fake *testkit.FakeGitHub, script string) (*testserver.Server, func()) {
+	t.Helper()
+	fake.SetComparedCommits("Show the usage (#10)")
+	fake.InstallSecondApp("other")
+	fake.FailInstallations(testkit.SecondAppID, true)
+	dataDir := t.TempDir()
+	engine.Release = "v0.1.6"
+	t.Cleanup(func() { engine.Release = "" })
+	fake.AddRepository(other)
+	seed(t, dataDir,
+		"INSERT INTO last_release (id, tag) VALUES (1, 'v0.1.4')",
+		fmt.Sprintf("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (%d, '%s', '%s', 'Iv23second', 'second-client-secret')",
+			testkit.SecondAppID, testkit.SecondAppSlug, testkit.AppPrivateKey))
+	testkit.InstallFakeAgent(t, dataDir, options+script)
+	server := startServer(t, fake, dataDir, "")
+	return server, func() { fake.FailInstallations(testkit.SecondAppID, false) }
+}
+
+func TestTheChangelogAndTheReplyToItAreHiddenFromTheChat(t *testing.T) {
+	// Serial: the test sets the package variable Release.
+	fake := testkit.NewFakeGitHub(t)
+	server, openGate := startGatedRelease(t, fake, "[[prompts]]\nwhen = \""+changelogHead+"\"\nreply = [\"Nothing affects the organization.\"]\n\n"+seenScript)
+	changes, stopListening := server.Engine.Listen()
+	defer stopListening()
+
+	openGate()
+
+	session := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool {
+		return lineID(t, server, session.ID, "update", "Nothing affects the organization.") != 0
+	})
+	waitForChatEnd(t, server, coordinatorChat)
+	if texts := changelogs(t, server)["owner"]; len(texts) != 1 || !strings.HasPrefix(texts[0], changelogHead) {
+		t.Errorf("changelogs = %q", texts)
+	}
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 || !strings.Contains(prompts[0], "# Changelog message\n\n"+changelogHead) {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if lines := chatLines(t, server, coordinatorChat); len(lines) != 0 {
+		t.Errorf("chat = %+v", lines)
+	}
+	if unread, err := server.Engine.UnreadChats(t.Context()); err != nil || len(unread) != 0 {
+		t.Errorf("unread = %+v, %v", unread, err)
+	}
+	for {
+		select {
+		case change := <-changes:
+			if change.Message != nil || change.Unread != nil {
+				t.Errorf("change = %+v, %+v", change.Message, change.Unread)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func TestTellOwnerInTheChangelogTurnAddsAChatMessageAndNoInboxItem(t *testing.T) {
+	// Serial: the test sets the package variable Release.
+	fake := testkit.NewFakeGitHub(t)
+	server, openGate := startGatedRelease(t, fake, `
+[[prompts]]
+when = "`+changelogHead+`"
+call = { tool = "tell_owner", arguments = { text = "The release changes the flag of the tests." } }
+reply = ["Same text again."]
+
+`+seenScript)
+
+	openGate()
+
+	waitForChat(t, server, coordinatorChat, "tell_owner", "The release changes the flag of the tests.")
+	waitForChatEnd(t, server, coordinatorChat)
+	if got := chatLines(t, server, coordinatorChat); !slices.Equal(got, []chatLine{{"tell_owner", "The release changes the flag of the tests."}}) {
+		t.Errorf("chat = %+v", got)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
+	}
+	unread, err := server.Engine.UnreadChats(t.Context())
+	if err != nil || !slices.Contains(unread, engine.Unread{Key: coordinatorChat, Count: 1}) {
+		t.Errorf("unread = %+v, %v", unread, err)
+	}
+}
+
+func TestACardOfTheChangelogTurnShowsInTheCoordinatorChat(t *testing.T) {
+	// Serial: the test sets the package variable Release.
+	fake := testkit.NewFakeGitHub(t)
+	server, openGate := startGatedRelease(t, fake, callCreateWorkstream(changelogHead, "Loyalty", "Plan the loyalty API.")+seenScript)
+
+	openGate()
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(chatLines(t, server, coordinatorChat), func(line chatLine) bool { return line.Author == "Action" })
+	})
+	for _, line := range chatLines(t, server, coordinatorChat) {
+		if line.Author != "Action" {
+			t.Errorf("line = %+v", line)
+		}
 	}
 }

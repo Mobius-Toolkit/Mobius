@@ -677,6 +677,7 @@ func TestServer(t *testing.T) {
 	addWaitingWorkstream(ctx, t, server, coordinator)
 	// The Lead chat and the Coordinator chat of plants keep their unread replies for the organization switch and for the
 	// unread count of the Chat tab.
+	addChangelogTurn(ctx, t, server, engine.ChatKey{Organization: "plants"})
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Coordinator")
 	for _, key := range []engine.ChatKey{shop, coordinator} {
 		view, err := server.Engine.ChatView(ctx, key, 0)
@@ -1077,6 +1078,37 @@ func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engi
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
+}
+
+// addChangelogTurn adds the messages that a changelog turn leaves in the Coordinator chat of key: the Changelog message
+// and the tell_owner message. The reply text of that turn is in no chat. The Owner saw the tell_owner message, so
+// the unread count of the chat stays the same.
+func addChangelogTurn(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey) {
+	t.Helper()
+	queries := store.New(server.DB)
+	var last store.ChatMessage
+	for _, message := range []struct{ author, text string }{
+		{"Changelog", "Changelog from v0.1.3 to v0.1.4\n\n1 pull requests.\n\n- #2000 Show the usage\n"},
+		{"tell_owner", "Release v0.1.4 makes the usage flag of the tests unnecessary."},
+	} {
+		var err error
+		last, err = queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: key.Organization,
+			Repository:   key.Repository,
+			Workstream:   key.Workstream,
+			Author:       message.author,
+			InboxItems:   "[]",
+			Selections:   "[]",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         message.text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := server.Engine.SeeChat(ctx, key, last.ID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // addWaitingWorkstream makes the Coordinator of owner create the Workstream waitingTitle, and approves the action. The

@@ -613,6 +613,22 @@ test("screenshots", async ({ page }) => {
       await showChatEnd(page);
     },
   );
+  // The changelog turn of the Coordinator chat of plants left one tell_owner message. The Changelog message and the
+  // reply of that turn are not in the chat.
+  const changelogMessage = main.locator("[data-message]", {
+    hasText: "Release v0.1.4 makes the usage flag of the tests unnecessary.",
+  });
+  await screenshot(
+    page,
+    "coordinator-changelog",
+    "/chat",
+    () => [changelogMessage.getByText("Coordinator", { exact: true }), dismissRecord],
+    async () => {
+      await expect(changelogMessage).toBeVisible();
+      await expect(main.getByText("Changelog")).toHaveCount(0);
+      await showChatEnd(page);
+    },
+  );
   // The chat of plants/garden#60 has 50 messages in pages of 20. The scroll to the top loads the first page, and the
   // Brief shows above its first message. The chat is at that top again after the Brief shows.
   const scrollBriefTop = () =>
