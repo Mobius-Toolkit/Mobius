@@ -265,7 +265,7 @@ func TestTheCuratorCreateIssueAddsOneUnnumberedRowWithTriageLabelAndSendsToGitHu
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
 
-	if got, want := reply(t, server, session), "Mobius creates the issue \"Fix the flaky test\" on GitHub later. A Lead event gives its number."; got != want {
+	if got, want := reply(t, server, session), "Mobius creates the issue \"Fix the flaky test\" on GitHub later."; got != want {
 		t.Fatalf("reply = %q, want %q", got, want)
 	}
 	if got := countRows(t, server, `SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream
@@ -295,7 +295,41 @@ func TestTheCuratorCreateIssueAddsOneUnnumberedRowWithTriageLabelAndSendsToGitHu
 		events := eventsOfKind(t, server, "issue_created", 20)
 		return events, len(events) == 1 && events[0].Delivered
 	})
-	if !strings.Contains(events[0].Payload, `Mobius created owner/shop#41 "Fix the flaky test" of your earlier create_issue call.`) {
+	if !strings.Contains(events[0].Payload, `Mobius created owner/shop#41 "Fix the flaky test" of a create_issue call of the Curator.`) {
 		t.Errorf("event = %+v", events[0])
+	}
+}
+
+func TestTheCuratorCreateIssueRefusalNamesTheCuratorAndDoesNotTellLeadToRetry(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := "[[prompts]]\nwhen = \"Create the issue\"\ncall = { tool = \"create_issue\", arguments = { title = \"Fix the flaky test\", body = \"The test fails in CI.\", blocked_by = [] } }\n\n" + seenScript
+	server, _ := connect(t, fake, script)
+	addMaintenanceWorkstream(fake, 20)
+	waitForMaintenanceCopy(t, server, 20)
+	fake.RefuseIssueCreates(http.StatusInternalServerError)
+
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Create the issue")
+
+	if got, want := reply(t, server, session), "Mobius creates the issue \"Fix the flaky test\" on GitHub later."; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+	fake.RefuseIssueCreates(http.StatusUnprocessableEntity)
+	events := testkit.WaitForValue(t, func() ([]leadEvent, bool) {
+		events := eventsOfKind(t, server, "issue_create_refused", 20)
+		return events, len(events) == 1 && events[0].Delivered
+	})
+	waitForPolls(t, fake)
+	if !strings.Contains(events[0].Payload, `GitHub refused the create of the issue "Fix the flaky test" of the Curator: `) {
+		t.Errorf("event = %+v", events[0])
+	}
+	if strings.Contains(events[0].Payload, "Create it again with create_issue.") {
+		t.Errorf("event tells Lead to create again: %+v", events[0])
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM issues WHERE title = 'Fix the flaky test'"); got != 0 {
+		t.Errorf("issues rows = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('create', 'parent', 'blockers') AND status = 'refused'"); got != 3 {
+		t.Errorf("refused changes = %d", got)
 	}
 }

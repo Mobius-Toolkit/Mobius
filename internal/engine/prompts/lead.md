@@ -184,7 +184,7 @@ On the event end of a task, call `tell_owner` with the result. Name only the tas
 
 On an `issue_created` event, Mobius created the issue on GitHub for an earlier `create_issue` call and gave it its number. Read the number and continue any work that waited for it. Make no `create_issue` call again for the same issue.
 
-On an `issue_create_refused` event, GitHub refused the creation of the issue from an earlier `create_issue` call, and Mobius deleted its pending row. Read the error in the event, correct the problem, and call `create_issue` again if the Workstream still needs the issue.
+On an `issue_create_refused` event, GitHub refused the creation of the issue from an earlier `create_issue` call, and Mobius deleted its pending row. Read the error in the event, correct the problem, and, when the call came from you, call `create_issue` again if the Workstream still needs the issue. When the call came from the Curator, do not call `create_issue` for it, because `create_issue` of a Lead adds no `mobius:triage` label; tell the Owner with `tell_owner`.
 
 On a pull request, reply only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 

@@ -22,6 +22,7 @@ type issueMetadata struct {
 
 type issueMobius struct {
 	AwaitsNumber bool              `json:"awaits_number,omitempty"`
+	Curator      bool              `json:"curator,omitempty"`
 	Implementer  *issueImplementer `json:"implementer,omitempty"`
 }
 
@@ -46,18 +47,20 @@ func parseIssueMetadata(metadata string) (issueMetadata, error) {
 // addIssueToCreate is the create handler for a tree issue. In one transaction, it adds the row of issues with no
 // number, adds its blockers, and adds the outgoing changes create, parent and blockers in order. It gives the id of
 // the row and the id of its create change.
-func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput) (int64, int64, error) {
+func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator bool) (int64, int64, error) {
 	meta := issueMetadata{
 		GitHub: issueGitHub{Labels: append(make([]string, 0, len(labels)), labels...)},
 	}
-	if setting != nil {
-		meta.Mobius = &issueMobius{
-			Implementer: &issueImplementer{
+	if curator || setting != nil {
+		mobius := &issueMobius{Curator: curator}
+		if setting != nil {
+			mobius.Implementer = &issueImplementer{
 				Harness: setting.Harness,
 				Model:   setting.Model,
 				Effort:  setting.Effort,
-			},
+			}
 		}
+		meta.Mobius = mobius
 	}
 	metadata, err := json.Marshal(meta)
 	if err != nil {
@@ -205,7 +208,7 @@ func (e *Engine) sendIssueCreate(ctx context.Context, repository github.Reposito
 		issue, err := e.findOrCreateIssue(ctx, repository, change, row.Title, body, labels)
 		if permanentRefusal(err) {
 			log.Printf("create the issue %d of %s: %v", row.ID, change.Repository, err)
-			return false, e.dropIssueCreate(ctx, repository, change, row, err)
+			return false, e.dropIssueCreate(ctx, repository, change, row, meta, err)
 		}
 		if err != nil {
 			return e.failed(ctx, repository, change, err)
@@ -257,6 +260,9 @@ func (e *Engine) addIssueCreatedNumber(ctx context.Context, repository github.Re
 	var err error
 	if awaitsNumber {
 		text := fmt.Sprintf("Mobius created %s#%d %q of your earlier create_issue call.", repository.FullName, number, row.Title)
+		if meta.Mobius != nil && meta.Mobius.Curator {
+			text = fmt.Sprintf("Mobius created %s#%d %q of a create_issue call of the Curator.", repository.FullName, number, row.Title)
+		}
 		err = e.addLeadEventWith(ctx, row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, repository.FullName, sql.NullInt64{Int64: number, Valid: true}, "issue_created", text, update)
 	} else {
 		err = e.inTx(ctx, update)
@@ -288,9 +294,12 @@ func (e *Engine) sendNewIssue(ctx context.Context, repository github.Repository,
 
 // dropIssueCreate refuses each pending change of the uncreated issue row, deletes its blockers and the row, and adds
 // an issue_create_refused Lead event.
-func (e *Engine) dropIssueCreate(ctx context.Context, repository github.Repository, change store.OutgoingChange, row store.GetIssueByIDRow, cause error) error {
+func (e *Engine) dropIssueCreate(ctx context.Context, repository github.Repository, change store.OutgoingChange, row store.GetIssueByIDRow, meta issueMetadata, cause error) error {
 	issue := sql.NullInt64{Int64: row.ID, Valid: true}
 	text := fmt.Sprintf("GitHub refused the create of the issue %q: %v. Create it again with create_issue.", row.Title, cause)
+	if meta.Mobius != nil && meta.Mobius.Curator {
+		text = fmt.Sprintf("GitHub refused the create of the issue %q of the Curator: %v.", row.Title, cause)
+	}
 	err := e.addLeadEventWith(ctx, row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, repository.FullName, sql.NullInt64{}, "issue_create_refused", text, func(q *store.Queries) error {
 		if err := q.RefuseIssueChanges(ctx, issue); err != nil {
 			return err

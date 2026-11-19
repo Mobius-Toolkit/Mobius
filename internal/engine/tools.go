@@ -1099,7 +1099,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		c.agent.clearLeadIssue(key, claimed)
 	}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false)
 	if err != nil {
 		c.agent.finishLeadIssue(key, claimed, 0)
 		return "", err
@@ -1314,7 +1314,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 		return "", err
 	}
 	workstream := issueRef{c.agent.maintenance.repository.FullName, c.agent.maintenance.number}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil, true)
 	if err != nil {
 		return "", err
 	}
@@ -1331,7 +1331,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	c.agent.issues++
 	c.agent.issueTitles = append(c.agent.issueTitles, input.Title)
 	if !row.Number.Valid {
-		return fmt.Sprintf("Mobius creates the issue %q on GitHub later. A Lead event gives its number.", input.Title), nil
+		return fmt.Sprintf("Mobius creates the issue %q on GitHub later.", input.Title), nil
 	}
 	return fmt.Sprintf("Created %s.", eventRef(c.agent.maintenance.repository.FullName, repository.FullName, row.Number.Int64)), nil
 }

@@ -210,13 +210,13 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
-// detachTrees takes the issues out of the trees of the Workstreams of repository and removes their blockers. The tree
-// of a Workstream with a pending close stays. An issue that stays in a tree gets its row back, with the same id, when
-// addTree adds the tree again.
 func keepSince() string {
 	return time.Now().Add(-addedCopyLifetime).UTC().Format(time.RFC3339Nano)
 }
 
+// detachTrees takes the issues out of the trees of the Workstreams of repository and removes their blockers. The tree
+// of a Workstream with a pending close stays. An issue that stays in a tree gets its row back, with the same id, when
+// addTree adds the tree again.
 func detachTrees(ctx context.Context, q *store.Queries, repository string) error {
 	since := keepSince()
 	if err := q.DeleteCopiedBlockersOfSettledTrees(ctx, store.DeleteCopiedBlockersOfSettledTreesParams{Repository: repository, KeepSince: since}); err != nil {
