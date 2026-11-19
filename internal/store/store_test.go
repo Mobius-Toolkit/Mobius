@@ -1505,3 +1505,85 @@ func TestTheTreeChangesMigrationKeepsTheRowsAndAcceptsParentAndBlockers(t *testi
 		t.Errorf("indexes = %d, %v", indexes, err)
 	}
 }
+
+func TestABreakWaitsWhileAFailureWithAPlaceOfItHasAPendingCreate(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, statement := range []string{
+		`INSERT INTO ci_breaks (id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, result, started_at)
+			VALUES (1, 'o/a', 7, 'ci', 1, '', 1, 'hard', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO ci_failures (id, repository, reason, created_at, issue_row) VALUES (1, 'o/a', 'Fails.', '2027-03-01T10:00:00Z', 9)`,
+		`INSERT INTO ci_failure_places (failure, ci_break, head, job_urls, lines, created_at) VALUES (1, 1, 'abc', '', '', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	waiting, err := New(db).ListCIBreaksWithoutIssue(t.Context(), "o/a")
+	if err != nil || len(waiting) != 0 {
+		t.Errorf("breaks = %v, %v", waiting, err)
+	}
+	if _, err := db.Exec(`UPDATE ci_failures SET issue_row = NULL`); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := New(db).ListCIBreaksWithoutIssue(t.Context(), "o/a")
+	if err != nil || len(cleared) != 1 {
+		t.Errorf("breaks = %v, %v", cleared, err)
+	}
+}
+
+func TestTheRecordIssuesMigrationMakesANegativeIssueARowWithAPendingParentChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270415000000)
+	for _, statement := range []string{
+		`INSERT INTO workstreams (id, repository, number, title, body, state, created_at, maintenance)
+			VALUES (5, 'o/a', 20, 'Maintenance', '', 'open', '2027-03-01T10:00:00Z', 1)`,
+		`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, result, issue, started_at)
+			VALUES ('o/b', 7, 'ci', 1, '', 1, 'hard', -30, '2027-03-01T10:00:00Z')`,
+		`INSERT INTO ci_failures (repository, reason, created_at, issue) VALUES ('o/b', 'Fails.', '2027-03-01T10:00:00Z', -30)`,
+		`INSERT INTO check_timeouts (repository, task_issue, session, timeout, output, issue, created_at)
+			VALUES ('o/b', 41, 1, '15m', '', -31, '2027-03-01T10:00:00Z')`,
+		`INSERT INTO init_failures (repository, task_issue, session, commit_sha, result, output, issue, created_at)
+			VALUES ('o/b', 41, 1, 'abc', 'fail', '', 32, '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var positive int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM ci_breaks WHERE issue = 30)
+		+ (SELECT count(*) FROM ci_failures WHERE issue = 30)
+		+ (SELECT count(*) FROM check_timeouts WHERE issue = 31)
+		+ (SELECT count(*) FROM init_failures WHERE issue = 32)`).Scan(&positive)
+	if err != nil || positive != 4 {
+		t.Errorf("records with a positive issue = %d, %v", positive, err)
+	}
+	var rows int
+	err = db.QueryRow(`SELECT count(*) FROM issues WHERE repository = 'o/b' AND number IN (30, 31) AND workstream = 5 AND state = 'open'`).Scan(&rows)
+	if err != nil || rows != 2 {
+		t.Errorf("rows = %d, %v", rows, err)
+	}
+	var changes int
+	err = db.QueryRow(`SELECT count(*) FROM outgoing_changes c JOIN issues i ON i.id = c.issue
+		WHERE c.field = 'parent' AND c.status = 'pending' AND c.repository = 'o/b' AND i.number IN (30, 31)`).Scan(&changes)
+	if err != nil || changes != 2 {
+		t.Errorf("parent changes = %d, %v", changes, err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM issues WHERE number = 32`).Scan(&rows); err != nil || rows != 0 {
+		t.Errorf("rows of the positive issue = %d, %v", rows, err)
+	}
+}

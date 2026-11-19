@@ -26,7 +26,7 @@ func (e *Engine) breakOpenFor(ctx context.Context, repository string, task store
 		return false, err
 	}
 	for _, ciBreak := range breaks {
-		if ciBreak.Issue != 0 && max(ciBreak.Issue, -ciBreak.Issue) == task.Issue {
+		if ciBreak.Issue == task.Issue {
 			return false, nil
 		}
 	}
@@ -80,7 +80,7 @@ func (e *Engine) breakWaitText(ctx context.Context, repository string, task stor
 	for _, ciBreak := range breaks {
 		issue := "no task issue"
 		if ciBreak.Issue != 0 {
-			issue = "task issue " + eventRef(task.WorkstreamRepository, ciBreak.Repository, max(ciBreak.Issue, -ciBreak.Issue))
+			issue = "task issue " + eventRef(task.WorkstreamRepository, ciBreak.Repository, ciBreak.Issue)
 		}
 		started, err := time.Parse(time.RFC3339Nano, ciBreak.StartedAt)
 		if err != nil {

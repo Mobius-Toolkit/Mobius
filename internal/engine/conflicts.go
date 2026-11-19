@@ -23,7 +23,7 @@ func (e *Engine) onConflict(ctx context.Context, repository github.Repository, t
 
 // stale hands the task of the stale pull request to a human, with an Inbox item and an event for the Lead.
 func (e *Engine) stale(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}

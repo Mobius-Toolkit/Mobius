@@ -89,6 +89,12 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			return err
 		}
 		if workstream == 0 {
+			// The link below the Workstream does not change the list of the issues with mobius:ready.
+			pending, err := e.queries.HasPendingIssueParent(ctx, store.HasPendingIssueParentParams{Repository: repository.FullName, Number: number})
+			if err != nil {
+				return err
+			}
+			held = held || pending
 			continue
 		}
 		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})
@@ -162,6 +168,10 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 // mobius:working comes before the removal of mobius:ready, so a failure between the two leaves the issue in the
 // list of the next poll.
 func (e *Engine) dispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, workstreamRepository string, workstream int64, actor string) error {
+	issue, err := e.withRowText(ctx, repository.FullName, issue)
+	if err != nil {
+		return err
+	}
 	number := int64(issue.GetNumber())
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
@@ -172,7 +182,7 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, []string{readyLabel}); err != nil {
 		return err
 	}
-	_, err := e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()})
+	_, err = e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()})
 	if err != nil {
 		return err
 	}
@@ -412,6 +422,10 @@ func (e *Engine) answerReplies(ctx context.Context, repository github.Repository
 // Mobius App. It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
 // for it yet. The event keeps the newest reply of a trusted user as its comment.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
+	issue, err := e.withRowText(ctx, repository.FullName, issue)
+	if err != nil {
+		return err
+	}
 	pending, err := e.pendingChanges(ctx, repository.FullName, task.Issue)
 	if err != nil {
 		return err
@@ -773,12 +787,9 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			return "", err
 		}
 	}
-	issue, err := repository.Issue(ctx, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
-	}
-	if issue == nil {
-		return "", refuse("#%d does not exist.", input.N)
 	}
 	replaced, err := e.openIssueItems(ctx, repository.FullName, input.N, questionKind)
 	if err != nil {
@@ -988,7 +999,7 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 			return "", err
 		}
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -1152,6 +1163,10 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 // Lead with a dispatch event. The counters of the task go back to 0 when the actor is not the Mobius App.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
+	issue, err := e.withRowText(ctx, repository.FullName, issue)
+	if err != nil {
+		return err
+	}
 	if !strings.EqualFold(actor, appLogin(repository.AppSlug)) {
 		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 			return err

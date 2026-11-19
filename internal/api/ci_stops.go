@@ -50,14 +50,13 @@ func (h *handlers) ciStops(ctx context.Context) ([]CIStop, error) {
 	}
 	stops := make([]CIStop, 0, len(rows))
 	for _, row := range rows {
-		issue := max(row.Issue, -row.Issue)
 		stops = append(stops, CIStop{
 			Repository: row.Repository,
 			Branch:     branches[row.Repository],
 			Workflow:   row.WorkflowName,
 			RunURL:     row.RunUrl,
-			Issue:      issue,
-			IssueURL:   fmt.Sprintf("https://github.com/%s/issues/%d", row.Repository, issue),
+			Issue:      row.Issue,
+			IssueURL:   fmt.Sprintf("https://github.com/%s/issues/%d", row.Repository, row.Issue),
 		})
 	}
 	return stops, nil

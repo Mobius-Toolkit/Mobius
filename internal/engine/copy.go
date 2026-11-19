@@ -1626,15 +1626,10 @@ func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, reposit
 }
 
 // closeCopiedWorkstream closes the row of the Workstream number of repository, deletes its recurring tasks and MCP
-// servers, and publishes the Workstreams change. The tree stays until removeClosedWorkstreamTree.
-func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64) error {
-	closed := false
-	err := e.inTx(ctx, func(q *store.Queries) error {
-		updated, err := q.CloseWorkstream(ctx, store.CloseWorkstreamParams{Repository: repository.FullName, Number: number})
-		if err != nil || updated == 0 {
-			return err
-		}
-		closed = true
+// servers, and publishes the Workstreams change. The creator Lead gets a close event with reason, as
+// closeWorkstreamRow gives it. The tree stays until removeClosedWorkstreamTree.
+func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64, reason string) error {
+	closed, err := e.closeWorkstreamRow(ctx, repository.FullName, number, reason, func(q *store.Queries) error {
 		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
 			return err
 		}

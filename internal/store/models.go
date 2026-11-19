@@ -42,6 +42,7 @@ type CheckTimeout struct {
 	Issue      int64
 	CreatedAt  string
 	EndedAt    string
+	IssueRow   sql.NullInt64
 }
 
 type CiBreak struct {
@@ -59,6 +60,7 @@ type CiBreak struct {
 	Issue        int64
 	StartedAt    string
 	RunEvent     string
+	IssueRow     sql.NullInt64
 }
 
 type CiDiagnosis struct {
@@ -82,6 +84,7 @@ type CiFailure struct {
 	Issue      int64
 	CreatedAt  string
 	EndedAt    string
+	IssueRow   sql.NullInt64
 }
 
 type CiFailurePlace struct {
@@ -205,6 +208,7 @@ type InitFailure struct {
 	Issue      int64
 	CreatedAt  string
 	EndedAt    string
+	IssueRow   sql.NullInt64
 }
 
 type IssueBinding struct {

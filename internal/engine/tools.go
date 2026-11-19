@@ -1099,7 +1099,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		c.agent.clearLeadIssue(key, claimed)
 	}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false, nil)
 	if err != nil {
 		c.agent.finishLeadIssue(key, claimed, 0)
 		return "", err
@@ -1256,16 +1256,6 @@ type issueAt struct {
 	number     int64
 }
 
-// newIssue is an issue that addIssueAt creates below the issue parent, with the blockers.
-type newIssue struct {
-	title string
-	body  string
-	// mark is the mark line of the agent that creates the issue, or "" for an issue of Mobius.
-	mark     string
-	parent   issueAt
-	blockers []issueAt
-}
-
 var issueReference = regexp.MustCompile(`^([^/\s#]+/[^/\s#]+)#([1-9][0-9]*)$`)
 
 // issueAtOf gives the issue that reference (owner/name#N) names. It refuses a repository that the Mobius App cannot read
@@ -1314,7 +1304,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 		return "", err
 	}
 	workstream := issueRef{c.agent.maintenance.repository.FullName, c.agent.maintenance.number}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil, true)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil, true, nil)
 	if err != nil {
 		return "", err
 	}
@@ -1344,74 +1334,6 @@ func checkIssue(input issueInput) error {
 		return refuse("parent and each blocked_by must be 1 or more.")
 	}
 	return nil
-}
-
-// addIssueAt is postIssue, but it gives only the number of the issue.
-func (e *Engine) addIssueAt(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (int, error) {
-	issue, err := e.postIssue(ctx, repository, workstream, input, labels)
-	return issue.GetNumber(), err
-}
-
-// postIssue creates the issue input in repository with labels and the link to the Lead chat of the Workstream, adds it
-// below input.parent, and adds the blockers. It gives the issue. When GitHub created the issue but a later call failed,
-// it gives the issue with the error.
-func (e *Engine) postIssue(ctx context.Context, repository github.Repository, workstream issueAt, input newIssue, labels []string) (*gh.Issue, error) {
-	blockerIDs, err := blockerIDsOf(ctx, input.blockers)
-	if err != nil {
-		return nil, err
-	}
-	body := e.withChatLink(workstream.repository, workstream.number, input.body)
-	if input.mark != "" {
-		body = runner.WithMark(body, input.mark)
-	}
-	issue, _, err := repository.Client.Issues.Create(ctx, repository.Owner(), repository.Name(), gh.CreateIssueRequest{Title: input.title, Body: &body, Labels: labels})
-	if err != nil {
-		return nil, err
-	}
-	parent := input.parent
-	parentWrite, err := addParentOwnWrite(ctx, e.queries, repository.FullName, int64(issue.GetNumber()), parent.repository.FullName, parent.number, addedChange)
-	if err != nil {
-		return issue, err
-	}
-	if _, _, err := parent.repository.Client.SubIssue.Add(ctx, parent.repository.Owner(), parent.repository.Name(), parent.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		if delErr := e.queries.DeleteOwnWrite(ctx, parentWrite); delErr != nil {
-			return issue, delErr
-		}
-		return issue, fmt.Errorf("GitHub created %s#%d, but the add of %s#%d below %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), repository.FullName, issue.GetNumber(), parent.repository.FullName, parent.number, err)
-	}
-	for i, id := range blockerIDs {
-		blockerWrite, err := addBlockerOwnWrite(ctx, e.queries, repository.FullName, int64(issue.GetNumber()), input.blockers[i].repository.FullName, input.blockers[i].number, addedChange)
-		if err != nil {
-			return issue, err
-		}
-		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, repository.Owner(), repository.Name(), int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			if delErr := e.queries.DeleteOwnWrite(ctx, blockerWrite); delErr != nil {
-				return issue, delErr
-			}
-			return issue, fmt.Errorf("GitHub created %s#%d, but the add of the blocker %s#%d failed. Do not create the issue again: %w", repository.FullName, issue.GetNumber(), input.blockers[i].repository.FullName, input.blockers[i].number, err)
-		}
-	}
-	return issue, nil
-}
-
-// blockerIDsOf gives the ids of the issues blockers. It refuses a missing issue, a pull request and an issue that is two
-// times in blockers.
-func blockerIDsOf(ctx context.Context, blockers []issueAt) ([]int64, error) {
-	var ids []int64
-	for _, blocker := range blockers {
-		found, err := blocker.repository.Issue(ctx, blocker.number)
-		if err != nil {
-			return nil, err
-		}
-		if found == nil || found.IsPullRequest() {
-			return nil, refuse("%s#%d is not an issue.", blocker.repository.FullName, blocker.number)
-		}
-		if slices.Contains(ids, found.GetID()) {
-			return nil, refuse("%s#%d is two times in blocked_by.", blocker.repository.FullName, blocker.number)
-		}
-		ids = append(ids, found.GetID())
-	}
-	return ids, nil
 }
 
 type resolvedBlocker struct {
@@ -1769,7 +1691,7 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}

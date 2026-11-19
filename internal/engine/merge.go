@@ -289,7 +289,7 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if err := e.clearMergeQueue(ctx, &task); err != nil {
 		return false, err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}
@@ -331,7 +331,7 @@ func (e *Engine) removeHeldHead(ctx context.Context, repository github.Repositor
 	if len(tasks) < 2 {
 		return false, nil
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}

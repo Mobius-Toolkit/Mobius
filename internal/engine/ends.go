@@ -170,6 +170,9 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if issue == nil || inOtherRepository(issue, repository.FullName) {
 		return Work{}, false, false, e.endTask(ctx, repository, task)
 	}
+	if issue, err = e.withRowText(ctx, repository.FullName, issue); err != nil {
+		return Work{}, false, false, err
+	}
 	var pullRequest *gh.PullRequest
 	if task.PullRequest.Valid {
 		if pullRequest, err = e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead, task.State == "checks"); err != nil {
@@ -711,7 +714,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err != nil {
 		return "", err
 	}
-	if _, err := existingIssue(ctx, repository, input.N); err != nil {
+	if _, err := e.existingIssue(ctx, repository, input.N); err != nil {
 		return "", err
 	}
 	reason, err := e.withMark(ctx, c, repository.FullName, input.Reason)
@@ -761,7 +764,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}

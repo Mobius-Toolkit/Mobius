@@ -23,6 +23,7 @@ type issueMetadata struct {
 type issueMobius struct {
 	AwaitsNumber bool              `json:"awaits_number,omitempty"`
 	Curator      bool              `json:"curator,omitempty"`
+	Record       bool              `json:"record,omitempty"`
 	Implementer  *issueImplementer `json:"implementer,omitempty"`
 }
 
@@ -46,13 +47,14 @@ func parseIssueMetadata(metadata string) (issueMetadata, error) {
 
 // addIssueToCreate is the create handler for a tree issue. In one transaction, it adds the row of issues with no
 // number, adds its blockers, and adds the outgoing changes create, parent and blockers in order. It gives the id of
-// the row and the id of its create change.
-func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator bool) (int64, int64, error) {
+// the row and the id of its create change. A non-nil record is the handler of a record of Mobius: it stores the id of
+// the row in the record in the same transaction.
+func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator bool, record func(*store.Queries, int64) error) (int64, int64, error) {
 	meta := issueMetadata{
 		GitHub: issueGitHub{Labels: append(make([]string, 0, len(labels)), labels...)},
 	}
-	if curator || setting != nil {
-		mobius := &issueMobius{Curator: curator}
+	if curator || setting != nil || record != nil {
+		mobius := &issueMobius{Curator: curator, Record: record != nil}
 		if setting != nil {
 			mobius.Implementer = &issueImplementer{
 				Harness: setting.Harness,
@@ -110,6 +112,11 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 		})
 		if err != nil {
 			return err
+		}
+		if record != nil {
+			if err := record(q, issueID); err != nil {
+				return err
+			}
 		}
 		for _, blocker := range blockers {
 			blockerID := blocker.id
@@ -240,6 +247,11 @@ func (e *Engine) addIssueCreatedNumber(ctx context.Context, repository github.Re
 		if err := q.SetOutgoingChangeStatus(ctx, store.SetOutgoingChangeStatusParams{Status: "sent", ID: createID}); err != nil {
 			return err
 		}
+		if meta.Mobius != nil && meta.Mobius.Record {
+			if err := setRecordIssueNumber(ctx, q, row.ID, number); err != nil {
+				return err
+			}
+		}
 		if meta.Mobius != nil && meta.Mobius.Implementer != nil {
 			imp := meta.Mobius.Implementer
 			if err := q.UpsertIssueBinding(ctx, store.UpsertIssueBindingParams{
@@ -274,6 +286,9 @@ func (e *Engine) addIssueCreatedNumber(ctx context.Context, repository github.Re
 		e.publish(Change{Pauses: true})
 		e.workers.changed.notify()
 	}
+	if meta.Mobius != nil && meta.Mobius.Record {
+		e.publish(Change{CIStops: true})
+	}
 	e.publish(Change{Workstreams: true})
 	return nil
 }
@@ -293,14 +308,12 @@ func (e *Engine) sendNewIssue(ctx context.Context, repository github.Repository,
 }
 
 // dropIssueCreate refuses each pending change of the uncreated issue row, deletes its blockers and the row, and adds
-// an issue_create_refused Lead event.
+// an issue_create_refused Lead event. The row of a record of Mobius gives no Lead event: it clears the row in its
+// record, so the next poll creates the issue again.
 func (e *Engine) dropIssueCreate(ctx context.Context, repository github.Repository, change store.OutgoingChange, row store.GetIssueByIDRow, meta issueMetadata, cause error) error {
 	issue := sql.NullInt64{Int64: row.ID, Valid: true}
-	text := fmt.Sprintf("GitHub refused the create of the issue %q: %v. Create it again with create_issue.", row.Title, cause)
-	if meta.Mobius != nil && meta.Mobius.Curator {
-		text = fmt.Sprintf("GitHub refused the create of the issue %q of the Curator: %v.", row.Title, cause)
-	}
-	err := e.addLeadEventWith(ctx, row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, repository.FullName, sql.NullInt64{}, "issue_create_refused", text, func(q *store.Queries) error {
+	record := meta.Mobius != nil && meta.Mobius.Record
+	drop := func(q *store.Queries) error {
 		if err := q.RefuseIssueChanges(ctx, issue); err != nil {
 			return err
 		}
@@ -310,8 +323,23 @@ func (e *Engine) dropIssueCreate(ctx context.Context, repository github.Reposito
 		if err := q.DeleteCopiedBlockersOfIssue(ctx, row.ID); err != nil {
 			return err
 		}
+		if record {
+			if err := clearRecordIssueRow(ctx, q, row.ID); err != nil {
+				return err
+			}
+		}
 		return q.DeleteIssueToCreate(ctx, row.ID)
-	})
+	}
+	var err error
+	if record {
+		err = e.inTx(ctx, drop)
+	} else {
+		text := fmt.Sprintf("GitHub refused the create of the issue %q: %v. Create it again with create_issue.", row.Title, cause)
+		if meta.Mobius != nil && meta.Mobius.Curator {
+			text = fmt.Sprintf("GitHub refused the create of the issue %q of the Curator: %v.", row.Title, cause)
+		}
+		err = e.addLeadEventWith(ctx, row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, repository.FullName, sql.NullInt64{}, "issue_create_refused", text, drop)
+	}
 	if err == nil {
 		e.publish(Change{Workstreams: true})
 	}
