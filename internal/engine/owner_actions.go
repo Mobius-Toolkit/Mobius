@@ -257,7 +257,7 @@ func (e *Engine) startAfterOwnerAction(ctx context.Context, task store.Task, act
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}

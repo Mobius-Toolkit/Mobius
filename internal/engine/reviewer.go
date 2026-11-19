@@ -95,7 +95,7 @@ func (e *Engine) restartReviewer(repository github.Repository, task store.Task, 
 		if err := e.abandonRound(ctx, repository, task, reason); err != nil {
 			log.Printf("update the review comment of %s#%d: %v", task.Repository, task.Issue, err)
 		}
-		issue, err := existingIssue(ctx, repository, task.Issue)
+		issue, err := e.existingIssue(ctx, repository, task.Issue)
 		if err != nil {
 			return false, err
 		}
@@ -272,7 +272,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}

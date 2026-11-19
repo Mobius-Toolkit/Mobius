@@ -1333,6 +1333,9 @@ WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 -- name: GetCopiedIssueTitle :one
 SELECT title FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
+-- name: GetIssueText :one
+SELECT title, body, state FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+
 -- name: GetCopiedIssueBody :one
 SELECT body FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 

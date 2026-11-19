@@ -149,7 +149,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
-	issue, err := existingIssue(ctx, repository, number)
+	issue, err := e.existingIssue(ctx, repository, number)
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +241,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -334,7 +334,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	issue, err := existingIssue(ctx, repository, input.N)
+	issue, err := e.existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
 	}
@@ -723,7 +723,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, r.task.Issue)
+	issue, err := e.existingIssue(ctx, repository, r.task.Issue)
 	if err != nil {
 		return err
 	}
@@ -832,7 +832,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	issue, err := e.existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
 	}
@@ -893,7 +893,7 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 	}
 	var j job
 	e.runPreparedWorker(task, &j.title, "Implementer", lost, func(ctx context.Context) (bool, error) {
-		issue, err := existingIssue(ctx, repository, task.Issue)
+		issue, err := e.existingIssue(ctx, repository, task.Issue)
 		if err != nil {
 			return false, err
 		}
@@ -1856,13 +1856,37 @@ func (e *Engine) workstreamBrief(ctx context.Context, task store.Task) (string, 
 	return row.Body, err
 }
 
-// existingIssue gives the issue number, or a refusal when it does not exist.
-func existingIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {
+// existingIssue gives the issue number, or a refusal when it does not exist. The title and the body are the text of
+// its row in issues, when it has one.
+func (e *Engine) existingIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {
 	issue, err := repository.Issue(ctx, number)
-	if err == nil && issue == nil {
+	if err != nil {
+		return nil, err
+	}
+	if issue == nil {
 		return nil, refuse("#%d does not exist.", number)
 	}
-	return issue, err
+	return e.withRowText(ctx, repository.FullName, issue)
+}
+
+// withRowText gives a copy of the issue with the title and the body of its row in issues. It gives the issue itself
+// when the issue has no row, or when GitHub moved the issue to another repository, because the row of that number in
+// repository is another issue.
+func (e *Engine) withRowText(ctx context.Context, repository string, issue *gh.Issue) (*gh.Issue, error) {
+	if inOtherRepository(issue, repository) {
+		return issue, nil
+	}
+	row, err := e.queries.GetIssueText(ctx, store.GetIssueTextParams{Repository: repository, Number: int64(issue.GetNumber())})
+	if errors.Is(err, sql.ErrNoRows) {
+		return issue, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	text := *issue
+	text.Title = &row.Title
+	text.Body = &row.Body
+	return &text, nil
 }
 
 // newestSession gives the newest session of the issue of the task.
