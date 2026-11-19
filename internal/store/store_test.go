@@ -1361,3 +1361,50 @@ func TestTheWorkstreamCreateMigrationKeepsTheRowsAndAcceptsARowWithNoNumber(t *t
 		t.Errorf("created_workstream: %v", err)
 	}
 }
+
+func TestTheIssueChangesMigrationKeepsTheRowsAndAcceptsBlockers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270412000000)
+	for _, statement := range []string{
+		`INSERT INTO workstreams (id, repository, number, title, body, created_at)
+			VALUES (5, 'o/a', 12, 'Work', 'Body', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO issues (id, repository, number, title, body, state, author, workstream)
+			VALUES (9, 'o/a', 41, 'Task', 'Old', 'open', 'owner', 5)`,
+		`INSERT INTO outgoing_changes (integration, repository, number, workstream, field, text, status, created_at) VALUES
+			('github', 'o/a', 12, NULL, 'body', NULL, 'sent', '2027-03-01T10:00:00Z'),
+			('github', 'o/a', NULL, 5, 'create', NULL, 'pending', '2027-03-01T10:00:01Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT count(*) FROM outgoing_changes
+		WHERE (id = 1 AND number = 12 AND workstream IS NULL AND issue IS NULL AND field = 'body' AND status = 'sent')
+		   OR (id = 2 AND number IS NULL AND workstream = 5 AND issue IS NULL AND field = 'create' AND status = 'pending')`).Scan(&kept)
+	if err != nil || kept != 2 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	for i, field := range []string{"blockers", "body"} {
+		var id int64
+		err := db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, number, issue, field, status, created_at)
+			VALUES ('github', 'o/a', 41, 9, ?, 'pending', '2027-03-01T10:00:02Z') RETURNING id`, field).Scan(&id)
+		if err != nil || id != int64(3+i) {
+			t.Errorf("%s: id = %d, error = %v", field, id, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO outgoing_changes (integration, repository, number, issue, field, status, created_at)
+		VALUES ('github', 'o/a', 41, 9, 'unknown', 'pending', '2027-03-01T10:00:03Z')`); err == nil {
+		t.Error("the table accepts an unknown field")
+	}
+}

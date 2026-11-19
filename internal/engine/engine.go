@@ -75,13 +75,17 @@ type Engine struct {
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and the writes of single issues
 	// of the copy take turns.
 	copyWrite sync.Mutex
-	// labelChanges counts the local label changes of each repository (changeCopiedLabels). labelChangedAt holds, for
-	// each changed issue, the count of its repository after its newest change. labelChangeMu makes a label change with
-	// its count, and the check of the count with the write of a tree that GitHub reads gave, take turns.
-	// Else a tree that GitHub gave before the label change can replace the change.
-	labelChangeMu  sync.Mutex
-	labelChanges   map[string]int
-	labelChangedAt map[issueRef]int
+	// labelChanges, bodyChanges, and blockerChanges count the local changes of each repository. The *ChangedAt maps
+	// hold, for each changed issue, the count of its repository after its newest change. labelChangeMu makes a change
+	// with its count, and the check of the count with the write of a tree that GitHub reads gave, take turns.
+	// Else a tree or issue read that GitHub gave before the local change can replace the change.
+	labelChangeMu    sync.Mutex
+	labelChanges     map[string]int
+	labelChangedAt   map[issueRef]int
+	bodyChanges      map[string]int
+	bodyChangedAt    map[issueRef]int
+	blockerChanges   map[string]int
+	blockerChangedAt map[issueRef]int
 	// addedCopies holds the issues that addIssueToCopy added and that no tree of GitHub has listed yet. writeRead puts
 	// them back into each tree that it writes. labelChangeMu guards it.
 	addedCopies []addedCopy
@@ -282,6 +286,10 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		checkedWorkstreams: map[string]string{},
 		labelChanges:       map[string]int{},
 		labelChangedAt:     map[issueRef]int{},
+		bodyChanges:        map[string]int{},
+		bodyChangedAt:      map[issueRef]int{},
+		blockerChanges:     map[string]int{},
+		blockerChangedAt:   map[issueRef]int{},
 		quiet:              map[int64]quietItem{},
 		pulls:              map[pullKey]*pullState{},
 		pushed:             map[pullKey]bool{},

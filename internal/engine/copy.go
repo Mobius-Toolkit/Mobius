@@ -50,6 +50,7 @@ type copiedIssue struct {
 
 // copiedBlocker is a blocker of an issue, open or closed.
 type copiedBlocker struct {
+	id         int64
 	repository string
 	issue      *gh.Issue
 }
@@ -141,7 +142,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 					return err
 				}
 			}
-			return q.DeleteUnusedIssues(ctx)
+			return deleteUnusedIssues(ctx, q)
 		})
 		if err != nil {
 			return err
@@ -169,7 +170,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 				return err
 			}
 		}
-		return q.DeleteUnusedIssues(ctx)
+		return deleteUnusedIssues(ctx, q)
 	})
 	if err != nil {
 		return err
@@ -192,7 +193,7 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := detachAllTrees(ctx, q, name); err != nil {
 				return err
 			}
-			if err := q.DeleteUnusedIssues(ctx); err != nil {
+			if err := deleteUnusedIssues(ctx, q); err != nil {
 				return err
 			}
 			if err := q.DeleteCopiedWorkstreamsOf(ctx, name); err != nil {
@@ -231,7 +232,7 @@ func detachAllTrees(ctx context.Context, q *store.Queries, repository string) er
 // findParent, updateCopy reads the parent of an issue that no copy has, because its new link to a Workstream or a task
 // changes the walk order of that Workstream. changes is the labelChangeCount of repository from before the read of
 // issue. It changes no row of workstreams.
-func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, findParent bool, changes int) (bool, error) {
+func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, findParent bool, changes copyCounts) (bool, error) {
 	name := repository.FullName
 	number := int64(issue.GetNumber())
 	holding, err := e.copiedWorkstreamsHolding(ctx, name, number)
@@ -413,6 +414,7 @@ func bucketOf(issue *gh.Issue) copiedBucket {
 func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
 	var rows []store.ListCopiedTreeRow
 	var blockerRows []store.ListCopiedTreeBlockersRow
+	var pendingBlockerIDs []int64
 	var storedBuckets, storedNested string
 	err := e.readTx(ctx, func(q *store.Queries) error {
 		var err error
@@ -421,6 +423,10 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 			return err
 		}
 		blockerRows, err = q.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams{Repository: repository.FullName, Number: workstream})
+		if err != nil {
+			return err
+		}
+		pendingBlockerIDs, err = q.ListPendingBlockerIssues(ctx)
 		if err != nil {
 			return err
 		}
@@ -434,10 +440,17 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return false, err
 	}
+	pendingBlockers := map[int64]bool{}
+	for _, id := range pendingBlockerIDs {
+		pendingBlockers[id] = true
+	}
 	root := lowerRef(repository.FullName, workstream)
 	refs := map[int64]issueRef{}
+	idByRef := map[issueRef]int64{}
 	for _, row := range rows {
-		refs[row.ID] = lowerRef(row.IssueRepository, row.Number)
+		ref := lowerRef(row.IssueRepository, row.Number)
+		refs[row.ID] = ref
+		idByRef[ref] = row.ID
 	}
 	children := map[issueRef][]issueRef{}
 	for _, row := range rows {
@@ -479,22 +492,24 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 				continue
 			}
 			number := int64(issue.GetNumber())
-			var open []blockerKey
-			if issue.GetIssueDependenciesSummary().GetTotalBlockedBy() > 0 {
-				blocking, err := openBlockers(ctx, issueRepository, number)
-				if err != nil {
-					return false, err
-				}
-				for _, blocker := range blocking {
-					open = append(open, blockerKey{blockerRepository(blocker, issueRepository.FullName), int64(blocker.GetNumber())})
-				}
-				slices.SortFunc(open, func(a, b blockerKey) int {
-					return cmp.Or(strings.Compare(strings.ToLower(a.repository), strings.ToLower(b.repository)), cmp.Compare(a.number, b.number))
-				})
-			}
 			itemKey := lowerRef(issueRepository.FullName, number)
-			if !slices.Equal(open, blockers[itemKey]) {
-				return true, nil
+			if !pendingBlockers[idByRef[itemKey]] {
+				var open []blockerKey
+				if issue.GetIssueDependenciesSummary().GetTotalBlockedBy() > 0 {
+					blocking, err := openBlockers(ctx, issueRepository, number)
+					if err != nil {
+						return false, err
+					}
+					for _, blocker := range blocking {
+						open = append(open, blockerKey{blockerRepository(blocker, issueRepository.FullName), int64(blocker.GetNumber())})
+					}
+					slices.SortFunc(open, func(a, b blockerKey) int {
+						return cmp.Or(strings.Compare(strings.ToLower(a.repository), strings.ToLower(b.repository)), cmp.Compare(a.number, b.number))
+					})
+				}
+				if !slices.Equal(open, blockers[itemKey]) {
+					return true, nil
+				}
 			}
 			if changed, err := differs(issueRepository, number, itemKey); err != nil || changed {
 				return changed, err
@@ -596,17 +611,19 @@ func (e *Engine) copiedWorkstreamsHolding(ctx context.Context, repository string
 }
 
 // updateCopiedIssue changes the copied row of the issue of repository. It gives false when the copy has the same values.
-// It keeps the labels of the copy when changeCopiedLabels changed a label of this issue after labelChangeCount gave changes,
-// because the issue can have the old labels. In this case, a closed issue of the copy also stays closed, because the issue
-// can be open on GitHub from before the close that Mobius made.
-func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes int) (bool, error) {
+// It keeps the labels or the body of the copy when a local change changed them after labelChangeCount gave changes,
+// because the issue can have the old values. In the label case, a closed issue of the copy also stays closed, because
+// the issue can be open on GitHub from before the close that Mobius made.
+func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes copyCounts) (bool, error) {
 	changed := false
 	number := int64(issue.GetNumber())
 	labels := labelNames(issue)
 	slices.Sort(labels)
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
-	keepLabels := e.labelChangedAt[issueRef{repository, number}] > changes
+	ref := lowerRef(repository, number)
+	keepLabels := e.labelChangedAt[ref] > changes.labels
+	keepBody := e.bodyChangedAt[ref] > changes.body
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		row, err := q.GetCopiedIssue(ctx, store.GetCopiedIssueParams{Repository: repository, Number: number})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -628,6 +645,7 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 		}
 		updated, err := q.UpdateCopiedIssue(ctx, store.UpdateCopiedIssueParams{
 			Title:      issue.GetTitle(),
+			KeepBody:   keepBody,
 			Body:       body,
 			State:      state,
 			Author:     issue.GetUser().GetLogin(),
@@ -686,8 +704,9 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 		return setIssueLabels(ctx, q, repositoryName, number, labels)
 	})
 	if err == nil {
-		e.labelChanges[repositoryName]++
-		e.labelChangedAt[issueRef{repositoryName, number}] = e.labelChanges[repositoryName]
+		repo := strings.ToLower(repositoryName)
+		e.labelChanges[repo]++
+		e.labelChangedAt[lowerRef(repositoryName, number)] = e.labelChanges[repo]
 	}
 	e.labelChangeMu.Unlock()
 	if err != nil {
@@ -702,33 +721,53 @@ type issueRef struct {
 	number     int64
 }
 
-func (e *Engine) labelChangeCount(repository string) int {
-	e.labelChangeMu.Lock()
-	defer e.labelChangeMu.Unlock()
-	return e.labelChanges[repository]
+type copyCounts struct {
+	labels int
+	body   int
 }
 
-// labelChangesNow gives the labelChangedAt of all issues. A read of GitHub that starts after it gives the labels of
-// at least this state.
-func (e *Engine) labelChangesNow() map[issueRef]int {
-	e.labelChangeMu.Lock()
-	defer e.labelChangeMu.Unlock()
-	return maps.Clone(e.labelChangedAt)
+type copySnapshots struct {
+	labels   map[issueRef]int
+	body     map[issueRef]int
+	blockers map[issueRef]int
 }
 
-// writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that changeCopiedLabels changed
-// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels. It also keeps a
-// closed state of the copy, because the issue can be open on GitHub from before the close that Mobius made.
-func (e *Engine) writeRead(ctx context.Context, before map[issueRef]int, trees []copiedTree, write func(*store.Queries) error) error {
+func (e *Engine) labelChangeCount(repository string) copyCounts {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	repo := strings.ToLower(repository)
+	return copyCounts{labels: e.labelChanges[repo], body: e.bodyChanges[repo]}
+}
+
+// labelChangesNow gives the change counts of all issues. A read of GitHub that starts after it gives at least these
+// states.
+func (e *Engine) labelChangesNow() copySnapshots {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	return copySnapshots{
+		labels:   maps.Clone(e.labelChangedAt),
+		body:     maps.Clone(e.bodyChangedAt),
+		blockers: maps.Clone(e.blockerChangedAt),
+	}
+}
+
+// writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that a local change changed
+// after labelChangesNow gave before keeps its copied labels, closed state, body, or blockers, because the read can have
+// the old values.
+func (e *Engine) writeRead(ctx context.Context, before copySnapshots, trees []copiedTree, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
 	var pending []addedCopy
 	err := e.inTx(ctx, func(q *store.Queries) error {
-		for _, tree := range trees {
-			for _, copied := range tree.issues {
+		for t := range trees {
+			for i := range trees[t].issues {
+				copied := &trees[t].issues[i]
 				issue := copied.issue
-				ref := issueRef{copied.repository, int64(issue.GetNumber())}
-				if e.labelChangedAt[ref] == before[ref] {
+				ref := lowerRef(copied.repository, int64(issue.GetNumber()))
+				labelsChanged := e.labelChangedAt[ref] != before.labels[ref]
+				bodyChanged := e.bodyChangedAt[ref] != before.body[ref]
+				blockersChanged := e.blockerChangedAt[ref] != before.blockers[ref]
+				if !labelsChanged && !bodyChanged && !blockersChanged {
 					continue
 				}
 				row, err := q.GetCopiedIssue(ctx, store.GetCopiedIssueParams{Repository: copied.repository, Number: int64(issue.GetNumber())})
@@ -738,16 +777,32 @@ func (e *Engine) writeRead(ctx context.Context, before map[issueRef]int, trees [
 				if err != nil {
 					return err
 				}
-				stored, err := parseMetadata(row.Metadata)
-				if err != nil {
-					return err
+				if labelsChanged {
+					stored, err := parseMetadata(row.Metadata)
+					if err != nil {
+						return err
+					}
+					issue.Labels = nil
+					for _, name := range stored.Labels {
+						issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+					}
+					if issue.GetState() == "open" && row.State == "closed" {
+						issue.State = &row.State
+					}
 				}
-				issue.Labels = nil
-				for _, name := range stored.Labels {
-					issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+				if bodyChanged {
+					copied.body = row.Body
 				}
-				if issue.GetState() == "open" && row.State == "closed" {
-					issue.State = &row.State
+				if blockersChanged {
+					saved, err := q.ListBlockersOfIssue(ctx, row.ID)
+					if err != nil {
+						return err
+					}
+					restored := make([]copiedBlocker, 0, len(saved))
+					for _, b := range saved {
+						restored = append(restored, copiedBlocker{id: b.ID})
+					}
+					copied.blockers = restored
 				}
 			}
 		}
@@ -827,37 +882,6 @@ func (e *Engine) addIssueToCopy(ctx context.Context, workstream issueRef, issue 
 		return err
 	}
 	e.addedCopies = append(e.addedCopies, added)
-	e.publish(Change{Workstreams: true})
-	return nil
-}
-
-// setCopiedBlockers replaces the open blockers of the copied row of the issue number of the repository URL with
-// blockers, and publishes the change. A closed blocker stays.
-func (e *Engine) setCopiedBlockers(ctx context.Context, repositoryURL string, number int64, blockers []blockerKey) error {
-	found, err := e.readBlockers(ctx, blockers)
-	if err != nil {
-		return err
-	}
-	e.copyWrite.Lock()
-	defer e.copyWrite.Unlock()
-	e.labelChangeMu.Lock()
-	defer e.labelChangeMu.Unlock()
-	err = e.inTx(ctx, func(q *store.Queries) error {
-		row, err := q.GetCopiedIssue(ctx, store.GetCopiedIssueParams{Repository: repositoryOfURL(repositoryURL), Number: number})
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := q.DeleteCopiedOpenBlockersOfIssue(ctx, row.ID); err != nil {
-			return err
-		}
-		return addBlockers(ctx, q, row.ID, found)
-	})
-	if err != nil {
-		return err
-	}
 	e.publish(Change{Workstreams: true})
 	return nil
 }
@@ -1139,7 +1163,7 @@ func removeTree(ctx context.Context, q *store.Queries, repository string, workst
 	if err := detachTree(ctx, q, repository, workstream); err != nil {
 		return err
 	}
-	return q.DeleteUnusedIssues(ctx)
+	return deleteUnusedIssues(ctx, q)
 }
 
 // removeClosedTree is removeTree for a Workstream that stays as a closed row. An issue that stays as a blocker keeps the
@@ -1175,6 +1199,18 @@ func replaceTree(ctx context.Context, q *store.Queries, repository string, works
 		return err
 	}
 	if err := addTree(ctx, q, repository, workstream, tree); err != nil {
+		return err
+	}
+	return deleteUnusedIssues(ctx, q)
+}
+
+// deleteUnusedIssues refuses pending changes and removes blockers of detached issues before deleting unused issue rows,
+// so SQLite id reuse cannot inherit orphan blockers or pending outgoing changes.
+func deleteUnusedIssues(ctx context.Context, q *store.Queries) error {
+	if err := q.RefuseDetachedIssueChanges(ctx); err != nil {
+		return err
+	}
+	if err := q.DeleteBlockersOfDetachedIssues(ctx); err != nil {
 		return err
 	}
 	return q.DeleteUnusedIssues(ctx)
@@ -1234,6 +1270,13 @@ func addCopiedIssue(ctx context.Context, q *store.Queries, workstream int64, par
 	if err != nil {
 		return 0, err
 	}
+	pending, err := q.HasPendingIssueChange(ctx, store.HasPendingIssueChangeParams{
+		Issue: sql.NullInt64{Int64: id, Valid: true},
+		Field: blockersField,
+	})
+	if err != nil || pending {
+		return id, err
+	}
 	if err := q.DeleteCopiedBlockersOfIssue(ctx, id); err != nil {
 		return 0, err
 	}
@@ -1243,22 +1286,25 @@ func addCopiedIssue(ctx context.Context, q *store.Queries, workstream int64, par
 // addBlockers adds the blockers of the issue with the id issue. A blocker with no row gets a row with no Workstream.
 func addBlockers(ctx context.Context, q *store.Queries, issue int64, blockers []copiedBlocker) error {
 	for _, blocker := range blockers {
-		metadata, err := githubMetadata(blocker.issue, 0)
-		if err != nil {
-			return err
-		}
-		id, err := q.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
-			Repository: blocker.repository,
-			Number:     int64(blocker.issue.GetNumber()),
-			Title:      blocker.issue.GetTitle(),
-			Body:       blocker.issue.GetBody(),
-			State:      blocker.issue.GetState(),
-			Author:     blocker.issue.GetUser().GetLogin(),
-			Kind:       issueKind(labelNames(blocker.issue)),
-			Github:     metadata,
-		})
-		if err != nil {
-			return err
+		id := blocker.id
+		if id == 0 {
+			metadata, err := githubMetadata(blocker.issue, 0)
+			if err != nil {
+				return err
+			}
+			id, err = q.AddCopiedBlockerIssue(ctx, store.AddCopiedBlockerIssueParams{
+				Repository: blocker.repository,
+				Number:     int64(blocker.issue.GetNumber()),
+				Title:      blocker.issue.GetTitle(),
+				Body:       blocker.issue.GetBody(),
+				State:      blocker.issue.GetState(),
+				Author:     blocker.issue.GetUser().GetLogin(),
+				Kind:       issueKind(labelNames(blocker.issue)),
+				Github:     metadata,
+			})
+			if err != nil {
+				return err
+			}
 		}
 		if err := q.AddCopiedBlocker(ctx, store.AddCopiedBlockerParams{Issue: issue, Blocker: id}); err != nil {
 			return err

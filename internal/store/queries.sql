@@ -778,7 +778,7 @@ SELECT review_comment FROM tasks WHERE id = ?;
 UPDATE tasks SET review_comment = ? WHERE id = ?;
 
 -- name: AddOutgoingChange :one
-INSERT INTO outgoing_changes (integration, repository, number, workstream, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, 'pending', ?)
+INSERT INTO outgoing_changes (integration, repository, number, workstream, issue, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
 RETURNING id;
 
 -- name: GetOutgoingChange :one
@@ -786,6 +786,12 @@ SELECT * FROM outgoing_changes WHERE id = ?;
 
 -- name: ListPendingOutgoingChanges :many
 SELECT * FROM outgoing_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
+
+-- name: HasPendingIssueChange :one
+SELECT EXISTS (SELECT 1 FROM outgoing_changes WHERE issue = ? AND field = ? AND status = 'pending');
+
+-- name: ListPendingBlockerIssues :many
+SELECT DISTINCT CAST(issue AS INTEGER) AS issue FROM outgoing_changes WHERE field = 'blockers' AND status = 'pending' AND issue IS NOT NULL;
 
 -- name: GetCreateChange :one
 SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
@@ -912,6 +918,8 @@ SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(
 -- name: DeleteCopiedBlockersOfTrees :exec
 DELETE FROM blockers WHERE issue IN (
     SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ?
+) AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
 );
 
 -- name: DetachCopiedTrees :exec
@@ -922,6 +930,8 @@ WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ?);
 -- name: DeleteCopiedBlockersOfSettledTrees :exec
 DELETE FROM blockers WHERE issue IN (
     SELECT i.id FROM issues i JOIN workstreams w ON w.id = i.workstream WHERE w.repository = ? AND w.close_pending = 0
+) AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
 );
 
 -- name: DetachCopiedSettledTrees :exec
@@ -932,10 +942,22 @@ WHERE workstream IN (SELECT w.id FROM workstreams w WHERE w.repository = ? AND w
 DELETE FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: DeleteCopiedBlockersOfTree :exec
-DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream = ?);
+DELETE FROM blockers WHERE issue IN (SELECT i.id FROM issues i WHERE i.workstream = ?)
+  AND NOT EXISTS (
+    SELECT 1 FROM outgoing_changes c WHERE c.issue = blockers.issue AND c.field = 'blockers' AND c.status = 'pending'
+);
 
 -- name: DetachCopiedTree :exec
 UPDATE issues SET workstream = NULL, parent = NULL WHERE workstream = ?;
+
+-- An issue that is in no tree keeps no pending outgoing change and no blockers row, so deleting an unused issue
+-- row leaves no orphan blocker or pending change for a reused id.
+-- name: RefuseDetachedIssueChanges :exec
+UPDATE outgoing_changes SET status = 'refused'
+WHERE status = 'pending' AND issue IN (SELECT id FROM issues WHERE workstream IS NULL);
+
+-- name: DeleteBlockersOfDetachedIssues :exec
+DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream IS NULL);
 
 -- An issue that is in no tree and blocks no issue goes away.
 -- name: DeleteUnusedIssues :exec
@@ -1009,7 +1031,13 @@ INSERT INTO issues (repository, number, title, body, state, author, workstream, 
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
-    title = excluded.title, body = excluded.body, state = excluded.state, author = excluded.author,
+    title = excluded.title,
+    body = CASE
+        WHEN EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE excluded.body
+    END,
+    state = excluded.state, author = excluded.author,
     workstream = excluded.workstream, parent = excluded.parent, kind = excluded.kind,
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id;
@@ -1132,12 +1160,58 @@ WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS IN
 -- The labels in the metadata are a copy of GitHub. The change of the title, the body, the state or the author gives
 -- the number of changed rows.
 -- name: UpdateCopiedIssue :execrows
-UPDATE issues SET title = sqlc.arg(title), body = sqlc.arg(body), state = sqlc.arg(state), author = sqlc.arg(author)
-WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER)
-  AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR state != sqlc.arg(state) OR author != sqlc.arg(author));
+UPDATE issues
+SET title = sqlc.arg(title),
+    body = CASE
+        WHEN CAST(sqlc.arg(keep_body) AS BOOLEAN)
+          OR EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending')
+        THEN issues.body
+        ELSE sqlc.arg(body)
+    END,
+    state = sqlc.arg(state),
+    author = sqlc.arg(author)
+WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER)
+  AND (
+      issues.title != sqlc.arg(title)
+      OR (NOT CAST(sqlc.arg(keep_body) AS BOOLEAN) AND issues.body != sqlc.arg(body) AND NOT EXISTS (SELECT 1 FROM outgoing_changes c WHERE c.issue = issues.id AND c.field = 'body' AND c.status = 'pending'))
+      OR issues.state != sqlc.arg(state)
+      OR issues.author != sqlc.arg(author)
+  );
 
 -- name: GetCopiedIssue :one
-SELECT id, state, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: GetTreeIssue :one
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: GetIssueByID :one
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+       w.repository AS workstream_repository, w.number AS workstream_number
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.id = ?;
+
+-- name: SetIssueBody :execrows
+UPDATE issues SET body = ? WHERE id = ?;
+
+-- name: ListBlockersOfIssue :many
+SELECT bi.id, bi.repository, bi.number, bi.state, bi.metadata
+FROM blockers b
+JOIN issues bi ON bi.id = b.blocker
+WHERE b.issue = ?
+ORDER BY bi.repository, bi.number, bi.id;
+
+-- name: ListOpenBlockersOfIssue :many
+SELECT bi.repository, CAST(bi.number AS INTEGER) AS number
+FROM blockers b
+JOIN issues i ON i.id = b.issue
+JOIN issues bi ON bi.id = b.blocker
+WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER) AND bi.state = 'open' AND bi.number IS NOT NULL
+ORDER BY bi.repository, bi.number;
 
 -- name: SetCopiedIssueLabels :exec
 UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json(CAST(sqlc.arg(labels) AS TEXT))), kind = sqlc.arg(kind)
