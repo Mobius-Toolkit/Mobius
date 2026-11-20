@@ -1447,13 +1447,12 @@ test("screenshots", async ({ page }) => {
       ...frame(device, drain),
       trayToggle(page, 1, true),
       main.getByText("Deployment todos"),
-      main.getByText("MOBIUS_SMTP_HOST"),
-      main.getByRole("button", { name: "Dismiss MOBIUS_SMTP_TIMEOUT" }),
+      main.getByRole("button", { name: "Complete todos (2)" }),
     ],
     async () => {
       await expect(trayToggle(page, 1, true)).toBeVisible();
       await expect(main.getByText("Deployment todos")).toBeVisible();
-      await expect(main.getByText("MOBIUS_SMTP_TIMEOUT")).toBeVisible();
+      await expect(main.getByRole("button", { name: "Complete todos (2)" })).toBeVisible();
       await showChatEnd(page);
     },
   );
@@ -2631,9 +2630,7 @@ test("screenshots", async ({ page }) => {
       `Lead of #12 Integrate loyalty plans did not get: "Start the work on the plan tiers."`,
     ),
     main.getByText("The Lead did not get your message"),
-    main.getByText("MOBIUS_SMTP_HOST"),
-    main.getByText("Run the plan import"),
-    main.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
+    main.getByRole("button", { name: `Complete todos (${moreTodos ? 4 : 2})` }),
   ];
   await screenshot(page, "inbox", "/inbox", inboxReady);
   const todoRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
@@ -2643,33 +2640,36 @@ test("screenshots", async ({ page }) => {
     "/inbox",
     (device) => [
       ...inboxReady(device),
-      todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
+      todoRow.getByRole("button", { name: "Complete todos (2)" }),
       todoRow.getByRole("link", { name: "Open PR" }),
       todoRow.getByText("Mobius merges after you close the open todos."),
     ],
     async () => {
-      await expect(
-        todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }),
-      ).toBeVisible();
+      await expect(todoRow.getByRole("button", { name: "Complete todos (2)" })).toBeVisible();
       await todoRow.evaluate((el) => el.scrollIntoView({ block: "center" }));
     },
   );
+  moreTodos = true;
   await screenshot(
     page,
-    "inbox-todo-optional",
+    "inbox-todo-list",
     "/inbox",
-    (device) => [
-      ...inboxReady(device),
-      todoRow.getByRole("button", { name: "Complete Run the plan import" }),
-      todoRow.getByRole("button", { name: "Dismiss Run the plan import" }),
+    () => [
+      page.getByRole("dialog").getByRole("heading", { name: "Todos of PR #44" }),
+      page.getByRole("dialog").getByRole("button", { name: "MOBIUS_SMTP_HOST" }),
+      page.getByRole("dialog").getByRole("button", { name: "Run the plan import" }),
+      page.getByRole("dialog").getByText("optional", { exact: true }),
+      page.getByRole("dialog").getByRole("button", { name: "roles.lead.context" }),
+      page.getByRole("dialog").getByText("after merge", { exact: true }),
     ],
-    async () => {
-      await expect(
-        todoRow.getByRole("button", { name: "Dismiss Run the plan import" }),
-      ).toBeVisible();
-      await todoRow.evaluate((el) => el.scrollIntoView({ block: "end" }));
+    async (device) => {
+      for (const locator of inboxReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await todoRow.getByRole("button", { name: "Complete todos (4)" }).click();
     },
   );
+  moreTodos = false;
   blocked = false;
   const [mandatoryTodo] = todoItems;
   const afterMergeTodo = {
@@ -2688,12 +2688,11 @@ test("screenshots", async ({ page }) => {
     },
   };
   await page.route(inboxRoute, (route) => route.fulfill({ json: { data: [afterMergeTodo] } }));
-  const afterMergeRow = main.getByRole("listitem").filter({ hasText: "roles.lead.context" });
+  const afterMergeRow = main.getByRole("listitem").filter({ hasText: "Deployment todos" });
   await screenshot(page, "inbox-todo-after-merge", "/inbox", (device) => [
     ...frame(device, drain, { organizations: true }),
     afterMergeRow.getByText("Deployment todos"),
-    afterMergeRow.getByText("after merge", { exact: true }),
-    afterMergeRow.getByRole("button", { name: "Complete roles.lead.context" }),
+    afterMergeRow.getByRole("button", { name: "Complete todos (1)" }),
   ]);
   await screenshot(
     page,
@@ -2707,8 +2706,9 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
     ],
     async () => {
-      await expect(afterMergeRow.getByRole("button", { name: "Complete" })).toBeVisible();
-      await afterMergeRow.getByRole("button", { name: "Complete" }).click();
+      await expect(afterMergeRow.getByRole("button", { name: "Complete todos (1)" })).toBeVisible();
+      await afterMergeRow.getByRole("button", { name: "Complete todos (1)" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "roles.lead.context" }).click();
     },
   );
   await page.unroute(inboxRoute);
@@ -2768,7 +2768,26 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("This todo blocks the merge until you complete it."),
       page.getByRole("dialog").getByRole("textbox", { name: "Note" }),
     ],
-    openPanel("Complete", 0),
+    async (device) => {
+      await openPanel("Complete todos", 0)(device);
+      await page.getByRole("dialog").getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "todo-dialog-optional",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByText("Optional manual step"),
+      page
+        .getByRole("dialog")
+        .getByText("This todo blocks the merge until you complete or dismiss it."),
+      page.getByRole("dialog").getByRole("button", { name: "Dismiss" }),
+    ],
+    async (device) => {
+      await openPanel("Complete todos", 0)(device);
+      await page.getByRole("dialog").getByRole("button", { name: "Run the plan import" }).click();
+    },
   );
   await screenshot(
     page,
@@ -2855,21 +2874,6 @@ test("screenshots", async ({ page }) => {
     },
   );
   mergeState = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
-  blocked = true;
-  moreTodos = true;
-  await screenshot(
-    page,
-    "inbox-todo-more",
-    "/inbox",
-    (device) => [...inboxReady(device), readyRow.getByRole("button", { name: "Show 1 more" })],
-    async () => {
-      await expect(readyRow.getByRole("button", { name: "Show 1 more" })).toBeVisible();
-      await expect(readyRow.getByRole("button", { name: "Merge" })).toHaveCount(0);
-      await readyRow.evaluate((el) => el.scrollIntoView({ block: "center" }));
-    },
-  );
-  blocked = false;
-  moreTodos = false;
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>
     route.fulfill({
@@ -4805,9 +4809,10 @@ test("screenshots", async ({ page }) => {
   const inboxTodoRow = main
     .getByRole("list", { name: "Pending actions" })
     .getByRole("listitem")
-    .filter({ hasText: "MOBIUS_SMTP_HOST" });
+    .filter({ hasText: "Deployment todos" });
   await expect(inboxTodoRow).toBeVisible();
-  await inboxTodoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+  await inboxTodoRow.getByRole("button", { name: "Complete todos (1)" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
   const inboxTodoNote = "Set MOBIUS_SMTP_HOST to smtp.example.com.";
   await page.getByRole("dialog").getByRole("textbox", { name: "Note" }).fill(inboxTodoNote);
   const inboxTodoDone = page.waitForResponse(`**/api/inbox/${inboxTodoId}/done`);

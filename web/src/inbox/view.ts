@@ -1,7 +1,13 @@
 import type { Html } from "foldkit/html";
 import { Message } from "@/chat/message";
 import type { Model } from "@/chat/model";
-import { type H, renderAnswerDialog, renderItemRow, trayRows } from "@/chat/view";
+import {
+  type H,
+  renderAnswerDialog,
+  renderItemRow,
+  renderTodoListDialog,
+  trayRows,
+} from "@/chat/view";
 import { badgeClass } from "@/ui/badge";
 import { beginMarkdownRender } from "@/ui/markdown";
 
@@ -35,6 +41,7 @@ export function view(model: Model, h: H): Html {
           renderItemRow(h, row, model, Message.ChatWithItemClicked({ item: row.item })),
         ),
       ),
+      renderTodoListDialog(h, model),
       renderAnswerDialog(h, model),
     ],
   );

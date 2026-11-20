@@ -79,6 +79,10 @@ export const Panel = Schema.Struct({
   workstreamTitle: Schema.optional(Schema.String),
   fromTray: Schema.optional(Schema.Boolean),
 });
+export const TodoListTarget = Schema.Struct({
+  repository: Schema.String,
+  pullRequest: Schema.Number,
+});
 export const Selection = Schema.Record(Schema.Number, Schema.mutable(Schema.Array(Schema.Number)));
 export const TrayRunning = Schema.Literals(["action", "dismiss", "merge"]);
 
@@ -96,3 +100,4 @@ export type Queued = typeof Queued.Type;
 export type Waiting = typeof Waiting.Type;
 export type Failure = typeof Failure.Type;
 export type Panel = typeof Panel.Type;
+export type TodoListTarget = typeof TodoListTarget.Type;

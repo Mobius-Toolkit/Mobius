@@ -53,6 +53,7 @@ import {
   hasNote,
   isMissingWorkstream,
   retryDelays,
+  todoRowOf,
   upsert,
   type Model,
   type Waiting,
@@ -273,6 +274,7 @@ function finishRequest(model: Model, id: number, error: string): Model {
       ...model,
       activePanel: ownActive ? null : model.activePanel,
       closedPanel: ownClosed ? null : model.closedPanel,
+      todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
       answerError: model.answerErrorId === id ? "" : model.answerError,
       answerErrorId: model.answerErrorId === id ? 0 : model.answerErrorId,
     };
@@ -429,6 +431,13 @@ function step(model: Model, message: Message): StepReturn {
       };
       const keepKnown = <T>(record: Record<number, T>) =>
         Object.fromEntries(Object.entries(record).filter(([id]) => kept(Number(id))));
+      const pendingTodo = (panel ?? model.closedPanel)?.item;
+      const keepsTodoList =
+        pendingTodo?.todo != null &&
+        (model.requesting.includes(pendingTodo.id) ||
+          (model.answerErrorAwaitsRow &&
+            model.answerErrorId === pendingTodo.id &&
+            model.answerError !== ""));
       return {
         model: {
           ...model,
@@ -439,6 +448,7 @@ function step(model: Model, message: Message): StepReturn {
             model.answerErrorAwaitsRow && !rows.some((row) => row.id === model.answerErrorId),
           activePanel: gone ? null : model.activePanel,
           closedPanel: gone ? panel : model.closedPanel,
+          todoList: keepsTodoList || todoRowOf(items, model.todoList) ? model.todoList : null,
         },
         commands: fetchesCheckup(before, items)
           ? [
@@ -892,6 +902,7 @@ function step(model: Model, message: Message): StepReturn {
         answerError: model.answerErrorId === model.activePanel?.item.id ? "" : model.answerError,
         answerErrorId: model.answerErrorId === model.activePanel?.item.id ? 0 : model.answerErrorId,
         activePanel: null,
+        todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
         showRemovedText: false,
         briefActionBrief: "",
       },
@@ -951,11 +962,14 @@ function step(model: Model, message: Message): StepReturn {
       }
       const running: Running =
         kind === "merge" ? "merge" : kind === "dismiss" ? "dismiss" : "action";
+      const inPanel = model.activePanel?.item.id === item.id;
       return {
         model: {
           ...model,
           trayRunning: { ...model.trayRunning, [item.id]: running },
           trayRefusals: withoutKey(model.trayRefusals, item.id),
+          answerError: inPanel ? "" : model.answerError,
+          answerErrorId: inPanel ? 0 : model.answerErrorId,
         },
         commands: [RunTrayAction({ item, kind })],
       };
@@ -970,6 +984,37 @@ function step(model: Model, message: Message): StepReturn {
             trayRunning: withoutKey(running, id),
             trayMerging: { ...model.trayMerging, [id]: merging },
             trayRefusals: error ? { ...model.trayRefusals, [id]: error } : model.trayRefusals,
+          },
+        };
+      }
+      const ownActive = model.activePanel?.item.id === id;
+      const ownClosed = model.closedPanel?.item.id === id;
+      if (kind === "dismiss" && (ownActive || ownClosed)) {
+        if (error) {
+          const reopen = !model.activePanel && ownClosed;
+          return {
+            model: {
+              ...model,
+              trayRunning: withoutKey(running, id),
+              activePanel: reopen ? model.closedPanel : model.activePanel,
+              closedPanel: reopen ? null : model.closedPanel,
+              answerError: error,
+              answerErrorId: id,
+              answerErrorAwaitsRow: false,
+            },
+          };
+        }
+        return {
+          model: {
+            ...model,
+            trayRunning: withoutKey(running, id),
+            activePanel: ownActive ? null : model.activePanel,
+            closedPanel: ownClosed ? null : model.closedPanel,
+            todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
+            answerError: model.answerErrorId === id ? "" : model.answerError,
+            answerErrorId: model.answerErrorId === id ? 0 : model.answerErrorId,
+            showRemovedText: ownActive ? false : model.showRemovedText,
+            briefActionBrief: ownActive ? "" : model.briefActionBrief,
           },
         };
       }
@@ -1154,14 +1199,17 @@ function step(model: Model, message: Message): StepReturn {
 
     VoiceTicked: ({ now }) => ({ model: { ...model, now } }),
 
-    TodoRowToggled: ({ id }) => ({
-      model: {
-        ...model,
-        expandedTodoRows: model.expandedTodoRows.includes(id)
-          ? model.expandedTodoRows.filter((other) => other !== id)
-          : [...model.expandedTodoRows, id],
-      },
-    }),
+    OpenTodoList: ({ repository, pullRequest }) => {
+      const target = { repository, pullRequest };
+      if (!todoRowOf(model.trayItems, target)) {
+        return { model };
+      }
+      return { model: { ...model, todoList: target } };
+    },
+
+    CloseTodoList: () => ({ model: { ...model, todoList: null } }),
+
+    CompletedStopPropagation: () => ({ model }),
 
     ChatWithItemClicked: ({ item }) => ({
       model,
@@ -1169,7 +1217,7 @@ function step(model: Model, message: Message): StepReturn {
     }),
 
     NavigateTo: ({ path }) => ({
-      model: { ...model, activePanel: null },
+      model: { ...model, activePanel: null, todoList: null },
       commands: [Navigate({ path })],
     }),
 
