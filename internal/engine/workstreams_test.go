@@ -26,6 +26,7 @@ type workstream struct {
 	AllTasksClosed   bool   `json:"allTasksClosed"`
 	ReportedFinished bool   `json:"reportedFinished"`
 	ReadyToMerge     bool   `json:"readyToMerge"`
+	OpenTodos        int64  `json:"openTodos"`
 }
 
 // send sends a request with the JSON body to the API path, and gives the status and the body of the response.

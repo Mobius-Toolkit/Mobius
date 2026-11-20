@@ -13,10 +13,16 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
-               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
+               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge,
+       CAST((SELECT COUNT(*) FROM inbox_items ii
+               WHERE ii.kind = 'todo' AND ii.workstream_repository = w.repository AND ii.workstream = w.number AND ii.dismissed_at IS NULL) AS INTEGER) AS open_todos
 FROM workstreams w
 WHERE w.state = 'open' AND w.number IS NOT NULL
 ORDER BY w.repository, w.number DESC;
+
+-- name: CountOpenWorkstreamTodos :one
+SELECT COUNT(*) FROM inbox_items
+WHERE kind = 'todo' AND workstream_repository = ? AND workstream = ? AND dismissed_at IS NULL;
 
 -- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)

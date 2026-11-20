@@ -33,6 +33,8 @@ type Workstream struct {
 	ReportedFinished bool `gork:"reportedFinished"`
 	// ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it
 	ReadyToMerge bool `gork:"readyToMerge"`
+	// OpenTodos is the number of open deployment todos of the Workstream
+	OpenTodos int64 `gork:"openTodos"`
 }
 
 // ListWorkstreamsResponse is the response of ListWorkstreams.
@@ -62,6 +64,7 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			AllTasksClosed:   row.AllTasksClosed,
 			ReportedFinished: row.ReportedFinished,
 			ReadyToMerge:     row.ReadyToMerge,
+			OpenTodos:        row.OpenTodos,
 		})
 	}
 	return &ListWorkstreamsResponse{Body: Envelope[[]Workstream]{Data: workstreams}}, nil
@@ -168,7 +171,8 @@ type CompleteWorkstreamRequest struct {
 
 // CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the
 // open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open
-// Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.
+// Workstream, when the Workstream has an open task, when it has no task and its Lead did not report it as finished,
+// or when it has an open deployment todo.
 func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstreamRequest) error {
 	err := h.engine.CompleteWorkstream(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {

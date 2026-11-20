@@ -266,25 +266,34 @@ function renderPage(h: HtmlBuilder<Message>, model: Model): Html {
               (activeWorkstream.allTasksClosed || activeWorkstream.reportedFinished)
                 ? h.div(
                     [h.Class("flex flex-wrap items-center gap-3 border-b px-4 py-2")],
-                    [
-                      h.span(
-                        [],
-                        [
-                          activeWorkstream.reportedFinished
-                            ? "The Lead reported the Workstream as finished."
-                            : "All tasks are closed.",
+                    activeWorkstream.openTodos > 0
+                      ? [
+                          h.span(
+                            [],
+                            [
+                              `All tasks are closed. ${activeWorkstream.openTodos} open ${activeWorkstream.openTodos === 1 ? "todo" : "todos"}.`,
+                            ],
+                          ),
+                        ]
+                      : [
+                          h.span(
+                            [],
+                            [
+                              activeWorkstream.reportedFinished
+                                ? "The Lead reported the Workstream as finished."
+                                : "All tasks are closed.",
+                            ],
+                          ),
+                          renderButton(h, {
+                            label: "Close Workstream",
+                            size: "sm",
+                            pending: model.closeBusy,
+                            onClick: Message.CloseWorkstreamRequested(),
+                          }),
+                          model.closeError
+                            ? h.span([h.Class("text-sm text-destructive")], [model.closeError])
+                            : h.empty,
                         ],
-                      ),
-                      renderButton(h, {
-                        label: "Close Workstream",
-                        size: "sm",
-                        pending: model.closeBusy,
-                        onClick: Message.CloseWorkstreamRequested(),
-                      }),
-                      model.closeError
-                        ? h.span([h.Class("text-sm text-destructive")], [model.closeError])
-                        : h.empty,
-                    ],
                   )
                 : h.empty,
               h.keyed("div")(

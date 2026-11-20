@@ -2426,6 +2426,29 @@ test("screenshots", async ({ page }) => {
     main.getByText("Change the prices for each season."),
   ]);
   await page.unroute(reportedFinishedRoute);
+  const openTodosRoute = "**/api/workstreams";
+  await page.route(openTodosRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        repository: string;
+        number: number;
+        openTodos: number;
+      }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 13) {
+        workstream.openTodos = 2;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-open-todos", "/workstreams/owner/shop/13", (device) => [
+    ...frame(device, drain),
+    main.getByText("All tasks are closed. 2 open todos."),
+    main.getByText("Change the prices for each season."),
+  ]);
+  await page.unroute(openTodosRoute);
   await screenshot(page, "chat-coordinator", "/chat", (device) => [
     chatCount,
     ...frame(device, drain),

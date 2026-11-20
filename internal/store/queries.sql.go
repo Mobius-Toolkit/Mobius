@@ -1991,6 +1991,23 @@ func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countOpenWorkstreamTodos = `-- name: CountOpenWorkstreamTodos :one
+SELECT COUNT(*) FROM inbox_items
+WHERE kind = 'todo' AND workstream_repository = ? AND workstream = ? AND dismissed_at IS NULL
+`
+
+type CountOpenWorkstreamTodosParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+}
+
+func (q *Queries) CountOpenWorkstreamTodos(ctx context.Context, arg CountOpenWorkstreamTodosParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOpenWorkstreamTodos, arg.WorkstreamRepository, arg.Workstream)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countOrganizationSessionsEndedSinceCurator = `-- name: CountOrganizationSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s
 WHERE substr(s.repository, 1, length(?1) + 1) = ?1 || '/'
@@ -7059,7 +7076,9 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
-               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
+               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge,
+       CAST((SELECT COUNT(*) FROM inbox_items ii
+               WHERE ii.kind = 'todo' AND ii.workstream_repository = w.repository AND ii.workstream = w.number AND ii.dismissed_at IS NULL) AS INTEGER) AS open_todos
 FROM workstreams w
 WHERE w.state = 'open' AND w.number IS NOT NULL
 ORDER BY w.repository, w.number DESC
@@ -7076,6 +7095,7 @@ type ListCopiedWorkstreamsRow struct {
 	AllTasksClosed   bool
 	ReportedFinished bool
 	ReadyToMerge     bool
+	OpenTodos        int64
 }
 
 func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkstreamsRow, error) {
@@ -7098,6 +7118,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.AllTasksClosed,
 			&i.ReportedFinished,
 			&i.ReadyToMerge,
+			&i.OpenTodos,
 		); err != nil {
 			return nil, err
 		}
