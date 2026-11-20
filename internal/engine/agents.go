@@ -542,7 +542,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		}
 		servers = runnerMcpServers(selected)
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, mcp.PortURL(e.agents.Addr, a.key), a.update)
 	if err != nil {
 		return err
 	}
