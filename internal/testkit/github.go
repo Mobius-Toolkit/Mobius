@@ -488,7 +488,8 @@ func (g *FakeGitHub) HoldNextOf(pattern, path string) (release func()) {
 	return g.HoldNext(pattern + " " + path)
 }
 
-// Request is a request that the fake GitHub got, with the status of its response.
+// Request is a request that the fake GitHub got, with the status of its response. The status is 0 while the request has
+// no answer.
 type Request struct {
 	Method string
 	Path   string
@@ -525,10 +526,15 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 func (g *FakeGitHub) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.requestsMu.Lock()
-		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK, Time: time.Now()})
+		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Time: time.Now()})
 		index := len(g.requests) - 1
 		g.requestsMu.Unlock()
 		next.ServeHTTP(&statusRecorder{ResponseWriter: w, g: g, index: index}, r)
+		g.requestsMu.Lock()
+		if g.requests[index].Status == 0 {
+			g.requests[index].Status = http.StatusOK
+		}
+		g.requestsMu.Unlock()
 	})
 }
 

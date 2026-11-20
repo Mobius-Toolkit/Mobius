@@ -15,7 +15,7 @@ import (
 func acceptedIssueCreates(fake *testkit.FakeGitHub) int {
 	count := 0
 	for _, request := range fake.Requests() {
-		if request.Method == http.MethodPost && strings.HasSuffix(request.Path, "/issues") && request.Status < http.StatusMultipleChoices {
+		if request.Method == http.MethodPost && strings.HasSuffix(request.Path, "/issues") && request.Status >= http.StatusOK && request.Status < http.StatusMultipleChoices {
 			count++
 		}
 	}
