@@ -159,6 +159,11 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
+	if closed {
+		if err := e.closeUncopiedSubIssues(ctx, repository, number); err != nil {
+			return err
+		}
+	}
 	if err := e.removeClosedWorkstreamTree(ctx, repository.FullName, number); err != nil {
 		return err
 	}
@@ -863,10 +868,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
 		return false, e.closeBelowWorkstream(ctx, source, issue.number, issue.labels, issue.state == "open")
 	})
-	if err != nil {
-		return err
-	}
-	return e.closeUncopiedSubIssues(ctx, repository, workstream)
+	return err
 }
 
 // closeBelowWorkstream dismisses the Inbox items of the issue number below a closing Workstream, removes its Mobius
@@ -898,16 +900,27 @@ func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Reposit
 
 // closeUncopiedSubIssues closes each open sub-issue of the Workstream on GitHub that has no row in issues, as
 // closeBelowWorkstream does. A poll that sees a new sub-issue and the close of its Workstream together does not copy
-// the sub-issue, because the tree check skips a closed Workstream. An issue of an author who is not trusted stays open.
+// the sub-issue, because the tree check skips a closed Workstream. As in the tree check, an issue stays open when the
+// actor of its newest add as a sub-issue is not trusted.
 func (e *Engine) closeUncopiedSubIssues(ctx context.Context, repository github.Repository, workstream int64) error {
 	var leaves copiedTree
 	subIssues, err := e.flatSubIssues(ctx, repository, workstream, 0, false, &leaves)
 	if err != nil {
 		return err
 	}
+	bucketRefs := map[issueRef]bool{}
+	for _, bucket := range leaves.buckets {
+		bucketRefs[lowerRef(repository.FullName, bucket.Number)] = true
+	}
+	eventsOf := func(repo github.Repository, number int64) ([]github.TreeEvent, error) {
+		return repo.TreeEvents(ctx, number)
+	}
 	for _, sub := range subIssues {
+		if sub.issue.GetState() != "open" {
+			continue
+		}
 		source, readable := e.issueRepository(sub.issue, sub.from)
-		if !readable || sub.issue.GetState() != "open" || !e.trustedUser(sub.issue.GetUser().GetLogin()) {
+		if !readable {
 			continue
 		}
 		number := int64(sub.issue.GetNumber())
@@ -916,6 +929,14 @@ func (e *Engine) closeUncopiedSubIssues(ctx context.Context, repository github.R
 			return err
 		}
 		if inTree {
+			continue
+		}
+		added, parentRepository, parent, found, err := findAddedParentEvent(repository, workstream, repository.FullName, lowerRef(repository.FullName, workstream), sub, source.FullName, number, source, readable, bucketRefs, repository, workstream, eventsOf)
+		if err != nil {
+			return err
+		}
+		actor := added.Actor.Login
+		if !found || !e.isTreeAppActor(repository, actor, source.FullName, parentMetadata{parentRepository, parent}) && !e.trustedUser(actor) {
 			continue
 		}
 		if err := e.closeBelowWorkstream(ctx, source, number, labelNames(sub.issue), true); err != nil {
