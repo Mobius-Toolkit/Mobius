@@ -575,6 +575,8 @@ export interface ChatMessage {
      * @nullable
      */
   deliveredAt: string | null;
+  /** DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat */
+  displayOnly: boolean;
   /**
      * FailedAt is the time of the last failed try of the message, or null for a message that no try failed
      * @nullable

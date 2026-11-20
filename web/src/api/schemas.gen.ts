@@ -225,6 +225,7 @@ export const GetChatResponse = S.Struct({
   "browserId": S.String.annotate({ description: 'BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message' }),
   "cancelledAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'CancelledAt is the time when Send again cancelled the message and posted a copy, or null' }),
   "deliveredAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the successful end of the turn, or null before that and for another message' }),
+  "displayOnly": S.Boolean.annotate({ description: 'DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat' }),
   "failedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'FailedAt is the time of the last failed try of the message, or null for a message that no try failed' }),
   "id": S.Number.annotate({ description: 'ID increases with each new message of all chats' }),
   "images": S.Number.annotate({ description: 'Images is the number of images of the message. GetChatImage gives each image by its position, from 0' }),

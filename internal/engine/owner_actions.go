@@ -183,14 +183,11 @@ func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note
 		return store.InboxItem{}, err
 	}
 	ctx = context.WithoutCancel(ctx)
-	record := fmt.Sprintf("You marked the action \"%s\" of %s as done.", action.Action, ownerActionSubject(item))
-	if !empty(note) {
-		record += " Note: " + strings.TrimSpace(note)
-	}
 	if err := e.startAfterOwnerAction(ctx, task, action, note); err != nil {
 		return store.InboxItem{}, err
 	}
-	return e.closeOwnerAction(ctx, item, action, record)
+	record := fmt.Sprintf("You marked the action \"%s\" of %s as done.", action.Action, ownerActionSubject(item))
+	return e.closeOwnerAction(ctx, item, action, note, record)
 }
 
 // clearOwnerAction starts the next step of the open action that the Lead marked on the task, as a Done of the Owner
@@ -220,7 +217,7 @@ func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository gith
 		return "", err
 	}
 	record := fmt.Sprintf("The Lead cleared the action \"%s\" of %s.", action.Action, ownerActionSubject(item))
-	if _, err := e.closeOwnerAction(ctx, item, action, record); err != nil {
+	if _, err := e.closeOwnerAction(ctx, item, action, "", record); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Cleared the action of #%d. Mobius started the step %s.", input.N, action.Next), nil
@@ -234,14 +231,15 @@ func ownerActionSubject(item store.InboxItem) string {
 	return "PR " + eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)
 }
 
-// closeOwnerAction sets done_at on the action after its step started, dismisses its item and adds the record.
-func (e *Engine) closeOwnerAction(ctx context.Context, item store.InboxItem, action store.OwnerAction, record string) (store.InboxItem, error) {
+// closeOwnerAction sets done_at on the action after its step started, dismisses its item and adds the Owner message and the record.
+func (e *Engine) closeOwnerAction(ctx context.Context, item store.InboxItem, action store.OwnerAction, note, record string) (store.InboxItem, error) {
 	if err := e.queries.SetOwnerActionDone(ctx, store.SetOwnerActionDoneParams{DoneAt: sql.NullString{String: now(), Valid: true}, ID: action.ID}); err != nil {
 		return store.InboxItem{}, err
 	}
 	if err := e.Dismiss(ctx, item.ID); err != nil {
 		return store.InboxItem{}, err
 	}
+	e.addInboxOwnerMessage(ctx, item, note)
 	e.addRecord(ctx, inboxChat(item), record)
 	return e.queries.GetInboxItem(ctx, item.ID)
 }

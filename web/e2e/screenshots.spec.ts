@@ -988,6 +988,7 @@ test("screenshots", async ({ page }) => {
       browserId: "",
       cancelledAt: null,
       deliveredAt: null,
+      displayOnly: false,
       failedAt: null,
       images: 0,
       inboxItems: [],
@@ -1154,6 +1155,7 @@ test("screenshots", async ({ page }) => {
       browserId: "",
       cancelledAt: null,
       deliveredAt: null,
+      displayOnly: false,
       failedAt: null,
       images: 0,
       inboxItems: [],
@@ -2090,6 +2092,7 @@ test("screenshots", async ({ page }) => {
         browserId: "",
         cancelledAt: null,
         deliveredAt: "2026-10-15T12:00:00Z",
+        displayOnly: false,
         failedAt: null,
         images: 0,
         inboxItems: [
@@ -4730,6 +4733,110 @@ test("screenshots", async ({ page }) => {
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByRole("heading", { name: "Evergreen" })).toBeVisible();
   await expect(main.getByText("Seasonal prices")).toBeHidden();
+
+  await page.goto("/api/github/user-callback?code=shop-code");
+  const inboxQuestionQuery = new URLSearchParams({
+    kind: "question",
+    repository: "owner/shop",
+    workstream: "12",
+    issue: "7",
+    title: "Add plan prices",
+    reason: "The Lead asks a question",
+    text: "Should prices show without tax?",
+  });
+  const createdQuestion = await page.request.post(`/e2e/inbox-items?${inboxQuestionQuery}`);
+  expect(createdQuestion.ok()).toBe(true);
+  const inboxQuestionId = Number(await createdQuestion.text());
+  await page.goto("/workstreams/owner/shop/12");
+  const inboxQuestionRow = main
+    .getByRole("list", { name: "Pending actions" })
+    .getByRole("listitem")
+    .filter({ hasText: "Add plan prices" });
+  await expect(inboxQuestionRow).toBeVisible();
+  await inboxQuestionRow.getByRole("button", { name: "Answer" }).click();
+  const inboxAnswerText = "Yes, show prices without tax.";
+  await page
+    .getByRole("dialog")
+    .getByRole("textbox", { name: "Your answer" })
+    .fill(inboxAnswerText);
+  const inboxAnswered = page.waitForResponse(`**/api/inbox/${inboxQuestionId}/answer`);
+  await page.getByRole("dialog").getByRole("button", { name: "Send", exact: true }).click();
+  expect((await inboxAnswered).status()).toBe(200);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await skipNotice(page, noticeOf(page, "Sent the answer to the Lead of #12"));
+  await page.request.delete(`/e2e/inbox-items/${inboxQuestionId}`);
+  await fixRecordTimes(page);
+  await page.evaluate(clearDrafts);
+  const inboxAnswerMessage = main.locator("[data-message]", { hasText: inboxAnswerText });
+  await screenshot(
+    page,
+    "chat-inbox-question-answer",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, release),
+      inboxAnswerMessage.getByText("#7", { exact: true }),
+      inboxAnswerMessage.getByText("Add plan prices"),
+      inboxAnswerMessage.getByRole("img", { name: "Sent from the Inbox at 09:30 AM" }),
+      chatEnd,
+    ],
+    async () => {
+      await showChatEnd(page);
+      await expect(inboxAnswerMessage).toBeInViewport();
+    },
+  );
+
+  const inboxTodoQuery = new URLSearchParams({
+    kind: "todo",
+    repository: "owner/shop",
+    workstream: "12",
+    issue: "7",
+    pullRequest: "44",
+    title: "MOBIUS_SMTP_HOST",
+    reason: "mandatory \u00b7 Deployment needs",
+    text: "env_var: MOBIUS_SMTP_HOST",
+  });
+  const createdTodo = await page.request.post(`/e2e/inbox-items?${inboxTodoQuery}`);
+  expect(createdTodo.ok()).toBe(true);
+  const inboxTodoId = Number(await createdTodo.text());
+  await page.goto("/workstreams/owner/shop/12");
+  const inboxTodoRow = main
+    .getByRole("list", { name: "Pending actions" })
+    .getByRole("listitem")
+    .filter({ hasText: "MOBIUS_SMTP_HOST" });
+  await expect(inboxTodoRow).toBeVisible();
+  await inboxTodoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+  const inboxTodoNote = "Set MOBIUS_SMTP_HOST to smtp.example.com.";
+  await page.getByRole("dialog").getByRole("textbox", { name: "Note" }).fill(inboxTodoNote);
+  const inboxTodoDone = page.waitForResponse(`**/api/inbox/${inboxTodoId}/done`);
+  await page.getByRole("dialog").getByRole("button", { name: "Send", exact: true }).click();
+  expect((await inboxTodoDone).status()).toBe(200);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await skipNotice(page, noticeOf(page, "Marked the todo MOBIUS_SMTP_HOST as done"));
+  await page.request.delete(`/e2e/inbox-items/${inboxTodoId}`);
+  await fixRecordTimes(page);
+  await page.evaluate(clearDrafts);
+  const inboxTodoMessage = main.locator("[data-message]", { hasText: inboxTodoNote });
+  const inboxTodoRecord = main.locator("[data-message]", {
+    hasText: 'You marked the todo "MOBIUS_SMTP_HOST" of PR #44 as done.',
+  });
+  await screenshot(
+    page,
+    "chat-inbox-todo-note",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, release),
+      inboxTodoMessage.getByText("PR #44", { exact: true }),
+      inboxTodoMessage.getByText("MOBIUS_SMTP_HOST", { exact: true }),
+      inboxTodoMessage.getByRole("img", { name: "Sent from the Inbox at 09:30 AM" }),
+      inboxTodoRecord,
+      chatEnd,
+    ],
+    async () => {
+      await showChatEnd(page);
+      await expect(inboxTodoMessage).toBeInViewport();
+      await expect(inboxTodoRecord).toBeInViewport();
+    },
+  );
 
   // Opening a chat of plants saves plants as the organization, so this screenshot comes last.
   const pictures = main.getByRole("img", { name: /^Picture \d of message/ });

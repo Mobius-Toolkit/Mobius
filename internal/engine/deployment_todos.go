@@ -234,6 +234,7 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err := e.Dismiss(ctx, id); err != nil {
 		return store.InboxItem{}, err
 	}
+	e.addInboxOwnerMessage(ctx, item, note)
 	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You marked the todo \"%s\" of PR %s as done.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return e.queries.GetInboxItem(ctx, id)
 }

@@ -1,0 +1,1 @@
+ALTER TABLE chat_messages ADD COLUMN display_only INTEGER NOT NULL DEFAULT 0;
