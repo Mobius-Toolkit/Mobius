@@ -1,21 +1,24 @@
-import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { dayClock } from "@/lib/time";
 import { renderButton } from "@/ui/button";
+import { chevronDownIcon, chevronRightIcon } from "@/ui/icons";
 import { renderErrorBadge } from "@/ui/page";
 import { Message } from "./message";
 import type { Model, Pause } from "./model";
 
 type PauseUser = Pause["users"][number];
 
-const phoneUserCount = 2;
-
 const isGlobal = (user: PauseUser) =>
   user.kind === "role" || (user.kind === "session" && user.workstream === 0);
 
 const inWorkstream = (user: PauseUser, repository: string, number: number) =>
   user.workstreamRepository === repository && user.workstream === number;
+
+const ownerOf = (repository: string) => repository.split("/")[0] ?? "";
+
+const userOrganization = (user: PauseUser) =>
+  ownerOf(user.workstream !== 0 ? user.workstreamRepository : user.repository);
 
 const roleTitle = (role: string) => {
   const words = role.replaceAll("_", " ");
@@ -49,10 +52,10 @@ function userPath(user: PauseUser): string | undefined {
   }
 }
 
-function renderUser(h: HtmlBuilder<Message>, user: PauseUser, hiddenOnPhone: boolean): Html {
+function renderUser(h: HtmlBuilder<Message>, user: PauseUser): Html {
   const path = userPath(user);
   return h.li(
-    [h.Class(cn("wrap-anywhere", hiddenOnPhone && "hidden md:block"))],
+    [h.Class("wrap-anywhere")],
     [
       path === undefined
         ? userText(user)
@@ -61,7 +64,7 @@ function renderUser(h: HtmlBuilder<Message>, user: PauseUser, hiddenOnPhone: boo
   );
 }
 
-// A pause that no role binding and no session without a Workstream uses shows only in the Workstreams of its users.
+// A pause with a global user shows on each page. Each other pause shows on each page of the organization of its users.
 export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
   const workstream =
     model.route._tag === "WorkstreamChat"
@@ -72,36 +75,56 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
       : undefined;
 
   return model.pauses.flatMap((pause) => {
-    const users = workstream
+    const isShown = pause.users.some(
+      (user) =>
+        isGlobal(user) ||
+        (model.organization !== "" && userOrganization(user) === model.organization),
+    );
+    if (!isShown) {
+      return [];
+    }
+    const filteredUsers = workstream
       ? pause.users.filter(
           (user) => isGlobal(user) || inWorkstream(user, workstream.repository, workstream.number),
         )
       : pause.users;
-    const isShown = pause.users.some(isGlobal) || (workstream !== undefined && users.length > 0);
-    if (!isShown) {
-      return [];
-    }
+    const users = workstream && filteredUsers.length > 0 ? filteredUsers : pause.users;
     const isBusy = Option.isSome(model.pauseBusy) && model.pauseBusy.value === pause.harness;
     const error = Option.getOrElse(model.pauseError, () => "");
     const isExpanded = model.pausesExpanded.includes(pause.harness);
-    const hiddenCount = isExpanded ? 0 : Math.max(users.length - phoneUserCount, 0);
 
     return [
       h.keyed("div")(
         `${pause.harness} ${pause.pausedUntil}`,
-        [h.Class("grid gap-2"), h.DataAttribute("pause", pause.harness)],
+        [h.Class("grid min-w-0 gap-2"), h.DataAttribute("pause", pause.harness)],
         [
           h.div(
             [
               h.Class(
-                "grid gap-1 rounded-lg border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs text-amber-900 md:text-sm dark:bg-amber-950 dark:text-amber-200",
+                "grid min-w-0 gap-1 rounded-lg border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs text-amber-900 md:text-sm dark:bg-amber-950 dark:text-amber-200",
               ),
             ],
             [
               h.div(
-                [h.Class("flex flex-wrap items-center justify-between gap-2")],
+                [h.Class("flex min-w-0 items-center justify-between gap-2")],
                 [
-                  h.span([], [pause.harness, " paused until ", dayClock(pause.pausedUntil)]),
+                  h.button(
+                    [
+                      h.Type("button"),
+                      h.AriaExpanded(isExpanded),
+                      h.Class("min-w-0 flex-1 truncate text-left"),
+                      h.OnClick(Message.ToggledPauseUsers({ harness: pause.harness })),
+                    ],
+                    [
+                      (isExpanded ? chevronDownIcon : chevronRightIcon)(
+                        h,
+                        "mr-1 inline size-3.5 align-[-0.125em]",
+                      ),
+                      pause.harness,
+                      " paused until ",
+                      dayClock(pause.pausedUntil),
+                    ],
+                  ),
                   renderButton(h, {
                     label: "Resume now",
                     size: "xs",
@@ -111,27 +134,18 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
                   }),
                 ],
               ),
-              h.div(
-                [h.Class("flex flex-wrap items-baseline gap-x-2")],
-                [
-                  h.span([], ["Used by:"]),
-                  h.ul(
-                    [h.Class("flex min-w-0 flex-wrap gap-x-3")],
-                    users.map((user, index) =>
-                      renderUser(h, user, !isExpanded && index >= phoneUserCount),
-                    ),
-                  ),
-                  hiddenCount > 0
-                    ? renderButton(h, {
-                        label: `Show ${hiddenCount} more`,
-                        variant: "link",
-                        size: "xs",
-                        className: "md:hidden",
-                        onClick: Message.ExpandedPauseUsers({ harness: pause.harness }),
-                      })
-                    : h.empty,
-                ],
-              ),
+              isExpanded
+                ? h.div(
+                    [h.Class("flex min-w-0 flex-wrap items-baseline gap-x-2 pl-4.5")],
+                    [
+                      h.span([], ["Used by:"]),
+                      h.ul(
+                        [h.Class("flex min-w-0 flex-wrap gap-x-3")],
+                        users.map((user) => renderUser(h, user)),
+                      ),
+                    ],
+                  )
+                : h.empty,
             ],
           ),
           error ? renderErrorBadge(h, error) : h.empty,

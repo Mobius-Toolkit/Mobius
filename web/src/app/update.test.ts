@@ -834,20 +834,24 @@ describe("the panel that the address of a Workstream asks for", () => {
   });
 });
 
-describe("the users of a pause banner on a phone", () => {
-  it("shows all users of a banner after Show N more", () => {
-    const { model: next } = update(
+describe("the users of a pause banner", () => {
+  it("opens the list on the first toggle and closes it on the second toggle", () => {
+    const opened = update(
       createModel("/tasks"),
-      Message.ExpandedPauseUsers({ harness: "antigravity" }),
-    );
+      Message.ToggledPauseUsers({ harness: "antigravity" }),
+    ).model;
 
-    expect(next.pausesExpanded).toEqual(["antigravity"]);
+    expect(opened.pausesExpanded).toEqual(["antigravity"]);
+
+    const closed = update(opened, Message.ToggledPauseUsers({ harness: "antigravity" })).model;
+
+    expect(closed.pausesExpanded).toEqual([]);
   });
 
-  it("shows two users again on the next screen", () => {
+  it("closes the list on the next screen", () => {
     const expanded = update(
       createModel("/tasks"),
-      Message.ExpandedPauseUsers({ harness: "antigravity" }),
+      Message.ToggledPauseUsers({ harness: "antigravity" }),
     ).model;
 
     const { model: next } = update(expanded, Message.UrlChanged({ url: urlOf("/settings/roles") }));

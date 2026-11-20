@@ -4993,40 +4993,85 @@ test("screenshots", async ({ page }) => {
   await page.unroute("**/api/chat?*");
   await page.unroute("/api/chat/seen");
 
-  // antigravity has Role users, so each screen shows its banner. Only settings of plants/garden#20 use dsh, so only
-  // that Workstream shows its banner. A phone shows two users of a banner, and Show 1 more shows the third.
+  // antigravity has Role users, so each screen shows its line. Only settings of plants/garden#20 use dsh, so its
+  // line shows on each page of plants and not in owner.
   const pause = (harness: string) => page.locator(`[data-pause="${harness}"]`);
-  const pauseUsers = (harness: string) => pause(harness).getByRole("listitem");
-  const roleUsers = [
-    pause("antigravity").getByText("Researcher role"),
-    pause("antigravity").getByText("Curator role"),
-  ];
+  const pauseToggle = (harness: string) =>
+    pause(harness).getByRole("button", { name: new RegExp(`^${harness} paused until`) });
   const noDSH: Wait = () => expect(page.getByText(/dsh paused until/)).toHaveCount(0);
-  await screenshot(page, "pause-users-global", "/workstreams", () => roleUsers);
-  await screenshot(page, "pause-users-global-roles", "/settings/roles", () => [
-    ...roleUsers,
-    noDSH,
-  ]);
-  await screenshot(page, "pause-users-workstream", "/workstreams/plants/garden/20", (device) => [
-    pause("dsh").getByText("dsh paused until Sep 29, 08:30 AM"),
-    pauseUsers("dsh").first(),
-    ...roleUsers,
-    device === "desktop"
-      ? pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs")
-      : pause("dsh").getByRole("button", { name: "Show 1 more" }),
-  ]);
+  await page.evaluate(() => localStorage.setItem("organization", "plants"));
   await screenshot(
     page,
-    "pause-users-show-more",
+    "pause-lines-closed",
+    "/workstreams",
+    () => [
+      pauseToggle("antigravity"),
+      pauseToggle("dsh"),
+      () => expect(pauseToggle("antigravity")).toHaveAttribute("aria-expanded", "false"),
+      () => expect(pauseToggle("dsh")).toHaveAttribute("aria-expanded", "false"),
+      () => expect(pause("antigravity")).toBeInViewport(),
+      () => expect(pause("dsh")).toBeInViewport(),
+    ],
+    async () => {
+      await expect(pauseToggle("dsh")).toBeVisible();
+      await pause("dsh").scrollIntoViewIfNeeded();
+    },
+  );
+  await screenshot(
+    page,
+    "pause-lines-open",
+    "/workstreams",
+    () => [
+      pause("antigravity").getByText("Researcher role"),
+      pause("antigravity").getByText("Curator role"),
+      pause("dsh").getByText("Implementer setting of plants/garden#20 Plant tulips"),
+      pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
+      () => expect(pause("antigravity")).toBeInViewport(),
+      () => expect(pause("dsh")).toBeInViewport(),
+    ],
+    async () => {
+      await pauseToggle("antigravity").click();
+      await pauseToggle("dsh").click();
+      await expect(
+        pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
+      ).toBeVisible();
+      await pause("dsh").scrollIntoViewIfNeeded();
+    },
+  );
+  await page.evaluate(() => localStorage.setItem("organization", "owner"));
+  await screenshot(
+    page,
+    "pause-users-global-roles",
+    "/settings/roles",
+    () => [
+      pauseToggle("antigravity"),
+      main.getByRole("button", { name: /^Lead/ }),
+      noDSH,
+      () => expect(pause("antigravity")).toBeInViewport(),
+    ],
+    async () => {
+      await expect(pauseToggle("antigravity")).toBeVisible();
+      await pause("antigravity").scrollIntoViewIfNeeded();
+    },
+  );
+  await screenshot(
+    page,
+    "pause-users-workstream",
     "/workstreams/plants/garden/20",
     () => [
+      pauseToggle("antigravity"),
+      pauseToggle("dsh"),
+      pause("dsh").getByText("Implementer setting of plants/garden#20 Plant tulips"),
+      pause("dsh").getByText("Implementer setting of plants/garden#21 Dig the tulip beds"),
       pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
-      () => expect(pause("dsh").getByRole("button", { name: "Show 1 more" })).toBeHidden(),
+      () => expect(pause("dsh")).toBeInViewport(),
     ],
-    async (device) => {
-      if (device === "phone") {
-        await pause("dsh").getByRole("button", { name: "Show 1 more" }).click();
-      }
+    async () => {
+      await pauseToggle("dsh").click();
+      await expect(
+        pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
+      ).toBeVisible();
+      await pause("dsh").scrollIntoViewIfNeeded();
     },
   );
 });
