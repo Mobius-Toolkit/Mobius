@@ -191,13 +191,18 @@ var briefCalls = []struct{ message, tool, arguments string }{
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
 }
 
-// ownerAnswers are the answers of the Owner to the questions of the fake Coordinator.
-var ownerAnswers = []string{"Which store?", "Keep the old data.", "Yes, draft it now."}
+// ownerAnswers are the answers of the Owner from the Inbox to the questions of the fake Coordinator.
+var ownerAnswers = []struct{ question, text string }{
+	{"Which store?", "Which store?"},
+	{"Which store?", "Keep the old data."},
+	{"Should I draft the Workstream now?", "Yes, draft it now."},
+}
 
 func ownerAnswerRules(heading string) string {
 	var rules strings.Builder
 	for _, answer := range ownerAnswers {
-		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+answer)
+		card := fmt.Sprintf("Inbox item: %s\nReason: The Coordinator asks a question\n\n", answer.question)
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+card+answer.text)
 	}
 	return rules.String()
 }
