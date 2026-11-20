@@ -86,6 +86,172 @@ func TestACloseAndThenARemovalOfTheWorkstreamLabelByATrustedUserInOnePollStillCl
 	testkit.WaitFor(t, func() bool { return !hasWorkstreamRow(t, server, 12) })
 }
 
+// closeInOnePoll starts a server for fake, makes change and the close of the Workstream #12 while one poll waits for
+// its issue list, and waits for more polls.
+func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) *testserver.Server {
+	t.Helper()
+	server := startCopied(t, fake)
+	issueListReads := func() int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if request.Method == "GET" && request.Path == "/repos/"+shop+"/issues" {
+				reads++
+			}
+		}
+		return reads
+	}
+	beforeReads := issueListReads()
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	testkit.WaitFor(t, func() bool { return issueListReads() > beforeReads })
+
+	change()
+	fake.CloseIssueBy(shop, 12, "owner")
+	release()
+
+	waitForPolls(t, fake)
+	return server
+}
+
+// closeWithNewSubIssue makes one poll see the close of #12 and the add of #42, which author wrote, as a sub-issue of
+// #12 by adder.
+func closeWithNewSubIssue(t *testing.T, author, adder string) *testkit.FakeGitHub {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	fake.SetAuthor(shop, 42, author)
+	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 12, 42, adder) })
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
+	return fake
+}
+
+func requireClosedNotPlanned(t *testing.T, fake *testkit.FakeGitHub, numbers ...int64) {
+	t.Helper()
+	for _, number := range numbers {
+		testkit.WaitFor(t, func() bool {
+			state, reason := fake.State(shop, number)
+			return state == "closed" && reason == "not_planned"
+		})
+		if got := len(fake.Comments(shop, number)); got != 1 {
+			t.Errorf("comments of #%d = %d", number, got)
+		}
+	}
+}
+
+func TestAClosedWorkstreamAlsoClosesTheSubIssueOfANewSubIssueThatTheSamePollSees(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	fake.AddIssue(shop, 43, "Add plan list")
+	closeInOnePoll(t, fake, func() {
+		fake.AddSubIssueBy(shop, 12, 42, "owner")
+		fake.AddSubIssueBy(shop, 42, 43, "owner")
+	})
+
+	requireClosedNotPlanned(t, fake, 42, 43)
+}
+
+func TestAClosedWorkstreamAlsoClosesANewSubIssueOfAnIssueOfTheCopiedTreeThatTheSamePollSees(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 43, "Add plan list")
+	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 41, 43, "owner") })
+
+	requireClosedNotPlanned(t, fake, 43)
+}
+
+func TestAClosedWorkstreamAlsoClosesASubIssueThatTheSamePollSees(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ name, author string }{{"trusted author", "owner"}, {"author who is not trusted", "mallory"}} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fake := closeWithNewSubIssue(t, test.author, "owner")
+
+			requireClosedNotPlanned(t, fake, 42)
+		})
+	}
+}
+
+func TestAClosedWorkstreamKeepsANewSubIssueOfAClosedIssueOfTheCopiedTree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 40, "Add plan table")
+	fake.AddSubIssue(shop, 12, 40)
+	fake.CloseIssue(shop, 40)
+	fake.AddIssue(shop, 43, "Add plan list")
+	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 40, 43, "owner") })
+
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
+	if state, _ := fake.State(shop, 43); state != "open" {
+		t.Errorf("state of #43 = %s", state)
+	}
+	if got := len(fake.Comments(shop, 43)); got != 0 {
+		t.Errorf("comments of #43 = %d", got)
+	}
+}
+
+func TestARetryOfAClosedWorkstreamClosesTheSubIssueThatTheFirstTryDidNotClose(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	fake.FailClose(shop, 42)
+	server := closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 12, 42, "owner") })
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 1") == 1
+	})
+	if state, _ := fake.State(shop, 42); state != "open" {
+		t.Fatalf("state of #42 = %s", state)
+	}
+
+	fake.AllowClose(shop, 42)
+
+	requireClosedNotPlanned(t, fake, 42)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 0") == 1
+	})
+}
+
+func TestAClosedWorkstreamKeepsASubIssueThatAPersonWhoIsNotTrustedAddsInTheSamePoll(t *testing.T) {
+	t.Parallel()
+	fake := closeWithNewSubIssue(t, "owner", "mallory")
+
+	if state, _ := fake.State(shop, 42); state != "open" {
+		t.Errorf("state of #42 = %s", state)
+	}
+	if got := len(fake.Comments(shop, 42)); got != 0 {
+		t.Errorf("comments of #42 = %d", got)
+	}
+}
+
+func TestARetryOfAClosedWorkstreamKeepsASubIssueThatAPersonAddedAfterTheCloseEnded(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	server := startCopied(t, fake)
+	fake.FailClose(shop, 41)
+	fake.CloseIssueBy(shop, 12, "owner")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 1") == 1
+	})
+	waitForPolls(t, fake)
+
+	fake.AddSubIssueBy(shop, 12, 42, "owner")
+	fake.AllowClose(shop, 41)
+
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 0 AND state = 'closed'") == 1
+	})
+	waitForPolls(t, fake)
+	if state, _ := fake.State(shop, 42); state != "open" {
+		t.Errorf("state of #42 = %s", state)
+	}
+}
+
 func TestACloseOfAWorkstreamIssueByAPersonWhoIsNotTrustedIsWrittenBack(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
