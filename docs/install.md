@@ -310,6 +310,23 @@ If `.mobius/init` fails or does not end in `check_timeout`, the Implementer stil
 
 Mobius also reports the failure one time to the Maintenance Workstream of the organization. It creates a task issue in the repository below the Maintenance Workstream, with the label `mobius:ready`. A repository has a maximum of one open report. A failure while the report is open creates no new issue. The report ends when its issue is closed. With no Maintenance Workstream, Mobius creates no issue.
 
+#### Free ports
+
+A script that starts a server needs a free TCP port. Use the command `mobius-port` to get one. The command is on the `PATH` of each script and of each agent session.
+
+- The optional argument is the number of ports. The default is 1.
+- The command writes each port on its own line to the standard output.
+- The ports are in the range 20000-32767. Mobius checks that it can bind each port on `127.0.0.1`.
+- Mobius reserves each port for the run of the script or for the agent session, until it ends. Mobius gives a reserved port to no other script or session. After the end, Mobius can give the port again.
+- The exit code is 2 when the count is not a positive integer. The exit code is 1 when Mobius has no free port, or when the command runs outside a script or an agent session of Mobius.
+
+```sh
+PORT=$(mobius-port)
+set -- $(mobius-port 3)
+```
+
+After the second command, `$1`, `$2` and `$3` are three different ports.
+
 ## 6. Start
 
 Run `mobius` in a terminal, as your own OS user:
