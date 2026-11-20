@@ -142,6 +142,12 @@ func sessionCost(t *testing.T, server *testserver.Server, session int64) float64
 	return cost
 }
 
+// waitForIssueBody waits until the copied row of the issue has body. A fix round reads the body from that row.
+func waitForIssueBody(t *testing.T, server *testserver.Server, issue int64, body string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, issue).Body == body })
+}
+
 // waitForTask waits until the live task of the issue has state.
 func waitForTask(t *testing.T, server *testserver.Server, issue int64, state string) {
 	t.Helper()
@@ -634,11 +640,7 @@ func TestAShortPromptHasTheNewIssueBody(t *testing.T) {
 	waitForKept(t, server, 41)
 
 	fake.SetBody(shop, 41, "Plans have a new price.")
-	testkit.WaitFor(t, func() bool {
-		var body string
-		err := server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = 41", shop).Scan(&body)
-		return err == nil && body == "Plans have a new price."
-	})
+	waitForIssueBody(t, server, 41, "Plans have a new price.")
 	startFixRound(t, server)
 
 	sessions := waitForImplementerSessions(t, server, 2)
@@ -744,6 +746,7 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 	waitForTask(t, restarted, 41, "approval")
 	waitForImplementerSessions(t, restarted, 3)
 	waitForKept(t, restarted, 41)
+	waitForIssueBody(t, restarted, 41, "Plans have a new price.")
 
 	startFixRound(t, restarted)
 
