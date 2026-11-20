@@ -36,7 +36,7 @@ func todosClosedEvents(t *testing.T, server *testserver.Server) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var payloads []string
 	for rows.Next() {
 		var payload string
