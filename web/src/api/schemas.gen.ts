@@ -2065,7 +2065,7 @@ export const SetAutopilotBody = S.Struct({
 
 
 /**
- * CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.
+ * CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.
  */
 export const CloseWorkstreamParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),

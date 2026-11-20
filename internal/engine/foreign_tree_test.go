@@ -110,8 +110,8 @@ func TestAWontDoCloseWritesToATaskIssueAndAPullRequestOfAnotherRepositoryAndNotT
 		if comments := fake.Comments(garden, number); !slices.Contains(comments, gardenWontDoComment) {
 			t.Errorf("comments of %s#%d = %v", garden, number, comments)
 		}
-		if !slices.Contains(fake.Labels(garden, number), wontDo) {
-			t.Errorf("labels of %s#%d = %v", garden, number, fake.Labels(garden, number))
+		if labels := fake.Labels(garden, number); len(labels) != 0 {
+			t.Errorf("labels of %s#%d = %v", garden, number, labels)
 		}
 		unchanged(t, fake, shop, number, "open")
 	}
