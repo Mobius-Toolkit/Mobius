@@ -193,3 +193,61 @@ func TestTheRemovalOfMobiusTriageByAnUntrustedPersonDoesNotStopTheTriager(t *tes
 		t.Errorf("sessions = %+v", sessions)
 	}
 }
+
+func TestTheFirstPollAddsARowWithNoWorkstreamForAnOpenIssueWithMobiusTriageAndAcceptIssueAcceptsIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.CreateIssue(shop, 30, "Add plan price", "Show the price.", "mallory")
+	fake.AddLabel(shop, 30, "mobius:triage", "owner")
+	fake.CreateIssue(shop, 31, "Rename plans", "Use the new name.", "owner")
+	server, _ := connect(t, fake, call("accept_issue", `{ repository = "owner/shop", n = 30 }`))
+
+	row, found := triageRowOf(t, server, 30)
+	if !found || !row.Triage || row.Workstream.Valid || row.Title != "Add plan price" || row.Body != "Show the price." || row.Author != "mallory" || row.State != "open" {
+		t.Errorf("row = %+v, found = %t", row, found)
+	}
+	if _, found := triageRowOf(t, server, 31); found {
+		t.Error("the first poll added a row for #31, which has no label")
+	}
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got := reply(t, server, session); got != "Accepted owner/shop#30." {
+		t.Errorf("reply = %q", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		row, _ := triageRowOf(t, server, 30)
+		return !row.Triage && !slices.Contains(fake.Labels(shop, 30), "mobius:triage") && outgoingChanges(t, server, "pending") == 0
+	})
+	waitForPolls(t, fake)
+	if row, _ := triageRowOf(t, server, 30); row.Triage {
+		t.Error("a later poll set the triage state again")
+	}
+}
+
+func TestACommentOnAnIssueWithTheTriageStateAndNoLabelStartsTheTriagerAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 53, "Add points")
+	fake.AddLabel(shop, 53, "mobius:triage", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool {
+		return len(fake.Comments(shop, 53)) == 1 && outgoingChanges(t, server, "pending") == 0 && doneChangesOfPersons(t, server) == 1
+	})
+	fake.RefuseAddLabels(shop, 53, http.StatusUnprocessableEntity)
+	fake.RemoveLabel(shop, 53, "mobius:triage", "mallory")
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "refused") == 1 })
+	if !issueRowOf(t, server, shop, 53).Triage || slices.Contains(fake.Labels(shop, 53), "mobius:triage") {
+		t.Fatalf("triage = %t, labels = %v", issueRowOf(t, server, shop, 53).Triage, fake.Labels(shop, 53))
+	}
+
+	fake.AddComment(shop, 53, "owner", "Please use points.")
+
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	if prompts := promptTexts(t, server, second.ID); len(prompts) != 1 || !strings.Contains(prompts[0], ":\nPlease use points.\n") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}

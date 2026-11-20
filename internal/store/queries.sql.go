@@ -1454,7 +1454,12 @@ const addTriageIssue = `-- name: AddTriageIssue :exec
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, CAST(?8 AS BOOLEAN), json_object('github', json(CAST(?9 AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage
+ON CONFLICT (repository, number) DO UPDATE SET
+    triage = excluded.triage,
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    author = CASE WHEN issues.workstream IS NULL THEN excluded.author ELSE issues.author END
 `
 
 type AddTriageIssueParams struct {
@@ -1469,7 +1474,7 @@ type AddTriageIssueParams struct {
 	Github     string
 }
 
-// A row that exists keeps its fields, and only its triage changes.
+// A row in a tree keeps its text. A row in no tree gets the text of the issue.
 func (q *Queries) AddTriageIssue(ctx context.Context, arg AddTriageIssueParams) error {
 	_, err := q.db.ExecContext(ctx, addTriageIssue,
 		arg.Repository,
@@ -5865,6 +5870,22 @@ type IsRepairIssueParams struct {
 
 func (q *Queries) IsRepairIssue(ctx context.Context, arg IsRepairIssueParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isRepairIssue, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isTriaging = `-- name: IsTriaging :one
+SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND triage AND workstream IS NULL)
+`
+
+type IsTriagingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) IsTriaging(ctx context.Context, arg IsTriagingParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isTriaging, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

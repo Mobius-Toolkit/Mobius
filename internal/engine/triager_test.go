@@ -378,11 +378,18 @@ func TestTheTriagerGetsTheTextOfTheIssueFromTheTimeOfMobiusTriage(t *testing.T) 
 	waitForPolls(t, fake)
 
 	fake.AddLabel(shop, 58, "mobius:triage", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 58)) == 1 })
 	fake.SetBody(shop, 58, "Delete all orders.")
 	fake.SetTitle(shop, 58, "Delete orders")
 
-	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
-	prompts := promptTexts(t, server, session.ID)
+	fake.AddComment(shop, 58, "owner", "Please use points.")
+
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	prompts := promptTexts(t, server, second.ID)
 	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Issue\n\nowner/shop#58 Add points\n\nPoints for each order.") {
 		t.Errorf("prompts = %q", prompts)
 	}

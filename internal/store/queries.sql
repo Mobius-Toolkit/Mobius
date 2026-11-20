@@ -1348,12 +1348,20 @@ SELECT CAST(triage AS BOOLEAN) FROM issues WHERE repository = ? AND number = CAS
 UPDATE issues SET triage = CAST(sqlc.arg(triage) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- A row that exists keeps its fields, and only its triage changes.
+-- A row in a tree keeps its text. A row in no tree gets the text of the issue.
 -- name: AddTriageIssue :exec
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(kind), CAST(sqlc.arg(triage) AS BOOLEAN), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage;
+ON CONFLICT (repository, number) DO UPDATE SET
+    triage = excluded.triage,
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    author = CASE WHEN issues.workstream IS NULL THEN excluded.author ELSE issues.author END;
+
+-- name: IsTriaging :one
+SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND triage AND workstream IS NULL);
 
 -- name: SetIssueKind :execrows
 UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);

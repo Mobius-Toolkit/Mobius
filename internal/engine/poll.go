@@ -152,6 +152,9 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 // pollRepository recovers the work of the earlier run until that works one time, and then acts on the changes of the
 // repository. It adds the pull requests with work for an agent to work.
 func (e *Engine) pollRepository(ctx context.Context, repository github.Repository, work map[int64]Work) error {
+	if err := e.addTriageRows(ctx, repository); err != nil {
+		return err
+	}
 	if !e.recovered[repository.FullName] {
 		if err := e.recover(ctx, repository); err != nil {
 			return err
@@ -246,7 +249,7 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
-// call. Then it starts the Triager of an issue, acts on the comments, stops a Triager, updates the copy, and
+// call. Then it starts the Triager of an issue, acts on the comments, updates the copy, and
 // moves the cursors to the last change. It adds the incoming changes of the new events of the fields of a Workstream
 // (the labels, the state and the title), and of a new edit of the Brief of a Workstream, in the transaction
 // of the issue cursor. The first poll of a repository has no issues row in the cursors, so it reads
@@ -330,11 +333,6 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		if issue.IsPullRequest() {
 			continue
-		}
-		if !hasLabel(issue, triageLabel) {
-			if err := e.stopTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
-				return err
-			}
 		}
 		labeled := hasLabel(issue, workstreamLabel)
 		work, err := e.hasWork(ctx, repository.FullName, number)

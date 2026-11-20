@@ -102,38 +102,6 @@ func (r Repository) graphqlErrors(ctx context.Context, query string, variables m
 	return response.Errors, nil
 }
 
-// BodyEdit is an edit of the body of an issue. Diff is the full body after the edit.
-type BodyEdit struct {
-	EditedAt time.Time `json:"editedAt"`
-	Diff     string    `json:"diff"`
-}
-
-// IssueBodyEdits gives the edits of the body of the issue number, the newest first. An issue with no edit has none.
-func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdit, error) {
-	const query = `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { issue(number: $number) { page: userContentEdits(first: 100, after: $after) { nodes { editedAt diff } ` + pageInfoFields + ` } } } }`
-	var edits []BodyEdit
-	var after *string
-	for {
-		var data struct {
-			Repository struct {
-				Issue struct {
-					Page connection[BodyEdit] `json:"page"`
-				} `json:"issue"`
-			} `json:"repository"`
-		}
-		variables := map[string]any{"owner": r.Owner(), "name": r.Name(), "number": number, "after": after}
-		if err := r.graphql(ctx, query, variables, &data); err != nil {
-			return nil, err
-		}
-		page := data.Repository.Issue.Page
-		edits = append(edits, page.Nodes...)
-		if !page.PageInfo.HasNextPage {
-			return edits, nil
-		}
-		after = &page.PageInfo.EndCursor
-	}
-}
-
 // NewestBodyEdit is the newest edit of the body of an issue. Editor is the REST login of the editor, or empty when GitHub
 // has no user for the edit.
 type NewestBodyEdit struct {
