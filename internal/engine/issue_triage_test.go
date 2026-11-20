@@ -184,7 +184,10 @@ func TestTheRemovalOfMobiusTriageByAnUntrustedPersonDoesNotStopTheTriager(t *tes
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", "mallory")
 
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 51), "mobius:triage") })
+	testkit.WaitFor(t, func() bool {
+		return doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 && ownWrites(t, server) == 0 &&
+			slices.Contains(fake.Labels(shop, 51), "mobius:triage")
+	})
 	waitForPolls(t, fake)
 	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 || sessions[0].EndedAt.Valid {
 		t.Errorf("sessions = %+v", sessions)
