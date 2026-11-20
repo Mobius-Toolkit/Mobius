@@ -3619,7 +3619,7 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 }
 
 const getDispatchIssue = `-- name: GetDispatchIssue :one
-SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
+SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage,
     EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i
 WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
@@ -3631,21 +3631,15 @@ type GetDispatchIssueParams struct {
 }
 
 type GetDispatchIssueRow struct {
-	Kind     string
-	Triage   bool
-	Metadata string
-	Blocked  bool
+	Kind    string
+	Triage  bool
+	Blocked bool
 }
 
 func (q *Queries) GetDispatchIssue(ctx context.Context, arg GetDispatchIssueParams) (GetDispatchIssueRow, error) {
 	row := q.db.QueryRowContext(ctx, getDispatchIssue, arg.Repository, arg.Number)
 	var i GetDispatchIssueRow
-	err := row.Scan(
-		&i.Kind,
-		&i.Triage,
-		&i.Metadata,
-		&i.Blocked,
-	)
+	err := row.Scan(&i.Kind, &i.Triage, &i.Blocked)
 	return i, err
 }
 

@@ -1397,7 +1397,7 @@ JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetDispatchIssue :one
-SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
+SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage,
     EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
