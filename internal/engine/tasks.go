@@ -459,9 +459,9 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 }
 
 // StopIssue stops the work on the issue number of repositoryName. A live task that is not stopped stops with its
-// Workers. An issue with mobius:ready and no such task gets mobius:triage instead, so the dispatch does not start it.
-// The label changes of a ready issue use the user token of the Owner, because the poll trusts a label change only
-// from a trusted user.
+// Workers. An issue with mobius:ready and no such task gets the triage state instead, so the dispatch does not start it.
+// The removal of mobius:ready uses the user token of the Owner, because the poll trusts a label change only from a
+// trusted user.
 func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
 	e.stopMu.Lock()
 	defer e.stopMu.Unlock()
@@ -501,13 +501,13 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return nil
 	}
 	if hasLabel(issue, readyLabel) {
-		if err := asOwner.AddLabel(ctx, number, triageLabel); err != nil {
+		if err := e.setTriage(ctx, repository, number, true); err != nil {
 			return err
 		}
 		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
 			return err
 		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{triageLabel}, []string{readyLabel}); err != nil {
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{readyLabel}); err != nil {
 			return err
 		}
 		e.addIssueRecord(ctx, repository, number, "You stopped")
@@ -520,8 +520,8 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 	return refuse("%s has no task to stop.", eventRef(workstreamRepository, repository.FullName, number))
 }
 
-// StartIssue replaces mobius:triage with mobius:ready on the issue number of repositoryName. The label changes use the
-// user token of the Owner, because the dispatch trusts mobius:ready only from a trusted user.
+// StartIssue clears the triage state of the issue number of repositoryName and adds mobius:ready. The label mobius:ready
+// uses the user token of the Owner, because the dispatch trusts mobius:ready only from a trusted user.
 func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -532,13 +532,13 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
-	if err := asOwner.RemoveLabel(ctx, number, triageLabel); err != nil {
+	if err := e.setTriage(ctx, repository, number, false); err != nil {
 		return err
 	}
 	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
 		return err
 	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{triageLabel}); err != nil {
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, nil); err != nil {
 		return err
 	}
 	e.addIssueRecord(ctx, repository, number, "You started")

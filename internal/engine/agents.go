@@ -857,8 +857,11 @@ func (a *Agent) resendCancel(ctx context.Context) {
 // from a.details and adds a prompt row with their text. Details that arrived during the request stay.
 func (a *Agent) steerDetails(ctx context.Context, details []string) bool {
 	subject := "task"
-	if a.spec.Role == ResearcherRole {
+	switch a.spec.Role {
+	case ResearcherRole:
 		subject = "question"
+	case OperatorRole:
+		subject = "work"
 	}
 	text := detailsPrompt(subject, strings.Join(details, "\n\n"))
 	injected, err := a.session.Steer(ctx, text)

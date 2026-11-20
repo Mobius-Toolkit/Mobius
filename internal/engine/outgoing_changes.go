@@ -41,6 +41,7 @@ const (
 	blockersField          = "blockers"
 	parentField            = "parent"
 	kindField              = "kind"
+	triageField            = "triage"
 	// bucketField is the field of the own writes of fillBuckets. No outgoing change has it.
 	bucketField = "bucket"
 )
@@ -301,6 +302,9 @@ func (e *Engine) send(ctx context.Context, repository github.Repository, change 
 	}
 	if change.Field == reviewCommentEditField {
 		return e.sendEdit(ctx, repository, change)
+	}
+	if change.Field == triageField {
+		return e.sendTriage(ctx, repository, change)
 	}
 	if _, setting := settingLabels[change.Field]; setting {
 		return e.sendSetting(ctx, repository, change)

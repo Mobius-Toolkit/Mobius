@@ -26,7 +26,6 @@ const (
 	triageLabel       = "mobius:triage"
 	readyLabel        = "mobius:ready"
 	noWorkstreamLabel = "mobius:no-workstream"
-	wontDoLabel       = "mobius:wont-do"
 	evergreenLabel    = "mobius:evergreen"
 	maintenanceLabel  = "mobius:maintenance"
 	skillsLabel       = "mobius:skills"
@@ -46,7 +45,6 @@ var Labels = []Label{
 	{"mobius:question", "C5A3F5", "Mobius waits for an answer from a human"},
 	{"mobius:review", "006B75", "The pull request waits for a human review"},
 	{"mobius:no-workstream", "BFD4F2", "The Triager found no Workstream for this issue"},
-	{"mobius:wont-do", "CFD3D7", "The Owner closed the Workstream of this issue as \"won't do\""},
 	{"mobius:evergreen", "0052CC", "Mobius Workstream with no end: it is not complete when it has no open task"},
 	{"mobius:maintenance", "BFDADC", "Mobius evergreen Workstream that gets the task issues of the Curator"},
 	{"mobius:skills", "C2E0C6", "Mobius evergreen Workstream that gets the proposals for the skill repository"},

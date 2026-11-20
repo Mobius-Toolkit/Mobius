@@ -139,14 +139,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 				},
 				e.stopTaskTool),
-			taskTool(e, c, "send_details",
-				"Send new details from the Owner to the Implementer that operates on a task now. The Implementer keeps its session and its context. Update the body of the task issue first. It refuses a task with no open Implementer session: a later session reads the updated issue body.",
-				map[string]any{
-					"repository": repositoryProperty,
-					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
-				},
-				e.sendDetails),
+			e.sendMessageTool(c),
 			taskTool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch of a repository of the organization. The Researcher sees only the Brief and the question. The tool returns the id of the Researcher at once, and the report arrives later.",
 				map[string]any{
@@ -154,13 +147,6 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"question":   map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startRepositoryResearcher),
-			tool(e, c, "send_researcher_details",
-				"Send new details from the Owner to a Researcher that runs now. The Researcher keeps its session and its context. The report of the Researcher answers the new details. It refuses a Researcher that does not run.",
-				map[string]any{
-					"id":   map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
-				},
-				e.sendResearcherDetails),
 			tool(e, c, "stop_researcher",
 				"Stop a Researcher that runs now. The Researcher gives no report. Call it only when the Owner tells you to.",
 				map[string]any{
@@ -260,6 +246,13 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
 				},
 				e.markReady),
+			taskTool(e, c, "accept_issue",
+				"Accept an issue that has the triage state (mobius:triage). Use it when the Owner accepts the issue. Mobius then removes the label, and can start the task. The tool does not start the task. It refuses an issue with no triage state.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
+				},
+				e.acceptIssue),
 			taskTool(e, c, "reply_thread",
 				"Reply in a review thread or to a conversation comment of the pull request of a task, for example with the link to a follow-up issue.",
 				map[string]any{
@@ -564,6 +557,20 @@ func moveIssueTool(e *Engine, c caller) mcp.Tool {
 // with its result or its error to the Transcript of the session.
 func tool[In any](e *Engine, c caller, name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return toolOf(e, c, e.callerRepository, name, description, properties, run)
+}
+
+func (e *Engine) sendMessageTool(c caller) mcp.Tool {
+	sendMessage := toolOf(e, c, noRepository, "send_message",
+		"Send a message from the Owner or the Lead to an agent that you started and that runs now: the Implementer of a task, a Researcher or an Operator. The agent keeps its session and its context. For an Implementer, give repository and n, and update the body of the task issue first. For a Researcher or an Operator, give id. It refuses an agent that does not run.",
+		map[string]any{
+			"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message."},
+			"id":         map[string]any{"type": "integer", "minimum": 1, "description": "The id of a Researcher or an Operator, from start_researcher, start_operator or its report."},
+			"repository": repositoryProperty,
+			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue of an Implementer."},
+		},
+		e.sendMessage)
+	sendMessage.Optional = []string{"id", "repository", "n"}
+	return sendMessage
 }
 
 var repositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the issue."}
@@ -1310,7 +1317,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 		return "", err
 	}
 	workstream := issueRef{c.agent.maintenance.repository.FullName, c.agent.maintenance.number}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, []string{triageLabel}, nil, true, nil)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, nil, nil, true, nil)
 	if err != nil {
 		return "", err
 	}
@@ -1914,6 +1921,23 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	return fmt.Sprintf("Marked %s#%d ready.", repository.FullName, input.N), nil
+}
+
+func (e *Engine) acceptIssue(ctx context.Context, _ caller, repository github.Repository, input taskInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	triage, err := e.queries.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: repository.FullName, Number: input.N})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err != nil || !triage {
+		return "", refuse("%s#%d has no triage state.", repository.FullName, input.N)
+	}
+	if err := e.setTriage(ctx, repository, input.N, false); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Accepted %s#%d.", repository.FullName, input.N), nil
 }
 
 func (e *Engine) replyThread(ctx context.Context, c caller, repository github.Repository, input taskThreadInput) (string, error) {

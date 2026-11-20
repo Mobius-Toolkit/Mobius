@@ -1668,6 +1668,9 @@ test("screenshots", async ({ page }) => {
       ...frame(device, drain),
       chatTray,
       chatEnd,
+      page
+        .getByRole("dialog")
+        .getByText('Mobius closes these items as "won\'t do". Each item gets a comment.'),
       page.getByRole("dialog").getByText("#41 Add plan model"),
       page.getByRole("dialog").getByText("#12 Integrate loyalty plans"),
     ],

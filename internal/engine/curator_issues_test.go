@@ -270,7 +270,7 @@ func TestTheCuratorCreateIssueAddsOneUnnumberedRowWithTriageLabelAndSendsToGitHu
 	}
 	if got := countRows(t, server, `SELECT count(*) FROM issues i JOIN workstreams w ON w.id = i.workstream
 		WHERE i.repository = ? AND w.number = 20 AND i.number IS NULL AND i.title = 'Fix the flaky test'
-		AND json_extract(i.metadata, '$.github.labels') = '["mobius:triage"]'`, shop); got != 1 {
+		AND i.triage = 1 AND json_extract(i.metadata, '$.github.labels') = '[]'`, shop); got != 1 {
 		t.Fatalf("pending rows = %d", got)
 	}
 	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('create', 'parent', 'blockers') AND status = 'pending'"); got != 3 {

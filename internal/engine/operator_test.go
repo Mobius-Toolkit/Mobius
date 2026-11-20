@@ -361,3 +361,77 @@ func TestAnOperatorSettingIsRefusedForATaskIssue(t *testing.T) {
 		t.Errorf("err = %v, want a refusal that the issue is not a Workstream issue", err)
 	}
 }
+
+// operatorLeadOfMessages is operatorLead with a message of the Owner that sends the Operator 2 a message. The Lead is
+// the session 1, and the first Operator is the session 2.
+const operatorLeadOfMessages = `
+[[prompts]]
+when = "Message to the operator"
+call = { tool = "send_message", arguments = { id = 2, text = "Update the categories too." } }
+` + operatorLead
+
+// hangingOperator is an Operator that hangs on its text, and answers new details.
+const hangingOperator = `
+[[prompts]]
+when = "You are an Operator"
+reply = ["Working."]
+hang = true
+
+[[prompts]]
+when = "The Owner gave new details"
+reply = ["Updated 3 listings and 2 categories.\n"]
+`
+
+func TestSendMessageToAnOperatorGivesTheMessageAsTheNextPromptAndTheReportOfTheNewTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectOperator(t, fake, operatorLeadOfMessages+hangingOperator)
+	sendChat(t, server, leadChat, "Start the operator.")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.OperatorRole)
+		return len(sessions) == 1 && reply(t, server, sessions[0].ID) == "Working."
+	})
+
+	sendChat(t, server, leadChat, "Message to the operator.")
+
+	session := endedOperators(t, server, 1)[0]
+	if session.ID != 2 || session.EndReason.String != "done" {
+		t.Errorf("session = %+v", session)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if want := "The Owner gave new details for the work. They replace the old text where they differ.\n\nUpdate the categories too."; prompts[1] != want {
+		t.Errorf("prompt = %q", prompts[1])
+	}
+	waitForLeadPrompt(t, server, "# Operator message\n\nReport of the Operator 2:\n\nUpdated 3 listings and 2 categories.\n")
+	if !slices.ContainsFunc(leadCalls(t, server), func(call map[string]any) bool { return call["result"] == "Sent the details to the Operator 2." }) {
+		t.Errorf("calls = %+v", leadCalls(t, server))
+	}
+}
+
+func TestSendMessageRefusesAnOperatorOfAnotherWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Add coupons")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	server, _ := connectOperator(t, fake, operatorLeadOfMessages+hangingOperator)
+	other := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
+	sendChat(t, server, other, "Start the operator.")
+	foreign := waitForChatSession(t, server, other, engine.OperatorRole, func(session store.Session) bool { return reply(t, server, session.ID) == "Working." })
+	if foreign.ID != 2 {
+		t.Fatalf("foreign = %+v", foreign)
+	}
+
+	sendChat(t, server, leadChat, "Message to the operator.")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadCalls(t, server), func(call map[string]any) bool {
+			return call["error"] == "No Researcher or Operator 2 of this Workstream runs now."
+		})
+	})
+	if session := chatSessions(t, server, other, engine.OperatorRole)[0]; session.EndedAt.Valid {
+		t.Errorf("session = %+v", session)
+	}
+}

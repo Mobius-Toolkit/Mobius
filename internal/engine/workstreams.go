@@ -485,6 +485,7 @@ type treeIssue struct {
 	author string
 	kind   string
 	labels []string
+	triage bool
 	// blocked is true when the issue has an open blocker.
 	blocked bool
 }
@@ -529,6 +530,7 @@ func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, nu
 			author:  row.Author,
 			kind:    row.Kind,
 			labels:  row.labels,
+			triage:  row.Triage,
 			blocked: slices.Contains(blockedIDs, row.ID),
 		}
 		if done, err := visit(source, issue); err != nil || done {
@@ -693,9 +695,6 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 			workstream = fmt.Sprintf("%s#%d", repository.FullName, number)
 		}
 		if err := e.postCommentOnce(ctx, source, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
-			return err
-		}
-		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
 			return err
 		}
 		switch {

@@ -27,11 +27,6 @@ type researcherInput struct {
 	ID int64 `json:"id"`
 }
 
-type researcherTextInput struct {
-	ID   int64  `json:"id"`
-	Text string `json:"text"`
-}
-
 // startResearcher starts a Researcher with the question of the Lead, of the Coordinator chat or of the Triager c. The
 // report goes to the chat of c as a Researcher message, or to the issue of the Triager as a comment. A stop of the Lead stops its Researchers with no report. It gives the id of the
 // Researcher.
@@ -87,39 +82,20 @@ func (e *Engine) startRepositoryResearcher(ctx context.Context, c caller, reposi
 	return e.startResearcher(ctx, c, repository, input.questionInput)
 }
 
-// ownedResearcher gives the Researcher id that runs for the Workstream of c, or nil.
-func (e *Engine) ownedResearcher(c caller, id int64) *Agent {
-	e.detailsMu.Lock()
-	defer e.detailsMu.Unlock()
-	return e.ownedResearcherLocked(c, id)
-}
-
-// ownedResearcherLocked is ownedResearcher for a caller that holds detailsMu.
-func (e *Engine) ownedResearcherLocked(c caller, id int64) *Agent {
-	a, ok := e.researchers[id]
+// ownedLocked gives the session id of open that runs for the Workstream of c, or nil. The caller holds detailsMu.
+func ownedLocked(c caller, open map[int64]*Agent, id int64) *Agent {
+	a, ok := open[id]
 	if !ok || a.spec.WorkstreamRepository != c.repository || a.spec.Workstream != c.workstream {
 		return nil
 	}
 	return a
 }
 
-// sendResearcherDetails gives new details of the Owner to the Researcher of the input. A turn that runs ends, and the
-// details go to the agent as the next prompt.
-func (e *Engine) sendResearcherDetails(_ context.Context, c caller, _ github.Repository, input researcherTextInput) (string, error) {
-	if empty(input.Text) {
-		return "", refuse("text must not be empty.")
-	}
-	if e.ownedResearcher(c, input.ID) == nil || !e.addDetails(e.researchers, input.ID, input.Text) {
-		return "", refuse("No Researcher %d of this Workstream runs now.", input.ID)
-	}
-	return fmt.Sprintf("Sent the details to the Researcher %d.", input.ID), nil
-}
-
 // stopResearcher stops the Researcher of the input with no report. The Lead chat gets a message that tells the stop.
 // The Researcher leaves e.researchers and gets the stop in one step, so it either gives its report or stops.
 func (e *Engine) stopResearcher(ctx context.Context, c caller, _ github.Repository, input researcherInput) (string, error) {
 	e.detailsMu.Lock()
-	if e.ownedResearcherLocked(c, input.ID) == nil {
+	if ownedLocked(c, e.researchers, input.ID) == nil {
 		e.detailsMu.Unlock()
 		return "", refuse("No Researcher %d of this Workstream runs now.", input.ID)
 	}
