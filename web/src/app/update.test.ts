@@ -687,6 +687,7 @@ const workstream = (number: number, autopilot: Workstream["autopilot"]): Workstr
   brief: "",
   evergreen: false,
   number,
+  openTodos: 0,
   readyToMerge: false,
   reportedFinished: false,
   repository: "owner/repo",

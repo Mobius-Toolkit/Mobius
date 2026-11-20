@@ -2233,6 +2233,107 @@ test("a reportedFinished Workstream shows the done badge and the Close Workstrea
   await expect(page.locator(`nav a[href="${shop}"]`).getByText("done")).toBeVisible();
 });
 
+test("a Workstream with all tasks closed and one open todo hides Close Workstream and done until the Owner completes the todo", async ({
+  page,
+}) => {
+  const seasonal = "/workstreams/owner/shop/13";
+  const todoQuery = new URLSearchParams({
+    kind: "todo",
+    repository: "owner/shop",
+    workstream: "13",
+    issue: "43",
+    pullRequest: "44",
+    title: "MOBIUS_SMTP_HOST",
+    reason: "mandatory \u00b7 Seasonal prices",
+    text: "env_var: MOBIUS_SMTP_HOST",
+  });
+  const createdTodo = await page.request.post(`/e2e/inbox-items?${todoQuery}`);
+  expect(createdTodo.ok()).toBe(true);
+  const todoId = Number(await createdTodo.text());
+
+  try {
+    const main = page.getByRole("main");
+    await page.goto("/workstreams");
+    await expect(main.getByText("Seasonal prices")).toBeVisible();
+    await expect(
+      main
+        .getByRole("link")
+        .filter({ hasText: "Seasonal prices" })
+        .getByText("done", { exact: true }),
+    ).toHaveCount(0);
+
+    await page.goto(seasonal);
+    await expect(main.getByText("All tasks are closed. 1 open todo.")).toBeVisible();
+    await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+    await expect(
+      page.locator(`nav a[href="${seasonal}"]`).getByText("done", { exact: true }),
+    ).toHaveCount(0);
+
+    const todoRow = main
+      .getByRole("list", { name: "Pending actions" })
+      .getByRole("listitem")
+      .filter({ hasText: "MOBIUS_SMTP_HOST" });
+    await expect(todoRow).toBeVisible();
+    await todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox", { name: "Note" }).fill("Set MOBIUS_SMTP_HOST.");
+    const done = page.waitForResponse(`**/api/inbox/${todoId}/done`);
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await done).status()).toBe(200);
+    await expect(dialog).toHaveCount(0);
+
+    await expect(main.getByText("All tasks are closed.", { exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
+    await expect(
+      page.locator(`nav a[href="${seasonal}"]`).getByText("done", { exact: true }),
+    ).toBeVisible();
+  } finally {
+    await page.request.delete(`/e2e/inbox-items/${todoId}`);
+  }
+});
+
+test("a reportedFinished Workstream with open todos shows the count and hides Close Workstream and done", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        repository: string;
+        number: number;
+        allTasksClosed: boolean;
+        reportedFinished: boolean;
+        openTodos: number;
+      }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = true;
+        workstream.openTodos = 2;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto("/workstreams");
+  await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
+  await expect(
+    main
+      .getByRole("link")
+      .filter({ hasText: "Integrate loyalty plans" })
+      .getByText("done", { exact: true }),
+  ).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByText("All tasks are closed. 2 open todos.")).toBeVisible();
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+  await expect(
+    page.locator(`nav a[href="${shop}"]`).getByText("done", { exact: true }),
+  ).toHaveCount(0);
+});
+
 test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
   const second = "/workstreams/owner/shop/14";
   await page.route("**/api/workstreams", async (route) => {

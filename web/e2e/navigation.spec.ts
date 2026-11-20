@@ -419,6 +419,7 @@ test.describe("the list of a phone after a back navigation", () => {
       autopilot: "off",
       allTasksClosed: false,
       evergreen: false,
+      openTodos: 0,
       readyToMerge: false,
       reportedFinished: false,
     }));

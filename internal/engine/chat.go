@@ -1301,11 +1301,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			if quiet, err = e.quietEvents(ctx, c.key); err != nil {
 				return err
 			}
-			fetchLine := e.fetchLeadTurn(ctx, c.key, next)
-			if fetchLine != "" {
-				fetchLine += "\n\n"
-			}
-			prompt = quietEventsText(quiet) + fetchLine + prompt
+			prompt = quietEventsText(quiet) + e.leadTurnLines(ctx, c.key, next) + prompt
 			if err := e.itemTurn(c, a, next, prompt, images, quiet); err != nil {
 				return err
 			}
@@ -2085,12 +2081,23 @@ func (e *Engine) leadFetchLine(ctx context.Context, repository github.Repository
 	return fmt.Sprintf("Mobius fetched the bare clone of %s at %s: origin/%s is at %.8s.", repository.FullName, e.timeNow().UTC().Format(timeFormat), repository.DefaultBranch, commit)
 }
 
-// fetchLeadTurn fetches the bare clone of the repository of key before a turn of a Workstream chat for an event or an
-// Owner message, and gives the prompt line. A failed fetch logs the error and gives "".
-func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string {
+// leadTurnLines gives the prompt lines of a turn of a Workstream chat for an event or an Owner message: the fetch line
+// of the bare clone of the repository of key, and the section "# Open todos". A failed fetch or read logs the error and
+// leaves out its part.
+func (e *Engine) leadTurnLines(ctx context.Context, key ChatKey, it item) string {
 	if key.Workstream == 0 || (it.event == nil && (it.message == nil || it.message.Author != ownerAuthor)) {
 		return ""
 	}
+	todos, err := e.openTodosSection(ctx, key.Repository, key.Workstream)
+	if err != nil {
+		log.Printf("read of the open todos of %s#%d for the Lead failed: %v", key.Repository, key.Workstream, err)
+	}
+	return e.fetchLeadTurn(ctx, key) + todos
+}
+
+// fetchLeadTurn fetches the bare clone of the repository of key, and gives the prompt line with a blank line after it.
+// A failed fetch logs the error and gives "".
+func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey) string {
 	repository, err := e.repository(key.Repository)
 	if err != nil {
 		log.Printf("fetch of %s for the Lead failed: %v", key.Repository, err)
@@ -2100,7 +2107,10 @@ func (e *Engine) fetchLeadTurn(ctx context.Context, key ChatKey, it item) string
 		log.Printf("fetch of %s for the Lead failed: %v", repository.FullName, err)
 		return ""
 	}
-	return e.leadFetchLine(ctx, repository)
+	if line := e.leadFetchLine(ctx, repository); line != "" {
+		return line + "\n\n"
+	}
+	return ""
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream, and tells if the Workstream is a
@@ -2140,7 +2150,11 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 			autopilotText += switchContexts[kind] + "\n\n"
 		}
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n# Recurring tasks\n\n%s\n\n", row.Body, evergreenText, autopilotText, memory, e.repositoriesText(ctx, repository.Owner()), taskText(repository.FullName, lines), recurringText(recurring)), row.Maintenance, row.Skills, nil
+	todos, err := e.openTodosSection(ctx, repository.FullName, workstream)
+	if err != nil {
+		return "", false, false, err
+	}
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s%s# MEMORY.md\n\n%s\n\n# Repositories\n\n%s\n\n# Task list\n\n%s\n\n%s# Recurring tasks\n\n%s\n\n", row.Body, evergreenText, autopilotText, memory, e.repositoriesText(ctx, repository.Owner()), taskText(repository.FullName, lines), todos, recurringText(recurring)), row.Maintenance, row.Skills, nil
 }
 
 func recurringText(tasks []RecurringTask) string {

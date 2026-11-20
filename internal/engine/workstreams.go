@@ -58,6 +58,19 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	} else if slices.ContainsFunc(tasks, func(task *gh.Issue) bool { return task.GetState() != "closed" }) {
 		return refuse("A task of the Workstream is open.")
 	}
+	todos, err := e.queries.CountOpenWorkstreamTodos(ctx, store.CountOpenWorkstreamTodosParams{
+		WorkstreamRepository: repository.FullName,
+		Workstream:           number,
+	})
+	if err != nil {
+		return err
+	}
+	if todos == 1 {
+		return refuse("The Workstream has 1 open todo.")
+	}
+	if todos > 1 {
+		return refuse("The Workstream has %d open todos.", todos)
+	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()
 	if err := e.handleWorkstreamClose(ctx, repository, number, closedCompleted); err != nil {

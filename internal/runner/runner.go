@@ -78,8 +78,8 @@ func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
 }
 
-// Prepare writes the agent environment below dataDir. The gh of the agent environment is a link to
-// this program, and this program runs GH when its name is gh.
+// Prepare writes the agent environment below dataDir. The gh and the mobius-port of the agent environment are links to
+// this program, and this program runs GH when its name is gh and Port when its name is mobius-port.
 func Prepare(dataDir string) error {
 	agentEnv := agentEnv(dataDir)
 	for _, dir := range []string{"gh-config", "bin"} {
@@ -95,11 +95,16 @@ func Prepare(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	gh := filepath.Join(agentEnv, "bin", "gh")
-	if err := os.Remove(gh); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+	for _, name := range []string{"gh", "mobius-port"} {
+		link := filepath.Join(agentEnv, "bin", name)
+		if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := os.Symlink(self, link); err != nil {
+			return err
+		}
 	}
-	return os.Symlink(self, gh)
+	return nil
 }
 
 // Missing gives each of programs that is not on path.
@@ -153,12 +158,12 @@ func AgentPath(dataDir, path string) string {
 	return filepath.Join(agentEnv(dataDir), "bin") + string(filepath.ListSeparator) + path
 }
 
-func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) *exec.Cmd {
+func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark, portURL string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=") || strings.HasPrefix(entry, contextWindowEnv+"=") || strings.HasPrefix(entry, shortCacheEnv+"=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghWritesURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=") || strings.HasPrefix(entry, portURLEnv+"=") || strings.HasPrefix(entry, contextWindowEnv+"=") || strings.HasPrefix(entry, shortCacheEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
@@ -174,6 +179,9 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghWrites
 	}
 	if ghMark != "" {
 		cmd.Env = append(cmd.Env, ghMarkEnv+"="+ghMark)
+	}
+	if portURL != "" {
+		cmd.Env = append(cmd.Env, portURLEnv+"="+portURL)
 	}
 	return cmd
 }
@@ -201,13 +209,13 @@ type Image struct {
 	Data     []byte
 }
 
-func harnessCommand(ctx context.Context, harness config.Harness, contextLimit int, shortCache bool, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark string) (*exec.Cmd, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, contextLimit int, shortCache bool, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark, portURL string) (*exec.Cmd, error) {
 	program := Program(harness)
 	file := Find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
-	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
+	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark, portURL)
 	switch harness {
 	case config.Devin:
 		cmd.Args = append(cmd.Args, "acp")
@@ -272,10 +280,11 @@ type MCPServer struct {
 // With chrome true, the session starts Claude Code with the flag --chrome.
 // The gh of the agent gets its token from ghTokenURL, and sends its writes to ghWritesURL. With an empty ghTokenURL, the gh of
 // the agent refuses to run. With an empty ghWritesURL, it sends no write.
-func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL string, servers []MCPServer, ghTokenURL, ghWritesURL, ghMark string, updates func(json.RawMessage, bool)) (*Session, error) {
+// The mobius-port of the agent gets its ports from portURL. With an empty portURL, it refuses to run.
+func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL string, servers []MCPServer, ghTokenURL, ghWritesURL, ghMark, portURL string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
-	cmd, err := harnessCommand(processCtx, harness, contextLimit, shortCache, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark)
+	cmd, err := harnessCommand(processCtx, harness, contextLimit, shortCache, cwd, dataDir, path, ghTokenURL, ghWritesURL, ghMark, portURL)
 	if err != nil {
 		stop()
 		return nil, err
@@ -315,7 +324,7 @@ func (s *Session) limited(ctx context.Context, request func(context.Context) err
 func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
 	processCtx, stop := context.WithCancel(context.Background())
 	defer stop()
-	cmd, err := harnessCommand(processCtx, config.Antigravity, 0, false, cwd, dataDir, path, "", "", "")
+	cmd, err := harnessCommand(processCtx, config.Antigravity, 0, false, cwd, dataDir, path, "", "", "", "")
 	if err != nil {
 		return false, err
 	}

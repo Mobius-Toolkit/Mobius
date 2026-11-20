@@ -13,10 +13,16 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
-               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
+               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge,
+       CAST((SELECT COUNT(*) FROM inbox_items ii
+               WHERE ii.kind = 'todo' AND ii.workstream_repository = w.repository AND ii.workstream = w.number AND ii.dismissed_at IS NULL) AS INTEGER) AS open_todos
 FROM workstreams w
 WHERE w.state = 'open' AND w.number IS NOT NULL
 ORDER BY w.repository, w.number DESC;
+
+-- name: CountOpenWorkstreamTodos :one
+SELECT COUNT(*) FROM inbox_items
+WHERE kind = 'todo' AND workstream_repository = ? AND workstream = ? AND dismissed_at IS NULL;
 
 -- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
@@ -392,6 +398,9 @@ SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER 
 
 -- name: ListDismissedQuestionItems :many
 SELECT * FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id;
+
+-- name: ListOpenTodoItems :many
+SELECT * FROM inbox_items WHERE workstream_repository = ? AND workstream = ? AND kind = 'todo' AND dismissed_at IS NULL ORDER BY id;
 
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
@@ -1145,13 +1154,17 @@ ON CONFLICT (repository, number) DO UPDATE SET
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id;
 
--- A row that exists keeps its Workstream, parent, body and labels.
+-- A row that exists keeps its Workstream, parent, body and labels. A row with the triage state keeps its title, because
+-- the Triager reads it.
 -- name: AddCopiedBlockerIssue :one
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(kind), EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
+ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.triage THEN issues.title ELSE excluded.title END,
+    state = excluded.state,
+    author = excluded.author
 RETURNING id;
 
 -- name: AddCopiedBlocker :exec
@@ -1348,12 +1361,25 @@ SELECT CAST(triage AS BOOLEAN) FROM issues WHERE repository = ? AND number = CAS
 UPDATE issues SET triage = CAST(sqlc.arg(triage) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
 
--- A row that exists keeps its fields, and only its triage changes.
+-- A row in a tree keeps its text. A row in no tree gets the text of the issue.
 -- name: AddTriageIssue :exec
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(kind), CAST(sqlc.arg(triage) AS BOOLEAN), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage;
+ON CONFLICT (repository, number) DO UPDATE SET
+    triage = excluded.triage,
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    author = CASE WHEN issues.workstream IS NULL THEN excluded.author ELSE issues.author END;
+
+-- name: IsTriaging :one
+SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND triage AND workstream IS NULL);
+
+-- A row in a tree keeps its text.
+-- name: SetTriageIssueText :exec
+UPDATE issues SET title = sqlc.arg(title), body = sqlc.arg(body)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND workstream IS NULL;
 
 -- name: SetIssueKind :execrows
 UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
@@ -1432,7 +1458,7 @@ ORDER BY b.issue, bi.repository, bi.number;
 
 -- name: ListCopiedTreeAllBlockers :many
 SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
-       bi.title, bi.state, bi.author, bi.workstream
+       bi.title, bi.state, bi.author, bi.workstream, CAST(bi.triage AS BOOLEAN) AS triage
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream

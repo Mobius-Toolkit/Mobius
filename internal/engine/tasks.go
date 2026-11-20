@@ -501,7 +501,7 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return nil
 	}
 	if hasLabel(issue, readyLabel) {
-		if err := e.setTriage(ctx, repository, number, true); err != nil {
+		if _, err := e.setTriage(ctx, repository, number, true); err != nil {
 			return err
 		}
 		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
@@ -532,7 +532,7 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
-	if err := e.setTriage(ctx, repository, number, false); err != nil {
+	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
 		return err
 	}
 	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
