@@ -565,11 +565,18 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 		t.Errorf("actions = %+v, %+v", leadDone, done)
 	}
 	for _, number := range []int64{13, 14} {
-		title, body := fake.Issue(shop, number)
-		if labels := fake.Labels(shop, number); title != "Billing" || body != "Bill the plans." || !reflect.DeepEqual(labels, []string{"mobius:workstream"}) {
-			t.Errorf("#%d = %q, %q, %v", number, title, body, labels)
-		}
+		waitForIssue(t, fake, shop, number, "Billing", "Bill the plans.", []string{"mobius:workstream"})
 	}
+}
+
+// waitForIssue waits for the final title, body and labels of an issue. The result "Created the Workstream" comes
+// after the number, and the poll can still send the label and the body then.
+func waitForIssue(t *testing.T, fake *testkit.FakeGitHub, repository string, number int64, title, body string, labels []string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		gotTitle, gotBody := fake.Issue(repository, number)
+		return gotTitle == title && gotBody == body && reflect.DeepEqual(fake.Labels(repository, number), labels)
+	})
 }
 
 func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
@@ -592,12 +599,11 @@ func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	if got := reply(t, server, refused); got != `error: The label "mobius:ready" is not allowed. The allowed labels are mobius:evergreen, mobius:maintenance, mobius:skills.` {
 		t.Errorf("reply = %q", got)
 	}
-	if labels := fake.Labels(shop, 13); !slices.Contains(labels, "mobius:maintenance") || slices.Contains(labels, "mobius:ready") {
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 13), "mobius:maintenance") })
+	if labels := fake.Labels(shop, 13); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels of #13 = %v", labels)
 	}
-	if labels := fake.Labels(shop, 14); !reflect.DeepEqual(labels, []string{"mobius:workstream"}) {
-		t.Errorf("labels of #14 = %v", labels)
-	}
+	waitForIssue(t, fake, shop, 14, "Plain", "No extra label.", []string{"mobius:workstream"})
 }
 
 func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
