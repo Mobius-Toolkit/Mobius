@@ -669,12 +669,7 @@ func TestTheTriagerCreatesAWorkstreamOnlyAfterTheOwnerApprovesInTheInbox(t *test
 
 	decided(t, server, action.ID, "approve", "")
 
-	if title, body := fake.Issue(shop, 62); title != "Refunds" || body != "Refund each order." {
-		t.Errorf("issue = %s, %s", title, body)
-	}
-	if got := fake.Labels(shop, 62); !slices.Equal(got, []string{"mobius:workstream"}) {
-		t.Errorf("labels = %v", got)
-	}
+	waitForIssue(t, fake, 62, "Refunds", "Refund each order.", []string{"mobius:workstream"})
 	link := triagerComment(61, "The triage ends. The Workstream is https://github.com/owner/shop/issues/62")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 61), link) })
 	if state, reason := fake.State(shop, 61); state != "closed" || reason != "completed" {
@@ -1176,12 +1171,7 @@ func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	if *created != (engine.Created{Repository: shop, Number: 13}) {
 		t.Errorf("created = %+v", created)
 	}
-	if title, body := fake.Issue(shop, 13); title != "Loyalty points" || body != "Give points for each order." {
-		t.Errorf("issue = %s, %s", title, body)
-	}
-	if got := fake.Labels(shop, 13); !slices.Equal(got, []string{"mobius:workstream"}) {
-		t.Errorf("labels = %v", got)
-	}
+	waitForIssue(t, fake, 13, "Loyalty points", "Give points for each order.", []string{"mobius:workstream"})
 	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
 		var prompts []string
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
