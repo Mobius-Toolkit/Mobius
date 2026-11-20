@@ -503,10 +503,10 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 	if done.State != "done" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	title, body := fake.Issue(shop, 13)
-	if labels := workstreamLabels(fake, 13); title != "Upkeep" || body != "Keep the code healthy." || !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
-		t.Errorf("#13 = %q, %q, %v", title, body, labels)
-	}
+	testkit.WaitFor(t, func() bool {
+		title, body := fake.Issue(shop, 13)
+		return title == "Upkeep" && body == "Keep the code healthy." && slices.Equal(workstreamLabels(fake, 13), []string{"mobius:workstream", "mobius:maintenance"})
+	})
 	if fake.HasIssue(shop, 14) {
 		t.Error("the Workstream exists two times")
 	}

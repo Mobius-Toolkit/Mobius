@@ -63,7 +63,11 @@ export function renderWorkstreamBadges<M>(
 
   items.push(h.span([h.Class("text-muted-foreground")], ["#", String(workstream.number)]));
 
-  if ((workstream.allTasksClosed || workstream.reportedFinished) && !workstream.evergreen) {
+  if (
+    (workstream.allTasksClosed || workstream.reportedFinished) &&
+    !workstream.evergreen &&
+    workstream.openTodos === 0
+  ) {
     items.push(renderBadge(h, "secondary", "done"));
   }
 

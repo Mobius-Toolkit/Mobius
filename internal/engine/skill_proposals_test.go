@@ -131,9 +131,9 @@ func TestTheCoordinatorCreatesAWorkstreamWithTheLabelSkills(t *testing.T) {
 	if done.State != "done" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	if labels := fake.Labels(shop, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:skills"}) {
-		t.Errorf("labels of #13 = %v", labels)
-	}
+	testkit.WaitFor(t, func() bool {
+		return slices.Equal(fake.Labels(shop, 13), []string{"mobius:workstream", "mobius:skills"})
+	})
 }
 
 func TestAProposalOfASkillGoesToTheLeadOfTheWorkstreamSkills(t *testing.T) {

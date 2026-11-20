@@ -90,6 +90,7 @@ function createChatMessage(id: number, text: string, browserId = ""): ChatMessag
     action: null,
     cancelledAt: null,
     deliveredAt: null,
+    displayOnly: false,
     failedAt: null,
     images: 0,
     inboxItems: [],

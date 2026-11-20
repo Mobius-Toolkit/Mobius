@@ -517,7 +517,7 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 	if err != nil {
 		return err
 	}
-	if err := e.setTriage(ctx, repository, number, false); err != nil {
+	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
 		return err
 	}
 	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {

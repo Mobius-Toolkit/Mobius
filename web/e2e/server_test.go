@@ -191,13 +191,18 @@ var briefCalls = []struct{ message, tool, arguments string }{
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
 }
 
-// ownerAnswers are the answers of the Owner to the questions of the fake Coordinator.
-var ownerAnswers = []string{"Which store?", "Keep the old data.", "Yes, draft it now."}
+// ownerAnswers are the answers of the Owner from the Inbox to the questions of the fake Coordinator.
+var ownerAnswers = []struct{ question, text string }{
+	{"Which store?", "Which store?"},
+	{"Which store?", "Keep the old data."},
+	{"Should I draft the Workstream now?", "Yes, draft it now."},
+}
 
 func ownerAnswerRules(heading string) string {
 	var rules strings.Builder
 	for _, answer := range ownerAnswers {
-		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+answer)
+		card := fmt.Sprintf("Inbox item: %s\nReason: The Coordinator asks a question\n\n", answer.question)
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\nreply = [\"The answer is noted.\"]\n\n", heading+card+answer.text)
 	}
 	return rules.String()
 }
@@ -285,9 +290,9 @@ const question = "What is the state of the plans? The full report is at " +
 // POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
 // PUT /e2e/actions/{id}/state sets the state and the message of a pending action from the queries state and message.
 // POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
-// workstream, issue, title and reason, it adds that item instead. DELETE /e2e/inbox-items/{id}
-// removes it. An answer to that item adds a comment to the issue and changes nothing else. GET /e2e/open-question
-// gives the ID of the newest open question of the Coordinator. POST and DELETE
+// workstream, issue, title, reason, text and pullRequest, it adds that item instead, and for kind=todo adds its
+// deployment_todos row. DELETE /e2e/inbox-items/{id} removes it. An answer to that item adds a comment to the issue
+// and changes nothing else. GET /e2e/open-question gives the ID of the newest open question of the Coordinator. POST and DELETE
 // /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task and its
@@ -486,12 +491,34 @@ func TestServer(t *testing.T) {
 			params.Issue, _ = strconv.ParseInt(query.Get("issue"), 10, 64)
 			params.Title = query.Get("title")
 			params.Reason = query.Get("reason")
+			params.Text = query.Get("text")
+			params.PullRequest, _ = strconv.ParseInt(query.Get("pullRequest"), 10, 64)
 			params.Link = fmt.Sprintf("https://github.com/%s/issues/%d", params.Repository, params.Issue)
 		}
-		item, err := store.New(server.DB).AddInboxItem(r.Context(), params)
+		queries := store.New(server.DB)
+		item, err := queries.AddInboxItem(r.Context(), params)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if params.Kind == "todo" {
+			err := queries.AddDeploymentTodo(r.Context(), store.AddDeploymentTodoParams{
+				Task:      0,
+				InboxItem: item.ID,
+				Kind:      "env_var",
+				Name:      params.Title,
+				Path:      "internal/config/config.go",
+				Line:      42,
+				Reason:    "The server reads it at the start and has no default.",
+				Mandatory: 1,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		if params.Kind == "question" && params.Repository != "" && params.Issue != 0 {
+			github.AddLabel(params.Repository, params.Issue, "mobius:question", "owner")
 		}
 		_, _ = fmt.Fprint(w, item.ID)
 	})
@@ -504,8 +531,19 @@ func TestServer(t *testing.T) {
 		_, _ = fmt.Fprint(w, id)
 	})
 	server.Mux.HandleFunc("DELETE /e2e/inbox-items/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var kind, repository string
+		var issue int64
+		_ = server.DB.QueryRow("SELECT kind, repository, issue FROM inbox_items WHERE id = ?", r.PathValue("id")).Scan(&kind, &repository, &issue)
+		if _, err := server.DB.Exec("DELETE FROM deployment_todos WHERE inbox_item = ?", r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if _, err := server.DB.Exec("DELETE FROM inbox_items WHERE id = ?", r.PathValue("id")); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if kind == "question" && repository != "" && issue != 0 {
+			github.RemoveLabel(repository, issue, "mobius:question", "owner")
 		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {

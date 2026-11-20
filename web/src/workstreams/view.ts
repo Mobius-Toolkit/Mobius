@@ -56,7 +56,9 @@ function renderBadges(h: H, model: Model, workstream: Workstream): Html {
           )
         : h.empty,
       h.span([h.Class("text-muted-foreground")], [`#${workstream.number}`]),
-      (workstream.allTasksClosed || workstream.reportedFinished) && !workstream.evergreen
+      (workstream.allTasksClosed || workstream.reportedFinished) &&
+      !workstream.evergreen &&
+      workstream.openTodos === 0
         ? renderBadge(h, "secondary", "done")
         : h.empty,
       needsHuman

@@ -53,7 +53,7 @@ func TestCheckRunsWithTheNiceValueRaisedByTen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, passed, err := Check(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), time.Minute)
+	got, passed, err := Check(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
 
 	if err != nil || !passed {
 		t.Fatalf("Check = %q, %v, %v; want a pass", got, passed, err)
@@ -161,7 +161,7 @@ func writeInit(t *testing.T, script string) string {
 func TestInitGivesTheOutputAndPassesForAScriptThatEndsWithZero(t *testing.T) {
 	worktree := writeInit(t, "echo installed; echo warning >&2")
 
-	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), time.Minute)
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
 
 	if err != nil || !passed || got != "installed\nwarning\n" {
 		t.Errorf("Init = %q, %v, %v", got, passed, err)
@@ -171,7 +171,7 @@ func TestInitGivesTheOutputAndPassesForAScriptThatEndsWithZero(t *testing.T) {
 func TestInitGivesTheOutputAndFailsForAScriptThatEndsWithAnError(t *testing.T) {
 	worktree := writeInit(t, "echo boom; exit 3")
 
-	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), time.Minute)
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
 
 	if err != nil || passed || got != "boom\n" {
 		t.Errorf("Init = %q, %v, %v", got, passed, err)
@@ -181,7 +181,7 @@ func TestInitGivesTheOutputAndFailsForAScriptThatEndsWithAnError(t *testing.T) {
 func TestInitFailsWithALineAboutTheTimeoutForAScriptThatDoesNotEndInTime(t *testing.T) {
 	worktree := writeInit(t, "echo slow; sleep 30")
 
-	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), 200*time.Millisecond)
+	got, passed, err := Init(context.Background(), t.TempDir(), worktree, os.Getenv("PATH"), "", 200*time.Millisecond)
 
 	if err != nil || passed || got != "slow\n\n.mobius/init did not end in 200ms.\n" {
 		t.Errorf("Init = %q, %v, %v", got, passed, err)
@@ -189,7 +189,7 @@ func TestInitFailsWithALineAboutTheTimeoutForAScriptThatDoesNotEndInTime(t *test
 }
 
 func TestInitPassesWithNoOutputForAWorktreeWithNoScript(t *testing.T) {
-	got, passed, err := Init(context.Background(), t.TempDir(), t.TempDir(), os.Getenv("PATH"), time.Minute)
+	got, passed, err := Init(context.Background(), t.TempDir(), t.TempDir(), os.Getenv("PATH"), "", time.Minute)
 
 	if err != nil || !passed || got != "" {
 		t.Errorf("Init = %q, %v, %v", got, passed, err)

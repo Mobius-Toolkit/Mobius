@@ -490,7 +490,7 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 
 // workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
 // on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
-// in no Workstream with mobius:triage goes to retriage. Mobius does not act on a comment on another issue in no
+// in no Workstream with the triage state goes to retriage. Mobius does not act on a comment on another issue in no
 // Workstream. When answered is true, a comment on the Workstream issue
 // answers its question: mobius:question goes away.
 func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment, answered bool) error {
@@ -499,10 +499,14 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	if err != nil {
 		return err
 	}
-	if workstream == 0 && hasLabel(issue, triageLabel) {
-		return e.retriage(ctx, repository, issue, events)
-	}
 	if workstream == 0 {
+		triaging, err := e.triaging(ctx, repository, issue)
+		if err != nil {
+			return err
+		}
+		if triaging {
+			return e.retriage(ctx, repository, issue, events)
+		}
 		return e.declineComments(ctx, repository, number, events, noWorkstreamReply)
 	}
 	if err := acknowledge(ctx, repository, events); err != nil {

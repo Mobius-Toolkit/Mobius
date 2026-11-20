@@ -37,7 +37,7 @@ func startGHWithWrites(t *testing.T, dataDir, realDir, url, writesURL, stdin str
 // startGHWithMark is startGHWithWrites with the environment variable MOBIUS_GH_MARK=mark when mark is not empty.
 func startGHWithMark(t *testing.T, dataDir, realDir, url, writesURL, mark, stdin string, args ...string) (string, string, int) {
 	t.Helper()
-	cmd := command(context.Background(), filepath.Join(dataDir, "agent-env", "bin", "gh"), t.TempDir(), dataDir, realDir, url, writesURL, mark)
+	cmd := command(context.Background(), filepath.Join(dataDir, "agent-env", "bin", "gh"), t.TempDir(), dataDir, realDir, url, writesURL, mark, "")
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr strings.Builder
@@ -131,7 +131,7 @@ exec gh GH_TOKEN
 	path := filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + realDir + string(filepath.ListSeparator) + "/usr/bin:/bin"
 
 	var reply strings.Builder
-	session, err := Start(t.Context(), config.DSH, 0, false, false, dataDir, dataDir, path, "", nil, tokenURL, "", "", func(params json.RawMessage, _ bool) {
+	session, err := Start(t.Context(), config.DSH, 0, false, false, dataDir, dataDir, path, "", nil, tokenURL, "", "", "", func(params json.RawMessage, _ bool) {
 		var notification struct {
 			Update struct {
 				SessionUpdate string `json:"sessionUpdate"`

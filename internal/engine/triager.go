@@ -34,72 +34,33 @@ type triage struct {
 	done chan struct{}
 }
 
-// triageEndpoint is the endpoint in the sync_cursors table that holds the time of the last mobius:triage label that
-// started a turn of the issue number.
-func triageEndpoint(number int64) string {
-	return fmt.Sprintf("triage/%d", number)
-}
-
-// startTriage starts the first turn of the Triager of the open issue, which has no Workstream, in two cases. A trusted
-// user created the issue at or after since. Or the issue has mobius:triage, and a trusted user added that label at or after
-// since, and no earlier turn started for that label.
-// The first case adds mobius:triage. The first poll of a repository, with no issues row in the cursors, starts no Triager. It adds the
-// reaction of an agent to the comments, because the first turn reads them. It gives true when it started a turn.
+// startTriage sets the triage state of the open issue, which has no Workstream, when a trusted user created the issue at
+// or after since. The triage handler starts the first turn of the Triager. The first poll of a repository, with no
+// issues row in the cursors, starts no Triager. It adds the reaction of an agent to the comments, because the first
+// turn reads them. It gives true when it set the triage state.
 func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment, since time.Time, firstPoll bool) (bool, error) {
-	if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || issue.GetState() != "open" || firstPoll {
+	if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || issue.GetState() != "open" || firstPoll ||
+		issue.GetCreatedAt().Before(since) || !e.trustedUser(issue.GetUser().GetLogin()) {
 		return false, nil
 	}
 	number := int64(issue.GetNumber())
-	labeled := hasLabel(issue, triageLabel)
-	labeledAt := ""
-	trustedCreator := e.trustedUser(issue.GetUser().GetLogin())
-	if !labeled && (!trustedCreator || issue.GetCreatedAt().Before(since)) {
-		return false, nil
-	}
 	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil || workstream != 0 {
 		return false, err
 	}
-	if labeled {
-		events, err := e.issueEvents(ctx, repository, number)
-		if err != nil {
-			return false, err
-		}
-		event := lastEvent(events, "labeled", triageLabel)
-		if event != nil {
-			labeledAt = event.GetCreatedAt().UTC().Format(time.RFC3339)
-		}
-		if event == nil || event.GetCreatedAt().Before(since) || !e.trustedUser(event.GetActor().GetLogin()) {
-			return false, nil
-		}
-		cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: triageEndpoint(number)})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return false, err
-		}
-		if cursor.Since.String == labeledAt {
-			return false, nil
-		}
-	} else if err := e.setTriage(ctx, repository, number, true); err != nil {
+	changed, err := e.setTriage(ctx, repository, number, true)
+	if err != nil || !changed {
 		return false, err
 	}
 	replies, _, err := e.replies(ctx, repository, number, comments)
 	if err != nil {
 		return false, err
 	}
-	if err := acknowledge(ctx, repository, replies); err != nil {
-		return false, err
-	}
-	if err := e.restartTriager(ctx, repository, number); err != nil {
-		return false, err
-	}
-	if labeledAt == "" {
-		return true, nil
-	}
-	return true, e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: triageEndpoint(number), Since: sql.NullString{String: labeledAt, Valid: true}})
+	return true, acknowledge(ctx, repository, replies)
 }
 
-// retriage starts the Triager of the open issue with mobius:triage and no Workstream again after the comments of events,
-// and adds the reaction of an agent that gets them. The Triager reads the comments of the issue.
+// retriage starts the Triager of the open issue with the triage state and no Workstream again after the comments of
+// events, and adds the reaction of an agent that gets them. The Triager reads the comments of the issue.
 func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
 	if err := acknowledge(ctx, repository, events); err != nil {
 		return err
@@ -183,7 +144,7 @@ func (e *Engine) restartHeldTriager(ctx context.Context, repository github.Repos
 	return e.restartTriagerLocked(ctx, repository, number)
 }
 
-// startHeldTriagers starts the turns that did not end and do not run, when the issue is still open, has mobius:triage
+// startHeldTriagers starts the turns that did not end and do not run, when the issue is still open, has the triage state
 // and has no Workstream. For another issue, it ends the turn. It starts none while the drain is on. It keeps the issue
 // held while a comment write of the issue waits, because that comment can be the report of a Researcher.
 func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
@@ -229,13 +190,12 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 	return nil
 }
 
-// triaging tells if the issue is open, has triageLabel, is no bucket and has no Workstream.
+// triaging tells if the issue is open, is no bucket, and has the triage state and no Workstream in issues.
 func (e *Engine) triaging(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
-	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) || hasLabel(issue, bucketLabel) {
+	if issue == nil || issue.GetState() != "open" || hasLabel(issue, bucketLabel) {
 		return false, nil
 	}
-	_, workstream, err := e.commentWorkstream(ctx, repository, issue)
-	return workstream == 0, err
+	return e.queries.IsTriaging(ctx, store.IsTriagingParams{Repository: repository.FullName, Number: int64(issue.GetNumber())})
 }
 
 // startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack. A turn that ends with
@@ -302,12 +262,15 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return fail(err)
 	}
-	title, body := issue.GetTitle(), issue.GetBody()
-	if !e.trustedUser(issue.GetUser().GetLogin()) {
-		title, body, err = e.labeledText(ctx, repository, issue)
+	if e.trustedUser(issue.GetUser().GetLogin()) {
+		err = e.queries.SetTriageIssueText(ctx, store.SetTriageIssueTextParams{Title: issue.GetTitle(), Body: issue.GetBody(), Repository: repository.FullName, Number: number})
 		if err != nil {
 			return fail(err)
 		}
+	}
+	issueText, err := e.queries.GetIssueText(ctx, store.GetIssueTextParams{Repository: repository.FullName, Number: number})
+	if err != nil {
+		return fail(err)
 	}
 	var workstreams string
 	if found, err := e.workstreamRepository(ctx, repository.Owner()); err != nil {
@@ -330,7 +293,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if over {
 		return a.End(ended, "done")
 	}
-	prompt := fmt.Sprintf("%s\n%s%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, serverSection(), workstreams, repository.FullName, number, title, body)
+	prompt := fmt.Sprintf("%s\n%s%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, serverSection(), workstreams, repository.FullName, number, issueText.Title, issueText.Body)
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
@@ -356,7 +319,11 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return err
 	}
 	issue, err = repository.Issue(ctx, number)
-	if err != nil || issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+	if err != nil {
+		return err
+	}
+	triaging, err := e.triaging(ctx, repository, issue)
+	if err != nil || !triaging {
 		return err
 	}
 	comments, err = repository.Comments(ctx, number)
@@ -410,75 +377,14 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 	return err == nil, err
 }
 
-// labeledText gives the title and the body of the issue at the time when a trusted user last added mobius:triage. The
-// body is the newest edit at or before that time, and the title is the old name of the first rename after it. The
-// current text stays where no edit or rename shows the change.
-func (e *Engine) labeledText(ctx context.Context, repository github.Repository, issue *gh.Issue) (string, string, error) {
-	title, body := issue.GetTitle(), issue.GetBody()
-	number := int64(issue.GetNumber())
-	events, err := e.issueEvents(ctx, repository, number)
-	if err != nil {
-		return "", "", err
-	}
-	var labeledAt time.Time
-	for _, event := range slices.Backward(events) {
-		login := event.GetActor().GetLogin()
-		if event.GetEvent() == "labeled" && event.GetLabel().GetName() == triageLabel && e.trustedUser(login) && !strings.EqualFold(login, appLogin(repository.AppSlug)) {
-			labeledAt = event.GetCreatedAt().Time
-			break
-		}
-	}
-	if labeledAt.IsZero() {
-		return title, body, nil
-	}
-	edits, err := repository.IssueBodyEdits(ctx, number)
-	if err != nil {
-		return "", "", err
-	}
-	for _, edit := range edits {
-		if !edit.EditedAt.After(labeledAt) {
-			body = edit.Diff
-			break
-		}
-	}
-	for _, event := range events {
-		if event.GetEvent() == "renamed" && event.GetCreatedAt().After(labeledAt) {
-			title = event.GetRename().GetFrom()
-			break
-		}
-	}
-	return title, body, nil
-}
-
-// stopTriager stops the Triager of the issue number, and ends its turn in the database, when a trusted user removed
-// mobius:triage last. Mobius ignores its own removal of that label, and the removal of another person.
+// stopTriager stops the Triager of the issue number, and ends its turn in the database.
 func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, number int64) error {
-	key := triageKey{repository.FullName, number}
 	e.triagesMu.Lock()
-	_, running := e.triages[key]
+	if running, ok := e.triages[triageKey{repository.FullName, number}]; ok {
+		running.stop()
+	}
 	e.triagesMu.Unlock()
-	if !running {
-		return nil
-	}
-	events, err := e.issueEvents(ctx, repository, number)
-	if err != nil {
-		return err
-	}
-	for _, event := range slices.Backward(events) {
-		if event.GetEvent() != "unlabeled" || event.GetLabel().GetName() != triageLabel {
-			continue
-		}
-		if strings.EqualFold(event.GetActor().GetLogin(), appLogin(repository.AppSlug)) || !e.trustedUser(event.GetActor().GetLogin()) {
-			return nil
-		}
-		e.triagesMu.Lock()
-		if running, ok := e.triages[key]; ok {
-			running.stop()
-		}
-		e.triagesMu.Unlock()
-		return e.queries.EndTriagerTurn(ctx, store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number})
-	}
-	return nil
+	return e.queries.EndTriagerTurn(ctx, store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number})
 }
 
 // organizationRepositories gives the repositories of the organization.

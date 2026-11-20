@@ -6131,7 +6131,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/complete": {
       "post": {
-        "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.",
+        "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, when it has no task and its Lead did not report it as finished, or when it has an open deployment todo.",
         "operationId": "CompleteWorkstream",
         "parameters": [
           {
@@ -8199,6 +8199,10 @@
             "description": "DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the successful end of the turn, or null before that and for another message",
             "format": "date-time"
           },
+          "displayOnly": {
+            "type": "boolean",
+            "description": "DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat"
+          },
           "failedAt": {
             "type": [
               "string",
@@ -8288,6 +8292,7 @@
           "inboxItems",
           "selections",
           "voice",
+          "displayOnly",
           "browserId",
           "deliveredAt",
           "failedAt",
@@ -12986,6 +12991,10 @@
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
           },
+          "openTodos": {
+            "type": "integer",
+            "description": "OpenTodos is the number of open deployment todos of the Workstream"
+          },
           "readyToMerge": {
             "type": "boolean",
             "description": "ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it"
@@ -13012,7 +13021,8 @@
           "evergreen",
           "allTasksClosed",
           "reportedFinished",
-          "readyToMerge"
+          "readyToMerge",
+          "openTodos"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
       },

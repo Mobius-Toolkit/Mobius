@@ -1927,7 +1927,7 @@ func (e *Engine) acceptIssue(ctx context.Context, _ caller, repository github.Re
 	if err != nil || !triage {
 		return "", refuse("%s#%d has no triage state.", repository.FullName, input.N)
 	}
-	if err := e.setTriage(ctx, repository, input.N, false); err != nil {
+	if _, err := e.setTriage(ctx, repository, input.N, false); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Accepted %s#%d.", repository.FullName, input.N), nil

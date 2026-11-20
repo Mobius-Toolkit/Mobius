@@ -157,10 +157,10 @@ func (q *Queries) AddCIFailurePlace(ctx context.Context, arg AddCIFailurePlacePa
 }
 
 const addChatMessage = `-- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections, display_only)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type AddChatMessageParams struct {
@@ -174,6 +174,7 @@ type AddChatMessageParams struct {
 	InboxItems   string
 	Voice        int64
 	Selections   string
+	DisplayOnly  int64
 }
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (ChatMessage, error) {
@@ -188,6 +189,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.InboxItems,
 		arg.Voice,
 		arg.Selections,
+		arg.DisplayOnly,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -206,6 +208,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -257,7 +260,10 @@ INSERT INTO issues (repository, number, title, body, state, author, kind, triage
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, EXISTS (SELECT 1 FROM json_each(CAST(?8 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(?8 AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
+ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.triage THEN issues.title ELSE excluded.title END,
+    state = excluded.state,
+    author = excluded.author
 RETURNING id
 `
 
@@ -272,7 +278,8 @@ type AddCopiedBlockerIssueParams struct {
 	Github     string
 }
 
-// A row that exists keeps its Workstream, parent, body and labels.
+// A row that exists keeps its Workstream, parent, body and labels. A row with the triage state keeps its title, because
+// the Triager reads it.
 func (q *Queries) AddCopiedBlockerIssue(ctx context.Context, arg AddCopiedBlockerIssueParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, addCopiedBlockerIssue,
 		arg.Repository,
@@ -1499,7 +1506,12 @@ const addTriageIssue = `-- name: AddTriageIssue :exec
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, CAST(?8 AS BOOLEAN), json_object('github', json(CAST(?9 AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage
+ON CONFLICT (repository, number) DO UPDATE SET
+    triage = excluded.triage,
+    title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
+    body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
+    state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
+    author = CASE WHEN issues.workstream IS NULL THEN excluded.author ELSE issues.author END
 `
 
 type AddTriageIssueParams struct {
@@ -1514,7 +1526,7 @@ type AddTriageIssueParams struct {
 	Github     string
 }
 
-// A row that exists keeps its fields, and only its triage changes.
+// A row in a tree keeps its text. A row in no tree gets the text of the issue.
 func (q *Queries) AddTriageIssue(ctx context.Context, arg AddTriageIssueParams) error {
 	_, err := q.db.ExecContext(ctx, addTriageIssue,
 		arg.Repository,
@@ -1733,7 +1745,7 @@ func (q *Queries) AdvanceRecurringTask(ctx context.Context, arg AdvanceRecurring
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type AppendChatMessageParams struct {
@@ -1760,6 +1772,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -1767,7 +1780,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 const cancelChatMessage = `-- name: CancelChatMessage :one
 UPDATE chat_messages SET cancelled_at = ?1
 WHERE id = ?2 AND delivered_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type CancelChatMessageParams struct {
@@ -1794,6 +1807,7 @@ func (q *Queries) CancelChatMessage(ctx context.Context, arg CancelChatMessagePa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -2045,6 +2059,23 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')
 
 func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveTasks)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countOpenWorkstreamTodos = `-- name: CountOpenWorkstreamTodos :one
+SELECT COUNT(*) FROM inbox_items
+WHERE kind = 'todo' AND workstream_repository = ? AND workstream = ? AND dismissed_at IS NULL
+`
+
+type CountOpenWorkstreamTodosParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+}
+
+func (q *Queries) CountOpenWorkstreamTodos(ctx context.Context, arg CountOpenWorkstreamTodosParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOpenWorkstreamTodos, arg.WorkstreamRepository, arg.Workstream)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -2683,7 +2714,7 @@ func (q *Queries) DeleteWorkstreamToCreate(ctx context.Context, id int64) error 
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = ?, failed_at = NULL WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type DeliverChatMessageParams struct {
@@ -2710,6 +2741,7 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -3031,7 +3063,7 @@ func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) 
 const failChatMessage = `-- name: FailChatMessage :one
 UPDATE chat_messages SET failed_at = ?1
 WHERE id = ?2 AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type FailChatMessageParams struct {
@@ -3058,6 +3090,7 @@ func (q *Queries) FailChatMessage(ctx context.Context, arg FailChatMessageParams
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -3402,7 +3435,7 @@ func (q *Queries) GetCIDiagnosisBySession(ctx context.Context, session sql.NullI
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages WHERE id = ?
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages WHERE id = ?
 `
 
 func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -3424,6 +3457,7 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -4014,7 +4048,7 @@ func (q *Queries) GetIssueTriage(ctx context.Context, arg GetIssueTriageParams) 
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -4050,6 +4084,7 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -5931,6 +5966,22 @@ func (q *Queries) IsRepairIssue(ctx context.Context, arg IsRepairIssueParams) (b
 	return exists, err
 }
 
+const isTriaging = `-- name: IsTriaging :one
+SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND triage AND workstream IS NULL)
+`
+
+type IsTriagingParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) IsTriaging(ctx context.Context, arg IsTriagingParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isTriaging, arg.Repository, arg.Number)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isWorkstreamClosePending = `-- name: IsWorkstreamClosePending :one
 SELECT EXISTS (SELECT 1 FROM workstreams WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND close_pending != 0)
 `
@@ -6661,9 +6712,9 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
-  AND cancelled_at IS NULL
+  AND cancelled_at IS NULL AND display_only = 0
 ORDER BY id DESC LIMIT ?
 `
 
@@ -6706,6 +6757,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -6721,7 +6773,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Operator', 'Curator', 'Approval', 'Changelog') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -6766,6 +6818,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -6986,7 +7039,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 
 const listCopiedTreeAllBlockers = `-- name: ListCopiedTreeAllBlockers :many
 SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
-       bi.title, bi.state, bi.author, bi.workstream
+       bi.title, bi.state, bi.author, bi.workstream, CAST(bi.triage AS BOOLEAN) AS triage
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
@@ -7008,6 +7061,7 @@ type ListCopiedTreeAllBlockersRow struct {
 	State             string
 	Author            string
 	Workstream        sql.NullInt64
+	Triage            bool
 }
 
 func (q *Queries) ListCopiedTreeAllBlockers(ctx context.Context, arg ListCopiedTreeAllBlockersParams) ([]ListCopiedTreeAllBlockersRow, error) {
@@ -7027,6 +7081,7 @@ func (q *Queries) ListCopiedTreeAllBlockers(ctx context.Context, arg ListCopiedT
 			&i.State,
 			&i.Author,
 			&i.Workstream,
+			&i.Triage,
 		); err != nil {
 			return nil, err
 		}
@@ -7111,7 +7166,9 @@ SELECT w.repository, CAST(w.number AS INTEGER) AS number, w.title, w.body, CAST(
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.buckets'))
             + (SELECT COUNT(*) FROM json_each(w.metadata, '$.github.nested'))) = 0 AS BOOLEAN) AS reported_finished,
        CAST(EXISTS (SELECT 1 FROM tasks t
-               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
+               WHERE t.workstream_repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge,
+       CAST((SELECT COUNT(*) FROM inbox_items ii
+               WHERE ii.kind = 'todo' AND ii.workstream_repository = w.repository AND ii.workstream = w.number AND ii.dismissed_at IS NULL) AS INTEGER) AS open_todos
 FROM workstreams w
 WHERE w.state = 'open' AND w.number IS NOT NULL
 ORDER BY w.repository, w.number DESC
@@ -7128,6 +7185,7 @@ type ListCopiedWorkstreamsRow struct {
 	AllTasksClosed   bool
 	ReportedFinished bool
 	ReadyToMerge     bool
+	OpenTodos        int64
 }
 
 func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkstreamsRow, error) {
@@ -7150,6 +7208,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.AllTasksClosed,
 			&i.ReportedFinished,
 			&i.ReadyToMerge,
+			&i.OpenTodos,
 		); err != nil {
 			return nil, err
 		}
@@ -7724,7 +7783,7 @@ func (q *Queries) ListEndedTaskQuality(ctx context.Context) ([]ListEndedTaskQual
 }
 
 const listFailedChatMessages = `-- name: ListFailedChatMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ?
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7761,6 +7820,7 @@ func (q *Queries) ListFailedChatMessages(ctx context.Context, arg ListFailedChat
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -7776,7 +7836,7 @@ func (q *Queries) ListFailedChatMessages(ctx context.Context, arg ListFailedChat
 }
 
 const listFailedChatMessagesOfRepository = `-- name: ListFailedChatMessagesOfRepository :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ?
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7812,6 +7872,7 @@ func (q *Queries) ListFailedChatMessagesOfRepository(ctx context.Context, arg Li
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -7827,7 +7888,7 @@ func (q *Queries) ListFailedChatMessagesOfRepository(ctx context.Context, arg Li
 }
 
 const listFailedCoordinatorMessages = `-- name: ListFailedCoordinatorMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ''
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7858,6 +7919,7 @@ func (q *Queries) ListFailedCoordinatorMessages(ctx context.Context, organizatio
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -11154,9 +11216,9 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 }
 
 const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
-  AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
+  AND (author = 'Owner' AND browser_id IS NOT NULL AND display_only = 0 OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
 `
@@ -11192,6 +11254,7 @@ func (q *Queries) ListUndeliveredOwnerMessages(ctx context.Context, arg ListUnde
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -13553,6 +13616,29 @@ func (q *Queries) SetTranscriptJSON(ctx context.Context, arg SetTranscriptJSONPa
 	return i, err
 }
 
+const setTriageIssueText = `-- name: SetTriageIssueText :exec
+UPDATE issues SET title = ?1, body = ?2
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER) AND workstream IS NULL
+`
+
+type SetTriageIssueTextParams struct {
+	Title      string
+	Body       string
+	Repository string
+	Number     int64
+}
+
+// A row in a tree keeps its text.
+func (q *Queries) SetTriageIssueText(ctx context.Context, arg SetTriageIssueTextParams) error {
+	_, err := q.db.ExecContext(ctx, setTriageIssueText,
+		arg.Title,
+		arg.Body,
+		arg.Repository,
+		arg.Number,
+	)
+	return err
+}
+
 const setUserTokens = `-- name: SetUserTokens :exec
 UPDATE github_apps SET user_token = ?, refresh_token = ?, user_token_expires_at = ?
 WHERE app_id = ?
@@ -13750,7 +13836,7 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 
 const stopChatMessage = `-- name: StopChatMessage :one
 UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type StopChatMessageParams struct {
@@ -13777,6 +13863,7 @@ func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -13863,7 +13950,7 @@ func (q *Queries) TrimRecurringTaskRuns(ctx context.Context, task int64) error {
 
 const undeliverChatMessage = `-- name: UndeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = NULL WHERE id = ? AND delivered_at IS NOT NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -13885,6 +13972,7 @@ func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -13892,7 +13980,7 @@ func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessa
 const undoCancelChatMessage = `-- name: UndoCancelChatMessage :one
 UPDATE chat_messages SET cancelled_at = NULL
 WHERE id = ?1 AND delivered_at IS NULL AND cancelled_at IS NOT NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -13914,6 +14002,7 @@ func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMess
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }

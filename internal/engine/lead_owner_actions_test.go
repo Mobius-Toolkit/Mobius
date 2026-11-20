@@ -76,7 +76,7 @@ func TestTheLeadMarksAnActionOfTheOwnerOnATaskInChecksAndTheDoneStartsAFixRoundW
 		t.Errorf("items = %+v", items)
 	}
 	testkit.WaitFor(t, func() bool {
-		return slices.Contains(records(t, server, leadChat), "You marked the action \""+loginAction+"\" of PR #42 as done. Note: Logged in.")
+		return slices.Contains(records(t, server, leadChat), "You marked the action \""+loginAction+"\" of PR #42 as done.")
 	})
 }
 
@@ -125,7 +125,7 @@ func TestTheLeadMarksAnActionOnADispatchedTaskAndTheDoneGivesTheLeadADispatchEve
 		t.Errorf("events = %q", dispatches)
 	}
 	testkit.WaitFor(t, func() bool {
-		return slices.Contains(records(t, server, leadChat), "You marked the action \""+loginAction+"\" of #41 as done. Note: Logged in.")
+		return slices.Contains(records(t, server, leadChat), "You marked the action \""+loginAction+"\" of #41 as done.")
 	})
 }
 

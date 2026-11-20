@@ -2233,6 +2233,107 @@ test("a reportedFinished Workstream shows the done badge and the Close Workstrea
   await expect(page.locator(`nav a[href="${shop}"]`).getByText("done")).toBeVisible();
 });
 
+test("a Workstream with all tasks closed and one open todo hides Close Workstream and done until the Owner completes the todo", async ({
+  page,
+}) => {
+  const seasonal = "/workstreams/owner/shop/13";
+  const todoQuery = new URLSearchParams({
+    kind: "todo",
+    repository: "owner/shop",
+    workstream: "13",
+    issue: "43",
+    pullRequest: "44",
+    title: "MOBIUS_SMTP_HOST",
+    reason: "mandatory \u00b7 Seasonal prices",
+    text: "env_var: MOBIUS_SMTP_HOST",
+  });
+  const createdTodo = await page.request.post(`/e2e/inbox-items?${todoQuery}`);
+  expect(createdTodo.ok()).toBe(true);
+  const todoId = Number(await createdTodo.text());
+
+  try {
+    const main = page.getByRole("main");
+    await page.goto("/workstreams");
+    await expect(main.getByText("Seasonal prices")).toBeVisible();
+    await expect(
+      main
+        .getByRole("link")
+        .filter({ hasText: "Seasonal prices" })
+        .getByText("done", { exact: true }),
+    ).toHaveCount(0);
+
+    await page.goto(seasonal);
+    await expect(main.getByText("All tasks are closed. 1 open todo.")).toBeVisible();
+    await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+    await expect(
+      page.locator(`nav a[href="${seasonal}"]`).getByText("done", { exact: true }),
+    ).toHaveCount(0);
+
+    const todoRow = main
+      .getByRole("list", { name: "Pending actions" })
+      .getByRole("listitem")
+      .filter({ hasText: "MOBIUS_SMTP_HOST" });
+    await expect(todoRow).toBeVisible();
+    await todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox", { name: "Note" }).fill("Set MOBIUS_SMTP_HOST.");
+    const done = page.waitForResponse(`**/api/inbox/${todoId}/done`);
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await done).status()).toBe(200);
+    await expect(dialog).toHaveCount(0);
+
+    await expect(main.getByText("All tasks are closed.", { exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
+    await expect(
+      page.locator(`nav a[href="${seasonal}"]`).getByText("done", { exact: true }),
+    ).toBeVisible();
+  } finally {
+    await page.request.delete(`/e2e/inbox-items/${todoId}`);
+  }
+});
+
+test("a reportedFinished Workstream with open todos shows the count and hides Close Workstream and done", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        repository: string;
+        number: number;
+        allTasksClosed: boolean;
+        reportedFinished: boolean;
+        openTodos: number;
+      }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = false;
+        workstream.reportedFinished = true;
+        workstream.openTodos = 2;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto("/workstreams");
+  await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
+  await expect(
+    main
+      .getByRole("link")
+      .filter({ hasText: "Integrate loyalty plans" })
+      .getByText("done", { exact: true }),
+  ).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByText("All tasks are closed. 2 open todos.")).toBeVisible();
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+  await expect(
+    page.locator(`nav a[href="${shop}"]`).getByText("done", { exact: true }),
+  ).toHaveCount(0);
+});
+
 test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
   const second = "/workstreams/owner/shop/14";
   await page.route("**/api/workstreams", async (route) => {
@@ -2425,6 +2526,32 @@ test("the status line tells that the agent writes when the Owner sent each messa
   await expect(main.getByText("The message waits for the Lead.")).toHaveCount(0);
 });
 
+test("the status line tells that the agent writes when only a display-only message has no delivery time", async ({
+  page,
+}) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        writing: boolean;
+        messages: { author: string; deliveredAt: string | null; displayOnly: boolean }[];
+      };
+    };
+    body.data.writing = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.deliveredAt = null;
+        message.displayOnly = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("The Lead writes a reply.")).toBeVisible();
+  await expect(main.getByText("The message waits for the Lead.")).toHaveCount(0);
+});
+
 test("the stop button shows only while a stop has an effect", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
@@ -2586,6 +2713,7 @@ test("the chat shows one separator before the first message of each day", async 
       images: 0,
       inboxItems: [],
       selections: [],
+      displayOnly: false,
       organization: "owner",
       repository: "owner/shop",
       workstream: 12,
@@ -2644,6 +2772,7 @@ test.describe("a time zone east of UTC", () => {
           images: 0,
           inboxItems: [],
           selections: [],
+          displayOnly: false,
           organization: "owner",
           repository: "owner/shop",
           workstream: 12,
@@ -2681,6 +2810,7 @@ async function longHistory(page: Page) {
       images: 0,
       inboxItems: [],
       selections: [],
+      displayOnly: false,
       organization: "owner",
       repository: "owner/shop",
       workstream: 12,
@@ -2803,6 +2933,11 @@ async function expectStates(page: Page) {
   });
   await expect(cancelled).toBeVisible();
   await expect(cancelled).toHaveAttribute("title", "Cancelled, sent again below, at 08:45 AM");
+  const fromInbox = message("Inbox answer note").getByRole("img", {
+    name: "Sent from the Inbox at 08:37 AM",
+  });
+  await expect(fromInbox).toBeVisible();
+  await expect(fromInbox).toHaveAttribute("title", "Sent from the Inbox at 08:37 AM");
   await expect(message("Lead note").getByRole("img")).toHaveCount(0);
   await expect(main.getByText("Waits for the agent")).toHaveCount(0);
 }
@@ -2829,7 +2964,14 @@ async function fulfillLoad(route: Route, deliveredAt: string | null, marker?: st
 }
 
 test.describe("the state of an Owner message", () => {
-  const states = [
+  const states: {
+    text: string;
+    deliveredAt: string | null;
+    stoppedAt: string | null;
+    failedAt: string | null;
+    cancelledAt: string | null;
+    displayOnly?: boolean;
+  }[] = [
     {
       text: "Stored note",
       deliveredAt: null,
@@ -2872,6 +3014,14 @@ test.describe("the state of an Owner message", () => {
       failedAt: null,
       cancelledAt: "2026-10-15T08:45:00Z",
     },
+    {
+      text: "Inbox answer note",
+      deliveredAt: null,
+      stoppedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      displayOnly: true,
+    },
   ];
 
   async function showStates(
@@ -2898,6 +3048,7 @@ test.describe("the state of an Owner message", () => {
           images: 0,
           inboxItems: [],
           selections: [],
+          displayOnly: state.displayOnly ?? false,
           organization,
           repository,
           workstream,
@@ -2905,7 +3056,7 @@ test.describe("the state of an Owner message", () => {
           question: null,
         })),
         {
-          id: 4,
+          id: 100,
           author: "Lead",
           browserId: "",
           text: "Lead note",
@@ -2918,6 +3069,7 @@ test.describe("the state of an Owner message", () => {
           images: 0,
           inboxItems: [],
           selections: [],
+          displayOnly: false,
           organization,
           repository,
           workstream,
@@ -3014,6 +3166,7 @@ test.describe("the state of an Owner message", () => {
                 images: 0,
                 inboxItems: [],
                 selections: [],
+                displayOnly: false,
                 organization: "owner",
                 repository: "owner/shop",
                 workstream: 12,
@@ -3051,6 +3204,7 @@ test.describe("the state of an Owner message", () => {
       images: 0,
       inboxItems: [],
       selections: [],
+      displayOnly: false,
       organization: "owner",
       repository: "owner/shop",
       workstream: 12,
@@ -3381,6 +3535,7 @@ test.describe("the records of the actions of the Owner", () => {
       images: 0,
       inboxItems: [],
       selections: [],
+      displayOnly: false,
       action: null,
       question: null,
       organization: "plants",
@@ -3530,6 +3685,7 @@ test.describe("the Chat button of a task row", () => {
           images: 0,
           inboxItems: posted,
           selections: [],
+          displayOnly: false,
           organization: "plants",
           question: null,
           repository: "plants/garden",
@@ -3951,6 +4107,7 @@ async function routeTaskCards(page: Page) {
           },
         ],
         selections: [],
+        displayOnly: false,
         organization: url.searchParams.get("organization") ?? "",
         question: null,
         repository: url.searchParams.get("repository") ?? "",
@@ -4053,4 +4210,87 @@ test.describe("a task card of the Lead chat", () => {
     await sheet.getByRole("button", { name: "Back to the tasks" }).click();
     await expect(sheet.getByRole("button", { name: /#71 Spread the bark/ })).toBeVisible();
   });
+});
+
+test("answering a Lead question and completing a todo with a note from the tray show the Owner messages with their cards and Inbox status", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=shop-code");
+  const questionQuery = new URLSearchParams({
+    kind: "question",
+    repository: "owner/shop",
+    workstream: "12",
+    issue: "7",
+    title: "Add plan prices",
+    reason: "The Lead asks a question",
+    text: "Should prices show without tax?",
+  });
+  const todoQuery = new URLSearchParams({
+    kind: "todo",
+    repository: "owner/shop",
+    workstream: "12",
+    issue: "7",
+    pullRequest: "44",
+    title: "MOBIUS_SMTP_HOST",
+    reason: "mandatory \u00b7 Deployment needs",
+    text: "env_var: MOBIUS_SMTP_HOST",
+  });
+  const createdQuestion = await page.request.post(`/e2e/inbox-items?${questionQuery}`);
+  expect(createdQuestion.ok()).toBe(true);
+  const questionId = Number(await createdQuestion.text());
+  const createdTodo = await page.request.post(`/e2e/inbox-items?${todoQuery}`);
+  expect(createdTodo.ok()).toBe(true);
+  const todoId = Number(await createdTodo.text());
+
+  try {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const tray = main.getByRole("list", { name: "Pending actions" });
+    const dialog = page.getByRole("dialog");
+
+    const questionRow = tray.getByRole("listitem").filter({ hasText: "Add plan prices" });
+    await expect(questionRow).toBeVisible();
+    await questionRow.getByRole("button", { name: "Answer" }).click();
+    const answerText = "Yes, show prices without tax.";
+    await dialog.getByRole("textbox", { name: "Your answer" }).fill(answerText);
+    const answered = page.waitForResponse(`**/api/inbox/${questionId}/answer`);
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await answered).status()).toBe(200);
+    await expect(dialog).toHaveCount(0);
+
+    const answerMessage = main.locator("[data-message]", { hasText: answerText });
+    await expect(answerMessage).toBeVisible();
+    await expect(answerMessage.getByText("#7", { exact: true })).toBeVisible();
+    await expect(answerMessage.getByText("Add plan prices")).toBeVisible();
+    await expect(answerMessage.getByText("The Lead asks a question")).toBeVisible();
+    await expect(
+      answerMessage.getByRole("img", { name: /^Sent from the Inbox at / }),
+    ).toBeVisible();
+
+    const todoRow = tray.getByRole("listitem").filter({ hasText: "MOBIUS_SMTP_HOST" });
+    await expect(todoRow).toBeVisible();
+    await todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+    const todoNote = "Set MOBIUS_SMTP_HOST to smtp.example.com.";
+    await dialog.getByRole("textbox", { name: "Note" }).fill(todoNote);
+    const done = page.waitForResponse(`**/api/inbox/${todoId}/done`);
+    await dialog.getByRole("button", { name: "Send", exact: true }).click();
+    expect((await done).status()).toBe(200);
+    await expect(dialog).toHaveCount(0);
+
+    const todoMessage = main.locator("[data-message]", { hasText: todoNote });
+    await expect(todoMessage).toBeVisible();
+    await expect(todoMessage.getByText("PR #44", { exact: true })).toBeVisible();
+    await expect(todoMessage.getByText("MOBIUS_SMTP_HOST", { exact: true })).toBeVisible();
+    await expect(todoMessage.getByText("mandatory \u00b7 Deployment needs")).toBeVisible();
+    await expect(todoMessage.getByRole("img", { name: /^Sent from the Inbox at / })).toBeVisible();
+    await expect(
+      main.locator("[data-message]", {
+        hasText: 'You marked the todo "MOBIUS_SMTP_HOST" of PR #44 as done.',
+      }),
+    ).toBeVisible();
+    await page.evaluate(clearDrafts);
+  } finally {
+    await page.request.delete(`/e2e/inbox-items/${questionId}`);
+    await page.request.delete(`/e2e/inbox-items/${todoId}`);
+  }
 });

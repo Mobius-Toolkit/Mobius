@@ -5,10 +5,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"log"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -47,8 +51,15 @@ type Caller struct {
 	GHWrites func(ctx context.Context, writes []GHWrite) error
 }
 
-// Server serves the Mobius MCP server at /mcp/{key}, the gh token at /gh-token/{key} and the gh writes at
-// /gh-writes/{key}, with one key for each session.
+// The ports that Server gives are in the range from firstPort to lastPort. The range is below the ephemeral ports of
+// Linux (32768 and up) and of macOS (49152 and up), so the kernel gives none of them to an outgoing connection.
+const (
+	firstPort = 20000
+	lastPort  = 32767
+)
+
+// Server serves the Mobius MCP server at /mcp/{key}, the gh token at /gh-token/{key}, the gh writes at
+// /gh-writes/{key} and the free ports at /ports/{key}, with one key for each session.
 type Server struct {
 	mu      sync.Mutex
 	callers map[string]*caller
@@ -60,6 +71,10 @@ type caller struct {
 	// listed gets the protocol version of the first tools/list of the key.
 	listed chan string
 	sent   bool
+	// portsOnly is true for a key of OpenPorts: only the route /ports accepts it.
+	portsOnly bool
+	// ports are the ports that the key holds.
+	ports []int
 }
 
 // New gives a Server with no keys.
@@ -70,11 +85,12 @@ func New() *Server {
 	return s
 }
 
-// Register adds the routes /mcp/{key}, /gh-token/{key} and /gh-writes/{key} to mux.
+// Register adds the routes /mcp/{key}, /gh-token/{key}, /gh-writes/{key} and /ports/{key} to mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/mcp/{key}", s.serve)
 	mux.HandleFunc("GET /gh-token/{key}", s.ghToken)
 	mux.HandleFunc("POST /gh-writes/{key}", s.ghWrites)
+	mux.HandleFunc("POST /ports/{key}", s.ports)
 }
 
 // Open gives a new key of c. The key is valid until Close.
@@ -86,7 +102,16 @@ func (s *Server) Open(c Caller) string {
 	return key
 }
 
-// Close makes the key invalid.
+// OpenPorts gives a new key that only the route /ports accepts. The key is valid until Close.
+func (s *Server) OpenPorts() string {
+	key := rand.Text()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.callers[key] = &caller{listed: make(chan string, 1), portsOnly: true}
+	return key
+}
+
+// Close makes the key invalid and releases its ports.
 func (s *Server) Close(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,6 +150,11 @@ func GHWritesURL(addr, key string) string {
 	return "http://" + addr + "/gh-writes/" + key
 }
 
+// PortURL gives the URL of the free ports of the key on the listener at addr.
+func PortURL(addr, key string) string {
+	return "http://" + addr + "/ports/" + key
+}
+
 func (s *Server) caller(key string) (*caller, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -144,11 +174,69 @@ func (s *Server) current(key string) (Caller, bool) {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.caller(r.PathValue("key")); !ok {
+	if found, ok := s.caller(r.PathValue("key")); !ok || found.portsOnly {
 		http.NotFound(w, r)
 		return
 	}
 	s.http.ServeHTTP(w, r)
+}
+
+// ports reserves the number of ports of the query count for the key, and writes them, one on each line.
+func (s *Server) ports(w http.ResponseWriter, r *http.Request) {
+	count, err := strconv.Atoi(r.URL.Query().Get("count"))
+	if err != nil || count < 1 {
+		http.Error(w, "count must be a positive integer", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	found, ok := s.callers[r.PathValue("key")]
+	if !ok {
+		s.mu.Unlock()
+		http.NotFound(w, r)
+		return
+	}
+	reserved, err := s.reserve(found, count)
+	s.mu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	var body strings.Builder
+	for _, port := range reserved {
+		body.WriteString(strconv.Itoa(port) + "\n")
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if _, err := w.Write([]byte(body.String())); err != nil {
+		log.Printf("send the ports: %v", err)
+	}
+}
+
+// reserve gives count ports to c, the lowest ports that no key holds and that the server can bind on 127.0.0.1. It
+// gives no port when the range has fewer free ports. The caller holds s.mu.
+func (s *Server) reserve(c *caller, count int) ([]int, error) {
+	held := map[int]bool{}
+	for _, other := range s.callers {
+		for _, port := range other.ports {
+			held[port] = true
+		}
+	}
+	var reserved []int
+	for port := firstPort; port <= lastPort && len(reserved) < count; port++ {
+		if held[port] {
+			continue
+		}
+		listener, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		if err != nil {
+			continue
+		}
+		_ = listener.Close()
+		reserved = append(reserved, port)
+	}
+	if len(reserved) < count {
+		return nil, fmt.Errorf("the range %d-%d has no %d free ports", firstPort, lastPort, count)
+	}
+	c.ports = append(c.ports, reserved...)
+	return reserved, nil
 }
 
 func (s *Server) ghToken(w http.ResponseWriter, r *http.Request) {

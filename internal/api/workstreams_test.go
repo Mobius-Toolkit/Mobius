@@ -41,6 +41,7 @@ func TestListWorkstreams(t *testing.T) {
 		AllTasksClosed   bool   `json:"allTasksClosed"`
 		ReportedFinished bool   `json:"reportedFinished"`
 		ReadyToMerge     bool   `json:"readyToMerge"`
+		OpenTodos        int64  `json:"openTodos"`
 	}
 	var body struct {
 		Data []workstream `json:"data"`
@@ -56,6 +57,40 @@ func TestListWorkstreams(t *testing.T) {
 	}
 	if !slices.Equal(body.Data, want) {
 		t.Errorf("workstreams = %+v, want %+v", body.Data, want)
+	}
+}
+
+func TestListWorkstreamsOpenTodos(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `
+		INSERT INTO workstreams (repository, number, title, body, autopilot, evergreen, state) VALUES
+			('o/a', 1, 'Loyalty plans', '', 0, 0, 'open'),
+			('o/a', 2, 'Seasonal prices', '', 0, 0, 'open');
+		INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, text, link, time, dismissed_at) VALUES
+			('todo', 'o', 'o/a', 'o/a', 1, 11, 'OPEN_ONE', '', '', '2026-10-04T10:00:00Z', NULL),
+			('todo', 'o', 'o/a', 'o/a', 1, 12, 'OPEN_TWO', '', '', '2026-10-04T10:01:00Z', NULL),
+			('todo', 'o', 'o/a', 'o/a', 1, 13, 'DISMISSED_ONE', '', '', '2026-10-04T10:02:00Z', '2026-10-04T10:03:00Z'),
+			('question', 'o', 'o/a', 'o/a', 1, 14, 'Question', '', '', '2026-10-04T10:04:00Z', NULL),
+			('todo', 'o', 'o/a', 'o/a', 2, 21, 'OTHER_WORKSTREAM', '', '', '2026-10-04T10:05:00Z', NULL);
+	`)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workstreams", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body)
+	}
+	var body struct {
+		Data []struct {
+			Number    int64 `json:"number"`
+			OpenTodos int64 `json:"openTodos"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	if len(body.Data) != 2 || body.Data[0].Number != 2 || body.Data[0].OpenTodos != 1 || body.Data[1].Number != 1 || body.Data[1].OpenTodos != 2 {
+		t.Errorf("workstreams = %+v", body.Data)
 	}
 }
 
