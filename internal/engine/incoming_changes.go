@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -59,7 +60,7 @@ func eventField(event *gh.IssueEvent) (string, map[string]string, bool) {
 			return kindField, map[string]string{"label": label}, true
 		}
 		if label == triageLabel {
-			return triageField, map[string]string{"label": label}, true
+			return triageField, map[string]string{"label": label, "at": event.GetCreatedAt().UTC().Format(time.RFC3339Nano)}, true
 		}
 		field, setting := settingField(label)
 		return field, map[string]string{"label": label}, setting

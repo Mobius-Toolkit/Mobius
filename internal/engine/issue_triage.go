@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -16,6 +18,12 @@ import (
 // the change to true starts the Triager of an open issue in no Workstream, and the change to false stops it. It sends
 // the change at once, and it tells if the state changed.
 func (e *Engine) setTriage(ctx context.Context, repository github.Repository, number int64, triage bool) (bool, error) {
+	return e.setTriageAt(ctx, repository, number, triage, time.Time{})
+}
+
+// setTriageAt is setTriage with the text of the time at, when at is not zero (issueTextAt). The time of the label event
+// of an incoming change is such a time, so an edit of the author after the label does not change the text.
+func (e *Engine) setTriageAt(ctx context.Context, repository github.Repository, number int64, triage bool, at time.Time) (bool, error) {
 	before, err := e.queries.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: repository.FullName, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
@@ -25,6 +33,11 @@ func (e *Engine) setTriage(ctx context.Context, repository github.Repository, nu
 	if err != nil || triage && !before {
 		if found, err = repository.Issue(ctx, number); err != nil || found == nil {
 			return false, err
+		}
+		if !at.IsZero() {
+			if err = e.issueTextAt(ctx, repository, found, at); err != nil {
+				return false, err
+			}
 		}
 		if row, err = triageIssueParams(repository.FullName, found, triage); err != nil {
 			return false, err
@@ -147,8 +160,49 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	if !e.trustedUser(change.Actor) {
 		return e.writeBack(ctx, repository, change)
 	}
-	_, err := e.setTriage(ctx, repository, change.Number, change.Change == labeledChange)
+	var at time.Time
+	if change.Change == labeledChange {
+		var metadata struct{ At string }
+		if err := json.Unmarshal([]byte(change.Metadata), &metadata); err != nil {
+			return err
+		}
+		if metadata.At != "" {
+			var err error
+			if at, err = time.Parse(time.RFC3339Nano, metadata.At); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
 	return err
+}
+
+// issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before
+// at, and the title is the old name of the first rename after at. The current text stays where no edit or rename shows
+// the change.
+func (e *Engine) issueTextAt(ctx context.Context, repository github.Repository, issue *gh.Issue, at time.Time) error {
+	number := int64(issue.GetNumber())
+	events, err := e.issueEvents(ctx, repository, number)
+	if err != nil {
+		return err
+	}
+	edits, err := repository.IssueBodyEdits(ctx, number)
+	if err != nil {
+		return err
+	}
+	for _, edit := range edits {
+		if !edit.EditedAt.After(at) {
+			issue.Body = new(edit.Diff)
+			break
+		}
+	}
+	for _, event := range events {
+		if event.GetEvent() == renamedChange && event.GetCreatedAt().After(at) {
+			issue.Title = new(event.GetRename().GetFrom())
+			break
+		}
+	}
+	return nil
 }
 
 // sendTriage writes the label mobius:triage to the issue when GitHub differs from issues.triage, and then copies the
