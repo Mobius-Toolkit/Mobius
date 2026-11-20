@@ -692,12 +692,6 @@ func (r Repository) IssuesSince(ctx context.Context, since time.Time, etag strin
 	return r.issuePage(ctx, query, etag)
 }
 
-// OpenIssuesWithLabelPage gives the open issues and pull requests with label, the oldest first. It gives false when
-// GitHub answers 304 Not Modified to etag.
-func (r Repository) OpenIssuesWithLabelPage(ctx context.Context, label, etag string) (IssuePage, bool, error) {
-	return r.issuePage(ctx, url.Values{"state": {"open"}, "labels": {label}, "sort": {"created"}, "direction": {"asc"}}, etag)
-}
-
 func (r Repository) issuePage(ctx context.Context, query url.Values, etag string) (IssuePage, bool, error) {
 	query.Set("per_page", "100")
 	var result IssuePage
