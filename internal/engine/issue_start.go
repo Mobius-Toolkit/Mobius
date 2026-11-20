@@ -81,14 +81,20 @@ func (e *Engine) clearStart(ctx context.Context, repositoryName string, number i
 	return nil
 }
 
-// upgradeReadyStarts reads the open issues with mobius:ready one time after an upgrade and records each add event as
-// an incoming start change so waiting Starts from before the issues cursor are not lost.
+// upgradeReadyStarts reads the open issues with mobius:ready one time on the first poll of a repository or after an
+// upgrade, and records each add event as an incoming start change so waiting Starts from before the issues cursor
+// are not lost.
 func (e *Engine) upgradeReadyStarts(ctx context.Context, repository github.Repository) error {
 	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: readyUpgradeEndpoint})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+		if !e.copied[repository.FullName] {
+			return nil
+		}
+		_, err = e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	issues, err := repository.OpenIssuesWithLabel(ctx, readyLabel)

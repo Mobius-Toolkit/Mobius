@@ -273,3 +273,46 @@ func TestAHeldStartMakesNoGitHubIssueReadWhileTheStartSwitchIsOff(t *testing.T) 
 		t.Errorf("start = %+v, %q", at, by)
 	}
 }
+
+func TestAnOpenMobiusReadyFromBeforeTheFirstPollConvertsToAStartAndDispatchesAfterItsBlockerCloses(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 40, "Add the price table")
+	fake.AddSubIssue(shop, 12, 40)
+	fake.AddBlockedBy(shop, 41, 40)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	fake.AddIssue(shop, 42, "Untrusted ready")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddLabel(shop, 42, "mobius:ready", "mallory")
+
+	server := startCopied(t, fake)
+
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" &&
+			!slices.Contains(fake.Labels(shop, 41), "mobius:ready") &&
+			!slices.Contains(fake.Labels(shop, 42), "mobius:ready")
+	})
+	if hasStart(t, server, 42) {
+		t.Errorf("untrusted start_requested_by = %q", startByOf(t, server, shop, 42))
+	}
+	if hasLiveTask(t, server, 41) || hasLiveTask(t, server, 42) {
+		t.Fatal("a task started before the blocker closed")
+	}
+	afterFirst := len(fake.Requests())
+	waitForPolls(t, fake)
+	for _, request := range fake.Requests()[afterFirst:] {
+		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {
+			t.Errorf("unexpected mobius:ready list request after first poll: %+v", request)
+		}
+	}
+
+	fake.CloseIssue(shop, 40)
+
+	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
+		t.Errorf("task = %+v", task)
+	}
+	if at, by := startRowOf(t, server, shop, 41); at.Valid || by != "" {
+		t.Errorf("start = %+v, %q", at, by)
+	}
+}

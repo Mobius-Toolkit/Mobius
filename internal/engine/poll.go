@@ -364,7 +364,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		hasReady := hasLabel(issue, readyLabel)
 		var events []*gh.IssueEvent
-		if changing || work || triaging || hasReady {
+		if changing || work || triaging || !firstPoll && hasReady {
 			if events, err = e.issueEvents(ctx, repository, number); err != nil {
 				return err
 			}
