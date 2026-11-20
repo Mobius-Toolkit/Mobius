@@ -88,8 +88,9 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	return e.setTriage(ctx, repository, change.Number, change.Change == labeledChange)
 }
 
-// sendTriage writes the label mobius:triage to the issue when GitHub differs from issues.triage, and copies the label to
-// the labels of the row. An issue with no row has no triage.
+// sendTriage writes the label mobius:triage to the issue when GitHub differs from issues.triage, and then copies the
+// label to the labels of the row. A send that changes nothing leaves the labels of the row. An issue with no row has no
+// triage.
 func (e *Engine) sendTriage(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
 	number := change.Number.Int64
 	triage, err := e.queries.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: change.Repository, Number: number})
@@ -105,6 +106,9 @@ func (e *Engine) sendTriage(ctx context.Context, repository github.Repository, c
 	}
 	if pending, err := e.sendLabel(ctx, repository, change, issue, triageLabel, triage); pending || err != nil {
 		return pending, err
+	}
+	if hasLabel(issue, triageLabel) == triage {
+		return false, nil
 	}
 	if triage {
 		return false, e.changeCopiedLabels(ctx, change.Repository, number, []string{triageLabel}, nil)
