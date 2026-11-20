@@ -297,7 +297,7 @@ const question = "What is the state of the plans? The full report is at " +
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task and its
 // Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
-// DELETE /e2e/ready/plants/garden/{issue} takes mobius:ready off an issue of the Workstream plants/garden#19 and waits
+// DELETE /e2e/ready/plants/garden/{issue} clears the waiting Start (and any mobius:ready label) of an issue of the Workstream plants/garden#19 and waits
 // until the task list shows the issue as open.
 // PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
 // claude-code, sonnet and low, and clear it, with no record in the chat.
@@ -626,7 +626,13 @@ func TestServer(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		github.RemoveLabel("plants/garden", issue, "mobius:ready", "owner")
+		if slices.Contains(github.Labels("plants/garden", issue), "mobius:ready") {
+			github.RemoveLabel("plants/garden", issue, "mobius:ready", "owner")
+		}
+		if _, err := server.DB.Exec("UPDATE issues SET start_requested_at = NULL, start_requested_by = '' WHERE repository = 'plants/garden' AND number = ?", issue); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 			lines, err := server.Engine.Tasks(r.Context(), "plants/garden", 19)
 			if err != nil {
@@ -684,7 +690,7 @@ func TestServer(t *testing.T) {
 	// Mobius labels. Then, for the Checkup screen, one label is missing again and one label
 	// has a wrong color.
 	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels("owner/shop")) == len(engine.Labels) })
-	github.DeleteRepositoryLabel("owner/shop", "mobius:no-workstream")
+	github.DeleteRepositoryLabel("owner/shop", "mobius:skills")
 	github.AddRepositoryLabel("owner/shop", "mobius:working", "ededed", "A Mobius agent works on this task")
 	server.WaitForFirstPoll(t, "plants/garden")
 	testkit.WaitFor(t, func() bool {

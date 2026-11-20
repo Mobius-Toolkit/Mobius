@@ -199,7 +199,7 @@ func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 
-	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 13) == "Marked owner/shop#30 ready." })
+	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 13) == "Requested a Start of owner/shop#30." })
 	testkit.WaitFor(t, func() bool { return hasLiveTask(t, server, 30) })
 	if slices.Contains(fake.Labels(shop, 13), "mobius:autopilot") {
 		t.Errorf("labels = %v", fake.Labels(shop, 13))
@@ -217,9 +217,9 @@ func TestMarkReadyOfAnIssueWithAnOpenBlockerWaitsWhenTheWorkstreamHasNoAutopilot
 
 	fake.AddLabel(shop, 14, "mobius:workstream", "owner")
 
-	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 14) == "Marked owner/shop#31 ready." })
+	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 14) == "Requested a Start of owner/shop#31." })
 	waitForPolls(t, fake)
-	if hasLiveTask(t, server, 31) || !slices.Contains(fake.Labels(shop, 31), "mobius:ready") {
-		t.Errorf("labels = %v", fake.Labels(shop, 31))
+	if hasLiveTask(t, server, 31) || startByOf(t, server, shop, 31) != "lead" || slices.Contains(fake.Labels(shop, 31), "mobius:ready") {
+		t.Errorf("labels = %v, startBy = %q", fake.Labels(shop, 31), startByOf(t, server, shop, 31))
 	}
 }

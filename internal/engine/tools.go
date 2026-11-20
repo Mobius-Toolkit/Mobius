@@ -190,7 +190,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.decline),
 			taskTool(e, c, "close_task",
-				"Close a task issue that has no work left. Mobius posts the reason as a comment on the issue. For a live task, Mobius closes its open pull request and ends the task. Then Mobius removes mobius:ready and closes the issue as not planned. The branch stays.",
+				"Close a task issue that has no work left. Mobius posts the reason as a comment on the issue. For a live task, Mobius closes its open pull request and ends the task. Then Mobius clears any waiting Start and closes the issue as not planned. The branch stays.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
@@ -240,7 +240,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.updateBlockers),
 			taskTool(e, c, "mark_ready",
-				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.",
+				"Request a Start of an issue of the Workstream, or continue a task in mobius:needs-human by removing that label. Use it when the Owner tells you to start or continue an issue. For a stopped task, it resets the round counters and continues the task; for a task in mobius:needs-human, the round counters keep their values.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
@@ -544,7 +544,7 @@ var coordinatorWorkstreamProperties = map[string]any{
 
 func moveIssueTool(e *Engine, c caller) mcp.Tool {
 	return tool(e, c, "move_issue",
-		"Make an issue a sub-issue of an open Workstream in the issue repository. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
+		"Make an issue a sub-issue of an open Workstream in the issue repository and request a Start of the issue.",
 		map[string]any{
 			"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the issue (owner/name) in the organization of the chat."},
 			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
@@ -1112,7 +1112,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		c.agent.clearLeadIssue(key, claimed)
 	}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false, nil)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false, false, nil)
 	if err != nil {
 		c.agent.finishLeadIssue(key, claimed, 0)
 		return "", err
@@ -1317,7 +1317,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 		return "", err
 	}
 	workstream := issueRef{c.agent.maintenance.repository.FullName, c.agent.maintenance.number}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, nil, nil, true, nil)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, workstream, input.Title, input.Body, mark, nil, resolved, nil, nil, true, false, nil)
 	if err != nil {
 		return "", err
 	}
@@ -1693,15 +1693,8 @@ func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.R
 	if task.State != "queued" && task.State != "working" {
 		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
 	}
-	issue, err := e.existingIssue(ctx, repository, input.N)
-	if err != nil {
+	if err := e.clearStart(ctx, repository.FullName, input.N); err != nil {
 		return "", err
-	}
-	if hasLabel(issue, readyLabel) {
-		// The dispatch continues a stopped task that has mobius:ready, so the label must go before the task stops.
-		if err := repository.RemoveLabel(ctx, input.N, readyLabel); err != nil {
-			return "", err
-		}
 	}
 	if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 		return "", err
@@ -1917,10 +1910,10 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		}
 		return fmt.Sprintf("Removed mobius:needs-human from %s#%d, so the task continues.", repository.FullName, input.N), nil
 	}
-	if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, repository.Owner(), repository.Name(), int(input.N), []string{readyLabel}); err != nil {
+	if err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Marked %s#%d ready.", repository.FullName, input.N), nil
+	return fmt.Sprintf("Requested a Start of %s#%d.", repository.FullName, input.N), nil
 }
 
 func (e *Engine) acceptIssue(ctx context.Context, _ caller, repository github.Repository, input taskInput) (string, error) {
@@ -2197,23 +2190,11 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 		}
 		return "", err
 	}
-	swapped := hasLabel(issue, noWorkstreamLabel)
-	if swapped {
-		owner, name := repository.Owner(), repository.Name()
-		if _, err := repository.Client.Issues.RemoveLabelForIssue(ctx, owner, name, int(input.N), noWorkstreamLabel); err != nil {
-			return "", err
-		}
-		if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, int(input.N), []string{readyLabel}); err != nil {
-			return "", err
-		}
-	}
 	if err := e.moveTreeNodeToWorkstream(ctx, repository.FullName, input.N, workstreams.FullName, input.Workstream, issue); err != nil {
 		return "", err
 	}
-	if swapped {
-		if err := e.changeCopiedLabels(ctx, repository.FullName, input.N, []string{readyLabel}, []string{noWorkstreamLabel}); err != nil {
-			return "", err
-		}
+	if err := e.requestStart(ctx, repository, input.N, "coordinator"); err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil
 }

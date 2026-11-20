@@ -140,7 +140,7 @@ func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, changes := startLabeled(t, fake, true, "")
-	fake.FailAddLabels(shop, 41, true)
+	fake.FailRemoveLabels(shop, 41, true)
 
 	if status, _ := postIssue(t, server, "resume"); status == http.StatusNoContent {
 		t.Fatal("status = 204")
@@ -150,20 +150,6 @@ func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 		t.Errorf("rows = %d", rows)
 	}
 	checkTasks(t, server, "needs-human")
-	noWorkstreams(t, changes)
-}
-
-func TestAFailedLabelWriteOfStartKeepsTheCopy(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, changes := startLabeled(t, fake, false, "")
-	fake.FailAddLabels(shop, 41, true)
-
-	if status, _ := postIssue(t, server, "start"); status == http.StatusNoContent {
-		t.Fatal("status = 204")
-	}
-
-	checkTasks(t, server, "open")
 	noWorkstreams(t, changes)
 }
 

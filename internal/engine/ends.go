@@ -338,7 +338,7 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 // removalActor gives the actor of the last removal of mobius:needs-human in events, or "" when events have no removal
 // that is newer than since.
 func removalActor(events []*gh.IssueEvent, since time.Time) string {
-	_, removed := lastEvent(events, "unlabeled", needsHumanLabel)
+	removed := lastEvent(events, "unlabeled", needsHumanLabel)
 	if removed == nil || !removed.GetCreatedAt().After(since) {
 		return ""
 	}
@@ -838,7 +838,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 			return "", err
 		}
 	}
-	if err := repository.RemoveLabel(ctx, input.N, readyLabel); err != nil {
+	if err := e.clearStart(ctx, repository.FullName, input.N); err != nil {
 		return "", err
 	}
 	ownWrite, err := addOwnWrite(ctx, e.queries, repository.FullName, input.N, stateField, "", closedChange)
@@ -857,9 +857,6 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 		Repository: repository.FullName,
 		Number:     input.N,
 	}); err != nil {
-		return "", err
-	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, input.N, nil, []string{readyLabel}); err != nil {
 		return "", err
 	}
 	if _, err := e.updateCopy(ctx, repository, closed, e.labelChangeCount(repository.FullName)); err != nil {

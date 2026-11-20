@@ -88,12 +88,8 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 	if err != nil {
 		return err
 	}
-	var labels []string
-	if ciBreak.Result == "flaky" {
-		labels = []string{readyLabel}
-	}
 	title := fmt.Sprintf("Fix the failed workflow \"%s\" on %s", ciBreak.WorkflowName, repository.DefaultBranch)
-	return e.createRecordIssue(ctx, repository, workstream, title, body, labels, func(q *store.Queries, row int64) error {
+	return e.createRecordIssue(ctx, repository, workstream, title, body, ciBreak.Result == "flaky", func(q *store.Queries, row int64) error {
 		return q.SetCIBreakIssueRow(ctx, store.SetCIBreakIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: ciBreak.ID})
 	})
 }

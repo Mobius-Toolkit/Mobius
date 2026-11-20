@@ -59,15 +59,17 @@ func TestTheCoordinatorMovesAnIssueOfAnotherRepositoryBelowAWorkstream(t *testin
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := issueRepositoryShop(t, fake, call("move_issue", `{ repository = "owner/garden", n = 7, workstream = 12 }`))
-	fake.AddLabel(garden, 7, "mobius:no-workstream", "mobius-test[bot]")
 
 	session := run(t, server, coordinatorSpec(t), "Move it.")
 
 	if got := reply(t, server, session); got != "Moved #7 to the Workstream #12 Integrate loyalty plans." {
 		t.Errorf("reply = %q", got)
 	}
-	if got := fake.Labels(garden, 7); !reflect.DeepEqual(got, []string{"mobius:ready"}) {
+	if got := fake.Labels(garden, 7); len(got) != 0 {
 		t.Errorf("labels = %v", got)
+	}
+	if got := startByOf(t, server, garden, 7); got != "coordinator" {
+		t.Errorf("start_requested_by = %q", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{7}) {
 		t.Errorf("sub-issues = %v", got)

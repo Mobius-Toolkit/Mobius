@@ -100,7 +100,7 @@ func TestAnIssueWithAParentInAnUnreadableRepositoryGetsNoTask(t *testing.T) {
 	if err := server.DB.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks); err != nil {
 		t.Fatal(err)
 	}
-	if tasks != 0 || !slices.Equal(fake.Labels(garden, 7), []string{"mobius:ready"}) {
-		t.Errorf("tasks = %d, labels = %v", tasks, fake.Labels(garden, 7))
+	if tasks != 0 || len(fake.Labels(garden, 7)) != 0 || startByOf(t, server, garden, 7) != "owner" {
+		t.Errorf("tasks = %d, labels = %v, startBy = %q", tasks, fake.Labels(garden, 7), startByOf(t, server, garden, 7))
 	}
 }

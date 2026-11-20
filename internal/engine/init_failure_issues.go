@@ -80,7 +80,7 @@ func (e *Engine) createInitFailureIssue(ctx context.Context, repository github.R
 		return e.queries.EndInitFailure(ctx, store.EndInitFailureParams{EndedAt: now(), ID: failure.ID})
 	}
 	title := fmt.Sprintf("Fix the setup script .mobius/init of %s", repository.FullName)
-	return e.createRecordIssue(ctx, repository, workstream, title, initFailureBody(failure, e.config.CheckTimeout.String()), []string{readyLabel}, func(q *store.Queries, row int64) error {
+	return e.createRecordIssue(ctx, repository, workstream, title, initFailureBody(failure, e.config.CheckTimeout.String()), true, func(q *store.Queries, row int64) error {
 		return q.SetInitFailureIssueRow(ctx, store.SetInitFailureIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: failure.ID})
 	})
 }

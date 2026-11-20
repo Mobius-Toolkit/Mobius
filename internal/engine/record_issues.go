@@ -12,8 +12,8 @@ import (
 // failure) below the Workstream, with the create handler. record stores the id of the new row in the record in the
 // same transaction. The send of the create writes the number to the record. A send that fails leaves the create
 // pending, and a later poll sends it again.
-func (e *Engine) createRecordIssue(ctx context.Context, repository github.Repository, workstream issueAt, title, body string, labels []string, record func(*store.Queries, int64) error) error {
-	_, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.repository.FullName, workstream.number}, title, body, "", nil, nil, labels, nil, false, record)
+func (e *Engine) createRecordIssue(ctx context.Context, repository github.Repository, workstream issueAt, title, body string, start bool, record func(*store.Queries, int64) error) error {
+	_, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.repository.FullName, workstream.number}, title, body, "", nil, nil, nil, nil, false, start, record)
 	if err != nil {
 		return err
 	}

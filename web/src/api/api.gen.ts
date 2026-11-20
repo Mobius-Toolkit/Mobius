@@ -6681,7 +6681,7 @@ export const getStartIssueUrl = (owner: string,
 }
 
 /**
- * StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * StartIssue clears the triage state of an issue and requests a Start, so Mobius starts the task.
  */
 export const startIssue = async (owner: string,
     name: string,
@@ -6755,7 +6755,7 @@ export const getStopIssueUrl = (owner: string,
 }
 
 /**
- * StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and with the reason when the issue has no task to stop.
+ * StopIssue stops the live task of an issue and its agents, or clears a waiting Start when the issue has no running task. It returns 409 with the reason when the issue has no task to stop.
  */
 export const stopIssue = async (owner: string,
     name: string,

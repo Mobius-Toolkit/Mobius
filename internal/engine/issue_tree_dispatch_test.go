@@ -106,12 +106,15 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 
 	liveTaskOf(t, server, 43)
 
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
-		t.Errorf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && len(fake.Labels(shop, 41)) == 0
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Errorf("the blocked issue started")
 	}
 }
 
-func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyListIsReadOnlyInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -126,13 +129,16 @@ func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyList
 
 	waitForPolls(t, fake)
 
-	if hasLiveTask(t, server, 51) || hasIssueRow(t, server, 51) {
-		t.Fatal("the issue below the closed Workstream started or has a row")
+	if hasLiveTask(t, server, 51) {
+		t.Fatal("the issue below the closed Workstream started")
 	}
-	requireReadyListNotModified(t, fake)
+	if row := issueRowOf(t, server, shop, 51); row.Workstream.Valid {
+		t.Fatalf("workstream of #51 = %+v", row.Workstream)
+	}
+	requireOneReadyListRead(t, fake)
 }
 
-func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListIsReadOnlyInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -148,20 +154,20 @@ func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListGivesNo
 	if hasLiveTask(t, server, 50) {
 		t.Fatal("the nested Workstream started as a task")
 	}
-	requireReadyListNotModified(t, fake)
+	requireOneReadyListRead(t, fake)
 }
 
-// requireReadyListNotModified fails when the last read of the list of the issues with mobius:ready gave no 304.
-func requireReadyListNotModified(t *testing.T, fake *testkit.FakeGitHub) {
+// requireOneReadyListRead fails when the polls listed the issues with mobius:ready other than one time, in the first poll.
+func requireOneReadyListRead(t *testing.T, fake *testkit.FakeGitHub) {
 	t.Helper()
-	readyReads := []int{}
+	reads := 0
 	for _, request := range fake.Requests() {
 		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {
-			readyReads = append(readyReads, request.Status)
+			reads++
 		}
 	}
-	if len(readyReads) == 0 || readyReads[len(readyReads)-1] != http.StatusNotModified {
-		t.Errorf("statuses of the mobius:ready list = %v", readyReads)
+	if reads != 1 {
+		t.Errorf("reads of the list with mobius:ready = %d", reads)
 	}
 }
 
@@ -180,9 +186,11 @@ func TestAnIssueWithMobiusReadyThatIsAProjectDoesNotStart(t *testing.T) {
 	dispatchTask(fake, 43, "Price rounding")
 
 	liveTaskOf(t, server, 43)
-
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:project", "mobius:ready"}) {
-		t.Errorf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:project"})
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Errorf("the project started")
 	}
 }
 
@@ -214,8 +222,9 @@ func TestACloseAsWontDoClosesEachOpenIssueOfTheTreeInTheTableIssues(t *testing.T
 			t.Errorf("comments of #%d = %v", number, comments)
 		}
 	}
-	if slices.Contains(fake.Labels(shop, 45), "mobius:ready") {
-		t.Errorf("labels of #45 = %v", fake.Labels(shop, 45))
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 45), "mobius:ready") })
+	if start := startByOf(t, server, shop, 45); start != "" {
+		t.Errorf("start of #45 = %q", start)
 	}
 	unchanged(t, fake, shop, 43, "closed")
 }
@@ -255,8 +264,11 @@ func TestAnIssueWithMobiusReadyBelowAnOpenWorkstreamStartsWhenTheCopyOfTheTreeCo
 	fake.FailSubIssues(shop, 12, true)
 	dispatchTask(fake, 41, "Add plan model")
 	waitForPolls(t, fake)
-	if hasIssueRow(t, server, 41) || hasLiveTask(t, server, 41) {
-		t.Fatal("the issue has a row or a task before the copy of the tree")
+	if hasLiveTask(t, server, 41) {
+		t.Fatal("the issue has a task before the copy of the tree")
+	}
+	if row := issueRowOf(t, server, shop, 41); row.Workstream.Valid {
+		t.Fatalf("workstream of #41 = %+v", row.Workstream)
 	}
 
 	fake.FailSubIssues(shop, 12, false)

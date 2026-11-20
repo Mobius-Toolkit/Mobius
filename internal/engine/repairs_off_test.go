@@ -89,7 +89,10 @@ func TestRepairsOffHoldsTheIssueOfAFlakyBreakWithReadyAndRepairsOnDispatchesIt(t
 	if count := tasksOf(t, server, number); count != 0 {
 		t.Errorf("tasks = %d", count)
 	}
-	if labels := fake.Labels(shop, number); !slices.Contains(labels, "mobius:ready") {
+	if got := startByOf(t, server, shop, number); got != "record" {
+		t.Errorf("start_requested_by = %q", got)
+	}
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels = %v", labels)
 	}
 
@@ -193,7 +196,7 @@ func TestRepairsOffRefusesStartImplementerAndMarkReadyForARepairIssueAndAcceptsA
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
 
-	want := strings.Repeat("error: "+repairsOffRefusal, 2) + "Marked owner/shop#41 ready."
+	want := strings.Repeat("error: "+repairsOffRefusal, 2) + "Requested a Start of owner/shop#41."
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
 	}

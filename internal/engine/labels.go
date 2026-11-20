@@ -20,17 +20,16 @@ type Label struct {
 
 // The names of the Mobius labels that the Mobius tools use.
 const (
-	workstreamLabel   = "mobius:workstream"
-	autopilotLabel    = "mobius:autopilot"
-	autoMergeLabel    = "mobius:auto-merge"
-	triageLabel       = "mobius:triage"
-	readyLabel        = "mobius:ready"
-	noWorkstreamLabel = "mobius:no-workstream"
-	evergreenLabel    = "mobius:evergreen"
-	maintenanceLabel  = "mobius:maintenance"
-	skillsLabel       = "mobius:skills"
-	bucketLabel       = "mobius:bucket"
-	projectLabel      = "mobius:project"
+	workstreamLabel  = "mobius:workstream"
+	autopilotLabel   = "mobius:autopilot"
+	autoMergeLabel   = "mobius:auto-merge"
+	triageLabel      = "mobius:triage"
+	readyLabel       = "mobius:ready"
+	evergreenLabel   = "mobius:evergreen"
+	maintenanceLabel = "mobius:maintenance"
+	skillsLabel      = "mobius:skills"
+	bucketLabel      = "mobius:bucket"
+	projectLabel     = "mobius:project"
 )
 
 // Labels are the Mobius labels.
@@ -44,7 +43,6 @@ var Labels = []Label{
 	{"mobius:needs-human", "D93F0B", "The task stopped and needs a human"},
 	{"mobius:question", "C5A3F5", "Mobius waits for an answer from a human"},
 	{"mobius:review", "006B75", "The pull request waits for a human review"},
-	{"mobius:no-workstream", "BFD4F2", "The Triager found no Workstream for this issue"},
 	{"mobius:evergreen", "0052CC", "Mobius Workstream with no end: it is not complete when it has no open task"},
 	{"mobius:maintenance", "BFDADC", "Mobius evergreen Workstream that gets the task issues of the Curator"},
 	{"mobius:skills", "C2E0C6", "Mobius evergreen Workstream that gets the proposals for the skill repository"},
