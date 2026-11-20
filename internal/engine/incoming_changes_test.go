@@ -216,7 +216,9 @@ func TestAFailedPullRequestReadAfterATrustedLevelChangeStillGivesTheLeadTheEvent
 
 	fake.AddLabel(shop, 12, "mobius:auto-merge", "owner")
 
-	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 1 })
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'auto_merge' AND status = 'done' AND actor = 'owner'") == 1
+	})
 	testkit.WaitFor(t, func() bool { return len(autopilotEvents(t, server)) == 1 })
 	got := autopilotEvents(t, server)
 	if len(got) != 1 || !strings.HasSuffix(got[0], ` is "Merge only", by @owner.`) {
