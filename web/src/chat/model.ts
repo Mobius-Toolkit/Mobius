@@ -4,6 +4,7 @@ import * as Composer from "@/composer";
 import { Model as TextSelection } from "@/ui/selection";
 import { chatDraftKey } from "@/lib/draft";
 import { StoreFailed } from "@/lib/effects";
+import { type InboxRow, inboxRows } from "@/lib/inboxRows";
 import * as WorkstreamSetup from "@/workstreamSetup/model";
 import type { Flags } from "./flags";
 import {
@@ -14,6 +15,7 @@ import {
   InboxItem,
   Panel,
   Selection,
+  TodoListTarget,
   TrayRunning,
   VoiceState,
   Waiting,
@@ -127,7 +129,7 @@ const ChatModelSchema = Schema.Struct({
   briefLong: Schema.Boolean,
   openEvents: Schema.Array(Schema.Number),
   trayCollapsed: Schema.Boolean,
-  expandedTodoRows: Schema.Array(Schema.Number),
+  todoList: Schema.NullOr(TodoListTarget),
   trayError: Schema.String,
   trayRunning: Schema.Record(Schema.Number, TrayRunning),
   trayMerging: Schema.Record(Schema.Number, Schema.Boolean),
@@ -154,6 +156,19 @@ const ChatModelSchema = Schema.Struct({
 
 export const Model = ChatModelSchema;
 export type Model = Schema.Schema.Type<typeof Model>;
+
+export function todoRowOf(
+  items: readonly InboxItem[],
+  target: TodoListTarget | null,
+): InboxRow | undefined {
+  if (!target) return undefined;
+  return inboxRows(items.filter((item) => !item.action || item.action.state === "pending")).find(
+    (row) =>
+      row.todos.length > 0 &&
+      row.item.repository === target.repository &&
+      row.item.pullRequest === target.pullRequest,
+  );
+}
 
 const savedTrayCollapsed = () =>
   Result.try({
@@ -193,7 +208,7 @@ export function initialModel(flags: Flags): Model {
     briefLong: false,
     openEvents: [],
     trayCollapsed: savedTrayCollapsed(),
-    expandedTodoRows: [],
+    todoList: null,
     trayError: "",
     trayRunning: {},
     trayMerging: {},

@@ -1668,15 +1668,211 @@ describe("chat update story tests", () => {
       expect(result.model.answerLoaded).toBe(true);
     });
 
-    it("shows all todos of a row and then shows less", () => {
-      const expanded = update(createTestModel(), Message.TodoRowToggled({ id: 12 }));
-      expect(expanded.model.expandedTodoRows).toEqual([12]);
+    it("opens the todo list, moves to a todo panel, returns to the list, and closes when no todo remains", () => {
+      const todo1 = createInboxItem({
+        id: 101,
+        kind: "todo",
+        repository: "owner/shop",
+        issue: 10,
+        pullRequest: 44,
+        title: "Rotate webhook secret",
+        todo: {
+          name: "Rotate webhook secret",
+          kind: "action",
+          reason: "Webhook secret changed.",
+          path: "config.toml",
+          line: 12,
+          mandatory: true,
+          afterMerge: false,
+          dismissable: false,
+          note: "",
+        },
+      });
+      const todo2 = createInboxItem({
+        id: 102,
+        kind: "todo",
+        repository: "owner/shop",
+        issue: 10,
+        pullRequest: 44,
+        title: "Verify queue metric",
+        todo: {
+          name: "Verify queue metric",
+          kind: "check",
+          reason: "Optional check.",
+          path: "metrics.go",
+          line: 8,
+          mandatory: false,
+          afterMerge: true,
+          dismissable: true,
+          note: "",
+        },
+      });
 
-      const other = update(expanded.model, Message.TodoRowToggled({ id: 15 }));
-      expect(other.model.expandedTodoRows).toEqual([12, 15]);
+      story(
+        update,
+        given(createTestModel({ trayItems: [todo1, todo2] })),
+        message(Message.OpenTodoList({ repository: "owner/shop", pullRequest: 99 })),
+        model((m) => {
+          expect(m.todoList).toBeNull();
+        }),
+        message(Message.OpenTodoList({ repository: "owner/shop", pullRequest: 44 })),
+        model((m) => {
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.OpenAnswerPanel({ item: todo1 })),
+        model((m) => {
+          expect(m.activePanel?.item.id).toBe(101);
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.ClosePanel()),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.OpenAnswerPanel({ item: todo1 })),
+        message(Message.AnswerSubmitted()),
+        model((m) => {
+          expect(m.requesting).toEqual([101]);
+        }),
+        StoryCommand.expectExact(
+          DoneInboxItem({
+            id: 101,
+            repository: "owner/shop",
+            issue: 10,
+            notice: "Marked the todo Rotate webhook secret as done",
+            note: "",
+            voice: false,
+          }),
+        ),
+        StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 101, error: "" })),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.ReceivedTrayItems({ items: [todo2] })),
+        model((m) => {
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.ReceivedTrayItems({ items: [] })),
+        model((m) => {
+          expect(m.todoList).toBeNull();
+        }),
+      );
+    });
 
-      const collapsed = update(other.model, Message.TodoRowToggled({ id: 12 }));
-      expect(collapsed.model.expandedTodoRows).toEqual([15]);
+    it("dismisses an optional todo from its panel, shows refusal errors in the panel, and returns to the list on success", () => {
+      const todo1 = createInboxItem({
+        id: 201,
+        kind: "todo",
+        repository: "owner/shop",
+        issue: 10,
+        pullRequest: 44,
+        title: "Rotate webhook secret",
+        todo: {
+          name: "Rotate webhook secret",
+          kind: "action",
+          reason: "Webhook secret changed.",
+          path: "config.toml",
+          line: 12,
+          mandatory: true,
+          afterMerge: false,
+          dismissable: false,
+          note: "",
+        },
+      });
+      const todo2 = createInboxItem({
+        id: 202,
+        kind: "todo",
+        repository: "owner/shop",
+        issue: 10,
+        pullRequest: 44,
+        title: "Verify queue metric",
+        todo: {
+          name: "Verify queue metric",
+          kind: "check",
+          reason: "Optional check.",
+          path: "metrics.go",
+          line: 8,
+          mandatory: false,
+          afterMerge: true,
+          dismissable: true,
+          note: "",
+        },
+      });
+
+      story(
+        update,
+        given(
+          createTestModel({
+            trayItems: [todo1, todo2],
+            todoList: { repository: "owner/shop", pullRequest: 44 },
+            activePanel: { type: "answer", item: todo2 },
+          }),
+        ),
+        message(Message.TrayActionClicked({ item: todo2, kind: "dismiss" })),
+        model((m) => {
+          expect(m.trayRunning).toEqual({ 202: "dismiss" });
+        }),
+        StoryCommand.expectExact(RunTrayAction({ item: todo2, kind: "dismiss" })),
+        StoryCommand.resolve(
+          RunTrayAction,
+          Message.TrayActionDone({
+            id: 202,
+            kind: "dismiss",
+            error: "Cannot dismiss",
+            merging: false,
+          }),
+        ),
+        model((m) => {
+          expect(m.trayRunning).toEqual({});
+          expect(m.activePanel?.item.id).toBe(202);
+          expect(m.answerError).toBe("Cannot dismiss");
+          expect(m.answerErrorId).toBe(202);
+          expect(m.trayError).toBe("");
+        }),
+        message(Message.TrayActionClicked({ item: todo2, kind: "dismiss" })),
+        model((m) => {
+          expect(m.answerError).toBe("");
+        }),
+        StoryCommand.expectExact(RunTrayAction({ item: todo2, kind: "dismiss" })),
+        StoryCommand.resolve(
+          RunTrayAction,
+          Message.TrayActionDone({ id: 202, kind: "dismiss", error: "", merging: false }),
+        ),
+        model((m) => {
+          expect(m.trayRunning).toEqual({});
+          expect(m.activePanel).toBeNull();
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.ReceivedTrayItems({ items: [todo1] })),
+        model((m) => {
+          expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
+        }),
+        message(Message.CloseTodoList()),
+        model((m) => {
+          expect(m.todoList).toBeNull();
+        }),
+      );
+
+      // hideInboxItem runs before RunTrayAction returns TrayActionDone, so ReceivedTrayItems can run first.
+      const clicked = update(
+        createTestModel({
+          trayItems: [todo1, todo2],
+          todoList: { repository: "owner/shop", pullRequest: 44 },
+          activePanel: { type: "answer", item: todo2 },
+        }),
+        Message.TrayActionClicked({ item: todo2, kind: "dismiss" }),
+      );
+      const hidden = update(clicked.model, Message.ReceivedTrayItems({ items: [todo1] }));
+      expect(hidden.model.activePanel).toBeNull();
+      expect(hidden.model.closedPanel?.item.id).toBe(202);
+      const done = update(
+        hidden.model,
+        Message.TrayActionDone({ id: 202, kind: "dismiss", error: "", merging: false }),
+      );
+      expect(done.model.trayRunning).toEqual({});
+      expect(done.model.closedPanel).toBeNull();
+      expect(done.model.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
     });
   });
 

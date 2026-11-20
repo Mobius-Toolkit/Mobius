@@ -6,7 +6,7 @@ import { InboxItemKind } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
 import { answerDraftKey } from "@/lib/draft";
 import { buttonClass } from "@/ui/button";
-import { arrowUpIcon, banIcon, checkIcon } from "@/ui/icons";
+import { arrowUpIcon, banIcon, checkIcon, spinnerIcon } from "@/ui/icons";
 import { Message } from "./message";
 import { hasNote, type Model } from "./model";
 import type { InboxItem } from "./schemas";
@@ -30,7 +30,8 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
   const note = hasNote(item);
   const selected = Object.values(model.selectedOptions).some((options) => options.length > 0);
   const decide = Boolean(action);
-  const busy = model.requesting.includes(item.id);
+  const running = model.trayRunning[item.id];
+  const busy = model.requesting.includes(item.id) || running !== undefined;
   const holdsVoice = Composer.voiceBusy(model.answerVoice);
   const empty = !model.answerText.trim() && !(note ? true : !action && selected);
   const cannotSend = empty || holdsVoice;
@@ -100,6 +101,25 @@ export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
             ),
           ]
         : [
+            ...(item.todo?.dismissable
+              ? [
+                  h.button(
+                    [
+                      h.Type("button"),
+                      h.DataAttribute("keep-focus", ""),
+                      h.Disabled(busy || holdsVoice),
+                      h.Class(
+                        buttonClass({
+                          variant: "outline",
+                          className: "rounded-full max-md:h-11 max-md:px-4",
+                        }),
+                      ),
+                      h.OnClick(Message.TrayActionClicked({ item, kind: "dismiss" })),
+                    ],
+                    [...(running === "dismiss" ? [spinnerIcon(h)] : []), "Dismiss"],
+                  ),
+                ]
+              : []),
             h.button(
               [
                 h.Type("submit"),

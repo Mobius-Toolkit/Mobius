@@ -71,7 +71,11 @@ export function defineDialogMount<
                 delete document.body.dataset.pageOverflow;
               }
               stopKeyboard();
-              if (opener instanceof HTMLElement) {
+              if (
+                opener instanceof HTMLElement &&
+                (document.querySelector(portalSelector) === null ||
+                  opener.closest('[role="dialog"]') !== null)
+              ) {
                 opener.focus();
               }
             }),

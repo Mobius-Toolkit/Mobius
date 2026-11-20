@@ -18,11 +18,11 @@ import type { Model } from "./model";
 
 const stopDelay = 500;
 
-function createEscapeKeyStream() {
+function createEscapeKeyStream(message: Message) {
   return Stream.callback<Message>((queue) => {
     const listener = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        Queue.offerUnsafe(queue, Message.ClosePanel());
+        Queue.offerUnsafe(queue, message);
       }
     };
     return Effect.gen(function* () {
@@ -35,6 +35,9 @@ function createEscapeKeyStream() {
     });
   });
 }
+
+const escapeKind = (model: Model) =>
+  model.activePanel !== null ? "panel" : model.todoList !== null ? "todos" : "none";
 
 const chatDependencies = {
   organization: Schema.String,
@@ -94,11 +97,15 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
     },
   ),
   chatItemEscapeKey: entry(
-    { hasActivePanel: Schema.Boolean },
+    { open: Schema.Literals(["none", "panel", "todos"]) },
     {
-      modelToDependencies: (model) => ({ hasActivePanel: model.activePanel !== null }),
-      dependenciesToStream: ({ hasActivePanel }) =>
-        hasActivePanel ? createEscapeKeyStream() : Stream.empty,
+      modelToDependencies: (model) => ({ open: escapeKind(model) }),
+      dependenciesToStream: ({ open }) =>
+        open === "none"
+          ? Stream.empty
+          : createEscapeKeyStream(
+              open === "panel" ? Message.ClosePanel() : Message.CloseTodoList(),
+            ),
     },
   ),
 }));
@@ -153,11 +160,15 @@ export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry
     },
   ),
   inboxItemEscapeKey: entry(
-    { hasActivePanel: Schema.Boolean },
+    { open: Schema.Literals(["none", "panel", "todos"]) },
     {
-      modelToDependencies: (model) => ({ hasActivePanel: model.activePanel !== null }),
-      dependenciesToStream: ({ hasActivePanel }) =>
-        hasActivePanel ? createEscapeKeyStream() : Stream.empty,
+      modelToDependencies: (model) => ({ open: escapeKind(model) }),
+      dependenciesToStream: ({ open }) =>
+        open === "none"
+          ? Stream.empty
+          : createEscapeKeyStream(
+              open === "panel" ? Message.ClosePanel() : Message.CloseTodoList(),
+            ),
     },
   ),
 }));
