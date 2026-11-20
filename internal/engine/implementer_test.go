@@ -905,10 +905,10 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 	}
 }
 
-func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T) {
+func TestSendMessageToAnImplementerStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_message\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n" + commitCents
 	server, dataDir := connectTask(t, fake, lead, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

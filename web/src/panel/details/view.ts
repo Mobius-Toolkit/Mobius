@@ -200,9 +200,7 @@ function renderConfirmation(h: H, model: Model, closure: Closure): Html {
                   h.DataAttribute("slot", "dialog-description"),
                   h.Class("text-sm text-muted-foreground"),
                 ],
-                [
-                  'Mobius closes these items as "won\'t do". Each item gets a comment and the label mobius:wont-do.',
-                ],
+                ['Mobius closes these items as "won\'t do". Each item gets a comment.'],
               ),
             ],
           ),
