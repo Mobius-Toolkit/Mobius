@@ -1271,9 +1271,14 @@ export function update(model: Model, message: Message): UpdateReturn {
       return { model: currentModel, commands: [] };
     }
 
-    case "ExpandedPauseUsers":
+    case "ToggledPauseUsers":
       return {
-        model: { ...model, pausesExpanded: [...model.pausesExpanded, message.harness] },
+        model: {
+          ...model,
+          pausesExpanded: model.pausesExpanded.includes(message.harness)
+            ? model.pausesExpanded.filter((harness) => harness !== message.harness)
+            : [...model.pausesExpanded, message.harness],
+        },
         commands: [],
       };
 

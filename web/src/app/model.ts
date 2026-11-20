@@ -143,7 +143,7 @@ export const Model = Schema.Struct({
   pauses: Schema.Array(Pause),
   pauseBusy: Schema.Option(Schema.String),
   pauseError: Schema.Option(Schema.String),
-  // The Harnesses whose banner shows all users on a phone.
+  // The Harnesses whose "Used by" list is open.
   pausesExpanded: Schema.Array(Schema.String),
 
   switches: Schema.Option(Switches),
