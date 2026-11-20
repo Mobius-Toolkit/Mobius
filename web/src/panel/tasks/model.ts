@@ -112,7 +112,7 @@ export const withRow = (model: Model, key: string, change: Partial<Row>): Model 
 export const resumes = (line: TaskLine) => line.state === "needs-human";
 
 export const stops = (line: TaskLine) =>
-  ["ready", "working", "review", "queued", "question"].includes(line.state) ||
+  ["ready", "start waits", "working", "review", "queued", "question"].includes(line.state) ||
   line.state.startsWith("waits for ");
 
 export const reference = (line: TaskLine) =>

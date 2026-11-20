@@ -1292,7 +1292,9 @@ export interface TaskLine {
   otherRepository: boolean;
   /** Repository is the full name of the repository of the task issue */
   repository: string;
-  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". */
+  /** StartWait is the reason that a Start waits when State is "start waits", or an empty text */
+  startWait: string;
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". A Start that waits shows "start waits". */
   state: string;
   /** Title is the title of the task issue */
   title: string;

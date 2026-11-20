@@ -16,10 +16,12 @@ type TaskLine struct {
 	Number int64 `gork:"number"`
 	// Title is the title of the task issue
 	Title string `gork:"title"`
-	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action".
+	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". A Start that waits shows "start waits".
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
 	URL string `gork:"url"`
+	// StartWait is the reason that a Start waits when State is "start waits", or an empty text
+	StartWait string `gork:"startWait"`
 	// Repository is the full name of the repository of the task issue
 	Repository string `gork:"repository"`
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below
@@ -71,7 +73,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
+		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
 		if line.Implementer != nil {
 			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
 		}

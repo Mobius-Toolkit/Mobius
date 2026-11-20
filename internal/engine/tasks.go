@@ -66,6 +66,67 @@ type TaskLine struct {
 	BlockedBy []Blocker
 	// Implementer is the own Implementer setting of an open task, or nil.
 	Implementer *store.IssueBinding
+	// StartWait is the reason that a Start waits when State is "start waits", or "". An open blocker gives no reason,
+	// because BlockedBy shows it.
+	StartWait string
+}
+
+// startWaits holds the state that Tasks reads one time to give the reason of each waiting Start. ciStops has the
+// result of ciStop of each repository that a waiting Start needs.
+type startWaits struct {
+	draining   bool
+	startOff   bool
+	repairsOff bool
+	ciStops    map[string]map[int64]bool
+}
+
+func (e *Engine) readStartWaits(ctx context.Context) (*startWaits, error) {
+	startOff, err := e.startOff(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repairsOff, err := e.repairsOff(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &startWaits{draining: e.draining(), startOff: startOff, repairsOff: repairsOff, ciStops: map[string]map[int64]bool{}}, nil
+}
+
+// startWait gives the reason that the Start of the issue of repository waits, or "". Triage comes first, because it
+// holds the Start also after the drain ends. The other reasons follow the order of the holds of dispatchReady. It writes
+// no held work.
+func (e *Engine) startWait(ctx context.Context, reads *startWaits, repository string, row treeRow, blocked bool) (string, error) {
+	if row.Triage {
+		return "waits for the triage", nil
+	}
+	if reads.draining {
+		return "waits for the upgrade", nil
+	}
+	stop, ok := reads.ciStops[repository]
+	if !ok {
+		var err error
+		if stop, err = e.ciStop(ctx, repository); err != nil {
+			return "", err
+		}
+		reads.ciStops[repository] = stop
+	}
+	switch {
+	case len(stop) > 0 && !stop[row.Number]:
+		return "waits for the CI break of main", nil
+	case blocked:
+		return "", nil
+	case row.Kind == projectKind:
+		return "a Project does not start", nil
+	case reads.startOff:
+		return "waits for the Start switch", nil
+	case reads.repairsOff:
+		repair, err := e.repairIssue(ctx, repository, row.Number)
+		if repair {
+			return "waits for the Repairs switch", nil
+		}
+		return "", err
+	}
+	return "", nil
 }
 
 // Blocker is an open blocker of a task.
@@ -115,6 +176,10 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		}
 		blockers[row.Issue] = append(blockers[row.Issue], blocker)
 	}
+	reads, err := e.readStartWaits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	lines := []TaskLine{}
 	// depths holds the depth of the sub-issues of each issue by its id. The id 0 is the Workstream issue.
 	depths := map[int64]int64{}
@@ -143,8 +208,9 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 				if found {
 					line.Implementer = &setting
 				}
-				if line.State == "working" || line.State == "open" {
+				if line.State == "working" || line.State == "open" || line.State == "triage" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
+					live := err == nil
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
@@ -155,12 +221,18 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 							return nil, err
 						}
 						line.State = waitState(task.State, line.State, heldEvent)
-					case task.State == "needs_human":
+					case row.StartRequested && live:
 						line.State = "ready"
-					case task.State == "owner_action":
-						line.State = waitState(task.State, line.State, false)
 					case row.StartRequested:
+						line.State = "start waits"
+						line.StartWait, err = e.startWait(ctx, reads, issueRepositoryName, row, len(line.BlockedBy) > 0)
+						if err != nil {
+							return nil, err
+						}
+					case line.State == "open" && task.State == "needs_human":
 						line.State = "ready"
+					case line.State == "open" && task.State == "owner_action":
+						line.State = waitState(task.State, line.State, false)
 					}
 				}
 			}

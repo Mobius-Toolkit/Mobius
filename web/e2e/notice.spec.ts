@@ -176,6 +176,7 @@ test("a Stop in the Tasks tab shows its notice, and a refused Stop shows its err
             otherRepository: false,
             url: `${link}/issues/84`,
             blockedBy: [],
+            startWait: "",
           },
         ],
       },

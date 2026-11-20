@@ -118,7 +118,7 @@ func TestResumeOfAnIssueWithNoTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) 
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "ready")
+	checkTasks(t, server, "start waits")
 	waitForWorkstreams(t, changes)
 }
 
@@ -132,7 +132,7 @@ func TestStartChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	checkTasks(t, server, "ready")
+	checkTasks(t, server, "start waits")
 	waitForWorkstreams(t, changes)
 }
 

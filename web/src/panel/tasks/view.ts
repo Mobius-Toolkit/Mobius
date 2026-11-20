@@ -84,6 +84,12 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
                     [bindingText(line.implementer)],
                   )
                 : h.empty,
+              line.startWait
+                ? h.span(
+                    [h.Class("min-w-0 text-sm text-muted-foreground wrap-anywhere")],
+                    [line.startWait],
+                  )
+                : h.empty,
               ...line.blockedBy.map((blocker) =>
                 h.keyed("span")(
                   `${blocker.repository ?? ""}#${blocker.number}`,
@@ -177,6 +183,9 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
         [
           renderBadge(h, line.state === "open" ? "outline" : "secondary", line.state),
+          line.startWait
+            ? h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [line.startWait])
+            : h.empty,
           ...line.blockedBy.map((blocker) =>
             h.keyed("span")(
               `${blocker.repository ?? ""}#${blocker.number}`,
