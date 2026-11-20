@@ -1025,3 +1025,35 @@ test("the tray of a Workstream shows the todos of a pull request in one row and 
   await expect(sheet.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
   expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test("a tap on a disabled Merging button in a row with non-blocking todos does not open the todo list", async ({
+  page,
+}) => {
+  await routeInbox(page, [{ ...readyItem, mergeRefusal: "" }, afterMergeTodo]);
+  await page.route("**/api/inbox/4/merge", (route) =>
+    route.fulfill({ json: { data: { ...readyItem, merging: true, mergeRefusal: "" } } }),
+  );
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await expect(row.getByRole("button", { name: "Complete todos (1)" })).toBeVisible();
+  const mergeDone = page.waitForResponse("**/api/inbox/4/merge");
+  await row.getByRole("button", { name: "Merge" }).click();
+  await mergeDone;
+
+  const merging = row.getByRole("button", { name: "Merging" });
+  await expect(merging).toBeDisabled();
+  const box = await merging.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) throw new Error("Missing Merging button bounds");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await row.getByText("Name the plan tiers").click();
+  await expect(
+    page.getByRole("dialog").getByRole("heading", { name: "Todos of PR #44" }),
+  ).toBeVisible();
+});

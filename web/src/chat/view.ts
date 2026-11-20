@@ -692,7 +692,13 @@ function trayButton(
     [
       h.Type("button"),
       h.Disabled(options.disabled || options.pending),
-      h.Class(buttonClass({ variant: options.variant, size: "sm" })),
+      h.Class(
+        buttonClass({
+          variant: options.variant,
+          size: "sm",
+          className: "disabled:pointer-events-auto",
+        }),
+      ),
       h.OnClick(options.message, { propagation: "Stop" }),
     ],
     [...(options.pending ? [spinnerIcon(h)] : []), options.label],
