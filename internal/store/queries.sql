@@ -1363,6 +1363,11 @@ ON CONFLICT (repository, number) DO UPDATE SET
 -- name: IsTriaging :one
 SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND triage AND workstream IS NULL);
 
+-- A row in a tree keeps its text.
+-- name: SetTriageIssueText :exec
+UPDATE issues SET title = sqlc.arg(title), body = sqlc.arg(body)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND workstream IS NULL;
+
 -- name: SetIssueKind :execrows
 UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
 

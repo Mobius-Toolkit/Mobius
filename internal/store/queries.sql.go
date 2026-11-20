@@ -13427,6 +13427,29 @@ func (q *Queries) SetTranscriptJSON(ctx context.Context, arg SetTranscriptJSONPa
 	return i, err
 }
 
+const setTriageIssueText = `-- name: SetTriageIssueText :exec
+UPDATE issues SET title = ?1, body = ?2
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER) AND workstream IS NULL
+`
+
+type SetTriageIssueTextParams struct {
+	Title      string
+	Body       string
+	Repository string
+	Number     int64
+}
+
+// A row in a tree keeps its text.
+func (q *Queries) SetTriageIssueText(ctx context.Context, arg SetTriageIssueTextParams) error {
+	_, err := q.db.ExecContext(ctx, setTriageIssueText,
+		arg.Title,
+		arg.Body,
+		arg.Repository,
+		arg.Number,
+	)
+	return err
+}
+
 const setUserTokens = `-- name: SetUserTokens :exec
 UPDATE github_apps SET user_token = ?, refresh_token = ?, user_token_expires_at = ?
 WHERE app_id = ?

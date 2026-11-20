@@ -258,6 +258,16 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		}
 		return a.Fail(ended, err)
 	}
+	issue, err := issueOf(ctx, repository, number)
+	if err != nil {
+		return fail(err)
+	}
+	if e.trustedUser(issue.GetUser().GetLogin()) {
+		err = e.queries.SetTriageIssueText(ctx, store.SetTriageIssueTextParams{Title: issue.GetTitle(), Body: issue.GetBody(), Repository: repository.FullName, Number: number})
+		if err != nil {
+			return fail(err)
+		}
+	}
 	issueText, err := e.queries.GetIssueText(ctx, store.GetIssueTextParams{Repository: repository.FullName, Number: number})
 	if err != nil {
 		return fail(err)
@@ -308,7 +318,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	issue, err := repository.Issue(ctx, number)
+	issue, err = repository.Issue(ctx, number)
 	if err != nil {
 		return err
 	}

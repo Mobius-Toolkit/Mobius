@@ -419,6 +419,28 @@ func TestAnEditOfAnUntrustedAuthorBetweenTheLabelAndThePollDoesNotChangeTheTextT
 	}
 }
 
+func TestAnEditOfTheBodyAndACommentOfATrustedAuthorStartATurnWithTheNewBody(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 56, "Add points", "Points for each order.", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
+	fake.SetBody(shop, 56, "Points for each order. Show them in the cart.")
+	fake.SetTitle(shop, 56, "Add cart points")
+
+	fake.AddComment(shop, 56, "owner", "Please use points.")
+
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	prompts := promptTexts(t, server, second.ID)
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Issue\n\nowner/shop#56 Add cart points\n\nPoints for each order. Show them in the cart.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 func TestTheTriagerGetsTheBodyThatTheAuthorEditedBeforeMobiusTriage(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
