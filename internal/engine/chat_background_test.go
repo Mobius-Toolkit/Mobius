@@ -91,7 +91,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 
 	session = endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 5 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != "A second question" || !strings.HasPrefix(prompts[3], chatWaitPrompt) || prompts[4] != savePrompt {
+	if len(prompts) != 5 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != noTodos+"A second question" || !strings.HasPrefix(prompts[3], chatWaitPrompt) || prompts[4] != savePrompt {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	if want := []string{"A helper starts.", "The second answer.", "The helper result.Mobius has the state done."}; !slices.Equal(leadMessages(t, server), want) {
@@ -141,7 +141,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 
 	session = endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 5 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != "A second question" || !strings.HasPrefix(prompts[3], chatWaitPrompt) || prompts[4] != savePrompt {
+	if len(prompts) != 5 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != noTodos+"A second question" || !strings.HasPrefix(prompts[3], chatWaitPrompt) || prompts[4] != savePrompt {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	if want := []string{"A helper starts.", "The second answer.", "The helper result.Mobius has the state done."}; !slices.Equal(leadMessages(t, server), want) {
@@ -212,7 +212,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 
 	session := endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 4 || prompts[1] != "A second question" || !strings.HasPrefix(prompts[2], chatWaitPrompt) || prompts[3] != savePrompt {
+	if len(prompts) != 4 || prompts[1] != noTodos+"A second question" || !strings.HasPrefix(prompts[2], chatWaitPrompt) || prompts[3] != savePrompt {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	if want := []string{"A helper starts.The task ended.", "The second answer.", "The helper result.Mobius has the state done."}; !slices.Equal(leadMessages(t, server), want) {
@@ -246,7 +246,7 @@ reply = ["The second answer."]
 
 	session = endedChatSession(t, server, 0)
 	prompts := promptTexts(t, server, session.ID)
-	if len(prompts) != 4 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != "A second question" || prompts[3] != savePrompt {
+	if len(prompts) != 4 || !strings.HasPrefix(prompts[1], chatWaitPrompt) || prompts[2] != noTodos+"A second question" || prompts[3] != savePrompt {
 		t.Fatalf("prompts = %q", prompts)
 	}
 	if want := []string{"A helper starts.", "The helper result.Mobius has the state done.", "The second answer."}; !slices.Equal(leadMessages(t, server), want) {

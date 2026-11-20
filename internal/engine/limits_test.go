@@ -825,7 +825,7 @@ func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
 		prompts := leadPrompts(t, server)
 		return prompts, len(prompts) == 3 && eventDelivered(t, server)
 	})
-	if prompts[0] != prompts[1] || !strings.HasPrefix(prompts[2], "# Event\n\n") || !strings.Contains(prompts[2], " dispatch of #41 ") {
+	if prompts[0] != prompts[1] || !strings.HasPrefix(prompts[2], noTodos+"# Event\n\n") || !strings.Contains(prompts[2], " dispatch of #41 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
@@ -1422,7 +1422,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 	}
 
 	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, session.ID)) >= 2 })
-	if got := promptTexts(t, server, session.ID); got[1] != "A second question" {
+	if got := promptTexts(t, server, session.ID); got[1] != noTodos+"A second question" {
 		t.Errorf("prompts after the pause = %q", got)
 	}
 }

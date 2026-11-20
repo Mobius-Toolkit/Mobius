@@ -127,7 +127,7 @@ func TestAnEventOfACIFixTaskGetsTheTurnBeforeAQueuedEventAndAfterAnOwnerMessage(
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 4 && eventDelivered(t, server)
 	})
-	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != "Decision" || !strings.Contains(prompts[2], " dispatch of #43 ") || !strings.Contains(prompts[3], " dispatch of #42 ") {
+	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != noTodos+"Decision" || !strings.Contains(prompts[2], " dispatch of #43 ") || !strings.Contains(prompts[3], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }

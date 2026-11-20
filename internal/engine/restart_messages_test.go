@@ -135,7 +135,7 @@ func TestAStoredMessageGoesToTheAgentBeforeAMessageOfThisRunThatArrivesBeforeThe
 
 	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Waiting message.") })
 	prompts := leadPrompts(t, server)
-	if len(prompts) != 3 || !strings.HasSuffix(prompts[0], "Earlier message.") || prompts[1] != "Running message." || prompts[2] != "Waiting message." {
+	if len(prompts) != 3 || !strings.HasSuffix(prompts[0], "Earlier message.") || prompts[1] != noTodos+"Running message." || prompts[2] != noTodos+"Waiting message." {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
