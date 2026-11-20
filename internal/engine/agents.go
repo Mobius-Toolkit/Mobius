@@ -1297,6 +1297,13 @@ func (e *Engine) Listen() (<-chan Change, func()) {
 func (e *Engine) publish(change Change) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.publishLocked(change)
+	if change.Inbox != nil && change.Inbox.Kind == todoKind {
+		e.publishLocked(Change{Workstreams: true})
+	}
+}
+
+func (e *Engine) publishLocked(change Change) {
 	for listener := range e.listeners {
 		select {
 		case listener <- change:
