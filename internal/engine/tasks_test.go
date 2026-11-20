@@ -638,3 +638,28 @@ func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testin
 		t.Errorf("lines = %+v", lines)
 	}
 }
+
+func TestTheTasksTabGivesTheReasonOfAWaitingStartOfAStoppedTaskWithNoPullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("stop status = %d: %s", status, body)
+	}
+	turnStartOff(t, server)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("start status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if len(lines) != 1 || lines[0].State != "start waits" || lines[0].StartWait != "waits for the Start switch" {
+		t.Errorf("lines = %+v", lines)
+	}
+}

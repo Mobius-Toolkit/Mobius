@@ -225,14 +225,14 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 						line.State = "ready"
 					case line.State == "open" && task.State == "owner_action":
 						line.State = waitState(task.State, line.State, false)
-					case row.StartRequested && live && line.State == "open":
-						line.State = "ready"
-					case row.StartRequested && !live:
+					case row.StartRequested && (!live || task.State == "stopped" && !task.PullRequest.Valid):
 						line.State = "start waits"
 						line.StartWait, err = e.startWait(ctx, reads, issueRepositoryName, row, len(line.BlockedBy) > 0)
 						if err != nil {
 							return nil, err
 						}
+					case row.StartRequested && live && line.State == "open":
+						line.State = "ready"
 					}
 				}
 			}
