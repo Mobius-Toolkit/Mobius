@@ -159,6 +159,7 @@ func TestARetryOfAClosedWorkstreamKeepsASubIssueThatAPersonAddedAfterTheCloseEnd
 	testkit.WaitFor(t, func() bool {
 		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 1") == 1
 	})
+	waitForPolls(t, fake)
 
 	fake.AddSubIssueBy(shop, 12, 42, "owner")
 	fake.AllowClose(shop, 41)
