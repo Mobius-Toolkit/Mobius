@@ -59,7 +59,7 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 
 ## Migrations
 
-`internal/store/migrations/` holds the migrations. The files up to `20261003000000_workstream_copy.sql` are copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius-rust, which is archived). Do not change a migration file after it merges. To change the schema, add a new file in the same format. A migration file is plain SQL with only an up step. Its only goose annotation is an optional first line `-- +goose NO TRANSACTION`. Do not write a down step. A store test that needs the state before a migration opens the database with `openBefore` in `internal/store/store_test.go`.
+`internal/store/migrations/` holds the migrations. Do not change a migration file after it merges. To change the schema, add a new file in the same format. A migration file is plain SQL with only an up step. Its only goose annotation is an optional first line `-- +goose NO TRANSACTION`. Do not write a down step. A store test that needs the state before a migration opens the database with `openBefore` in `internal/store/store_test.go`.
 
 ## Tests
 
@@ -100,13 +100,12 @@ The web client is one Foldkit application (`Runtime.makeApplication` in `web/src
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
 - Reach the start state and each change that the Done list names through the engine and the fake GitHub. Do not set them with SQL, because a test that sets the result with SQL passes also when the engine path is wrong. When a test must insert a row with SQL, give the row each field and each fake GitHub item of the cause of its state, and give a `lead_events` row the kind and the payload that the engine writes. For a held Lead event, let the fake agent call `hold_event` (the script entry `holdEvent` in `internal/engine/lead_chat_test.go`).
-- The Playwright tests in `web/e2e` test the UI. The command `bun run e2e` builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. CI sets port 6464. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
+- The Playwright tests in `web/e2e` test the UI. The command `bun run e2e` builds the UI, and Playwright starts `TestServer` of `web/e2e` with a fake GitHub, on a free port or on the port in `MOBIUS_E2E_PORT`. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
 - With no `MOBIUS_E2E_GROUP`, `bun run e2e` starts four servers. With `MOBIUS_E2E_GROUP` set to `screenshots`, `a`, `b` or `c`, it runs only the projects of that group and starts only the server of that group. The project `screenshots` uses the server that has no GitHub Apps, because that test creates the Apps in the UI. Each group `a`, `b` and `c` has its own server. It runs with `MOBIUS_E2E_APPS=1`, so it has both Apps from its start, on a free port or on the port in `MOBIUS_E2E_PORT_A`, `MOBIUS_E2E_PORT_B` or `MOBIUS_E2E_PORT_C`. Playwright waits for `GET /e2e/ready` of each of these servers, which answers 200 only after the full fixture exists. Two groups do not share a server, because a spec changes the global state of its server (the Start switch, the role limits, the Lead sessions that wait).
-- The projects form four groups, in `web/playwright.config.ts`: `screenshots`; `a` (pending, recurring, chat, navigation); `b` (installations, memory, agents, checkup, inbox, actions, live, issue-settings, attachments); `c` (voice, voice-language, usage, settings, roles, switches, notice, tasks, answered, mcp-selection, mcp-servers, pauses, missing-workstreams). Each group runs alone: `MOBIUS_E2E_GROUP=<group> bun run e2e`. A link between two groups is not allowed, and the group of a spec gives its server.
+- The projects form four groups: `screenshots`, `a`, `b` and `c`. `web/playwright.config.ts` gives the group of each spec. Each group runs alone: `MOBIUS_E2E_GROUP=<group> bun run e2e`. A link between two groups is not allowed, and the group of a spec gives its server.
 - Put a new spec in one group. It must not need data that another group or the test `screenshots` changes. A link (`dependencies`) between two projects of one group has a comment with its data order.
 - Each server of a group starts with a drain, as the server of `screenshots` does, so the poll starts no task and the Leads do not run. A spec that needs a running task or Lead calls `cancelDrain` of `web/e2e/upgrade.ts` after its login.
 - Before the first run of the Playwright tests, install the browser: `bunx --bun playwright install chromium`.
-- `web/screenshots` is not in the repository (`.gitignore`). The job `e2e (screenshots)` of `ci.yml` uploads it as the artifact `screenshots`. The other e2e jobs upload no screenshots. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in a section of the pull request description, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
 - When a job `e2e (<group>)` fails, CI uploads `web/test-results` as the artifact `test-results-<group>`. It has a `trace.zip` file for each failed test. To open the file, run `bunx --bun playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 - `TestServer` of `web/e2e` has fixtures with fixed past dates, so a new step that compares a stored time with `e.timeNow()` also acts on them. Fix the time with `SetClock`, as `web/e2e/server_test.go` does.
@@ -129,66 +128,9 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 - A script or a command of an agent session that needs a free port of the machine gets it from `mobius-port` (`mobius-port 3` gives three ports). Mobius reserves each port for the script or the agent session, until it ends. `mobius-port` fails outside Mobius, so a Go test keeps `testkit.FreeAddress`.
 - Mobius runs git with `core.hooksPath=/dev/null` (`internal/runner/git.go`), so a git hook never runs for agent work. Do not put a check or a format step in a git hook.
 
-Only CI runs all Go tests. `.mobius/check` runs no Go test.
-
-- The job `check` runs the Go tests of each package except `internal/engine`.
-- The four jobs `engine (0)` to `engine (3)` run the tests of `internal/engine`. Each test is in exactly one shard.
-- The four jobs `e2e (screenshots)`, `e2e (a)`, `e2e (b)` and `e2e (c)` run the Playwright projects of one group each. Each job starts only the server of its group.
-- Each `engine` job uploads the artifact `engine-tests-<shard>` with the time of each test. It prints the 20 slowest tests.
-- The job `passed` fails when the job `check`, `engine` or one of the four jobs `e2e` does not end with `success`. It is the one status that tells "CI passed".
-- Mobius starts a CI fix round when a Go test fails in CI.
-
-## Layout
-
-```
-cmd/mobius/            the mobius command: serve (the default) and init. With the name gh, it is the gh of the agent environment
-internal/api/          the Gork routes and handlers, and the device login check of each route
-internal/auth/         the access password and the device logins
-internal/config/       reads config.toml
-internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Coordinator, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull request, the Reviewer with the review rounds, the Judge, the fix rounds and the conflict rounds, the end of a task, the Researcher, the Curator with the memory file of each repository, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
-internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
-internal/mcp/          the Mobius MCP server and the gh token of each session key
-internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check and the setup script of a worktree
-internal/setup/        mobius init: asks for the values of a new config.toml and writes it
-internal/store/        the SQLite database: goose migrations and sqlc queries
-internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, the fake df, and the waits of the tests
-internal/testkit/fakeagent/  the fake ACP agent that plays a TOML script (the format is in its package comment)
-internal/testkit/fakedf/     the program df of the tests, with the free space of SetFreeSpace
-internal/testkit/testserver/ starts the Mobius server for a test
-api/openapi.json       the generated OpenAPI spec
-web/                   the web client (Vite, TypeScript, Tailwind CSS): Foldkit single-page application
-web/src/app/           the Foldkit application: model, messages, update, subscriptions, router, frame and view
-web/src/api/           the generated API client and types
-web/src/chat/          the chat screen as a Foldkit Submodel: model, messages, update, commands, subscriptions, view and composer. It also holds the rows of Inbox items and the answer panel
-web/src/inbox/         the Inbox screen as a Foldkit Submodel: it uses the model, the messages, the update and the item Subscriptions of web/src/chat/, with its own view and tests
-web/src/workstreams/   the Workstreams screen as a Foldkit Submodel, with its own subscriptions and view
-web/src/tasks/         the Tasks screen as a Foldkit Submodel: the board, the read on each live event of Workstreams and of the Inbox, and its tests
-web/src/agents/        the Agents screen as a Foldkit Submodel: the list of the open agents and the Transcript of one agent
-web/src/checkup/       the Checkup screens as one Foldkit Submodel with one view for each route: the overview, the tools with the upgrade dialog, the permissions, the labels and the Workstreams
-web/src/panel/         the panel of a Workstream as a Foldkit Submodel, with the tabs Tasks, Agents, Details, Brief and Recurring, each with its own model, update, subscriptions and view
-web/src/transcript/    the Transcript of one agent as a Foldkit Submodel: the lines, the stream, the older pages and the start of a check. The Agents screen and the Agents tab use it
-web/src/settings/      the settings screens as eight Foldkit Submodels, each in its own folder: overview (/settings), switches, voice, devices, github (the page and the first setup screen), memory (three routes in one Submodel), roles and mcp-servers (the MCP servers with their sheet and OAuth)
-web/src/usage/         the Usage screen as a Foldkit Submodel: the tabs Cost, Tokens, Times, Skills and Quality, the filters, the groups, the tables and the charts. lib/usage.ts validates the search params for the router
-web/src/setting/       the sheet of the Harness, the model and the effort as a Foldkit Submodel. The Tasks tab and the Details tab use it
-web/src/ui/            the Foldkit parts that many screens use: the buttons, the badges, the dialog, the icons, the page header, the menus, the tabs, the SVG bar chart and line chart, the router link and the Markdown view
-web/src/live/          the Subscription of /api/events with the reconnect rules of the shell, and the Subscription of a plain store
-web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
-web/public/            the files of the PWA: the web app manifest, the service worker and the icons
-web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
-web/screenshots/       the screenshots of the Playwright tests (not in the repository)
-web/embed.go           embeds web/dist into the binary and serves it
-docs/install.md        the install guide
-.github/workflows/     ci.yml checks each pull request with the jobs check, engine, e2e and passed. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in a section of its description
-```
-
 ## Commands
 
-- `mobius init` writes a new config file. `mobius` or `mobius serve` starts the server.
-- `MOBIUS_CONFIG` gives the path of the config file (default `~/.mobius/config.toml`). `IP` (`127.0.0.1` or `0.0.0.0`) and `PORT` (default `6363`) give the address. The server uses `mobius.db` in the `data_dir` of the config (default `~/.mobius`).
-- `make dev-api` starts the Go server. Caution: with no `MOBIUS_CONFIG`, the server uses `~/.mobius`. For development, set `MOBIUS_CONFIG` to a config file with another `data_dir`.
-- `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
 - `bun run format` in `web` formats the frontend files with oxfmt. `bun run format:check` fails on an unformatted file.
 - `bun run test` in `web` runs the Vitest tests of the Foldkit code: the Story tests of each `update` and the tests of the Markdown view.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
-- `make build` builds the UI and then `bin/mobius`.
