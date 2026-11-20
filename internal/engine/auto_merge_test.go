@@ -327,10 +327,28 @@ func TestTheMergeButtonAfterAServerErrorOfTheApprovalGivesOneApproval(t *testing
 	}
 }
 
+func TestAMergeSwitchTurnedOffAfterAServerErrorOfTheApprovalGivesThePausedReason(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvable(t, fake, "merge", true)
+	fake.FailReviews(http.StatusInternalServerError, 1000)
+	sendChat(t, server, leadChat, "Approve #41")
+	retryItem(t, server)
+
+	turnMerge(t, server, false)
+
+	pausedItem(t, server)
+}
+
 func TestAMergeSwitchTurnedOffDuringTheRetryOfTheApprovalGivesThePausedReasonAndTheMergeButtonGivesOneApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approvable(t, fake, "merge", true)
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("items = %+v, state = %s, approvals = %d, merge calls = %d", itemsOf(t, server, "ready for review"), taskState(t, server), approvals(fake), fake.MergeCalls())
+		}
+	})
 	fake.FailReviews(http.StatusInternalServerError, 1000)
 	sendChat(t, server, leadChat, "Approve #41")
 	retryItem(t, server)

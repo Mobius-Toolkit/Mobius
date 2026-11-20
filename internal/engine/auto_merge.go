@@ -71,8 +71,9 @@ func (e *Engine) holdMerge(ctx context.Context, task store.Task) error {
 }
 
 // continuePausedMerges gives approveWaitingTask to each task of repository whose open ready for review Inbox item has
-// the reason mergePausedReason or mergeRetryReason, while the Merge switch is on. When the Workstream of the task has
-// no merge level, the item loses the reason. The item also loses the reason when the task has an approval of a person,
+// the reason mergePausedReason or mergeRetryReason, while the Merge switch is on. While the switch is off, an item with
+// the reason mergeRetryReason gets the reason mergePausedReason, because Mobius does not try the approval again. When
+// the Workstream of the task has no merge level, the item loses the reason. The item also loses the reason when the task has an approval of a person,
 // also while the switch is off, because that approval merges the pull request. Before it gives the task to
 // approveWaitingTask, it reads the reviews, so an approval that a person gave since the last poll counts.
 func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Repository) error {
@@ -102,6 +103,11 @@ func (e *Engine) continuePausedMerges(ctx context.Context, repository github.Rep
 			continue
 		}
 		if off {
+			if item.MergeRefusal == mergeRetryReason {
+				if err := e.holdMerge(ctx, task); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		level, err := e.workstreamLevel(ctx, task.WorkstreamRepository, task.Workstream)
