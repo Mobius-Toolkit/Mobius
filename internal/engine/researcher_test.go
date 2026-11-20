@@ -301,11 +301,11 @@ call = { tool = "start_researcher", arguments = { repository = "owner/shop", que
 
 [[prompts]]
 when = "Details for alpha"
-call = { tool = "send_researcher_details", arguments = { id = 2, text = "Ask about the discount too." } }
+call = { tool = "send_message", arguments = { id = 2, text = "Ask about the discount too." } }
 
 [[prompts]]
 when = "Details for beta"
-call = { tool = "send_researcher_details", arguments = { id = 3, text = "Ask about the discount too." } }
+call = { tool = "send_message", arguments = { id = 3, text = "Ask about the discount too." } }
 
 [[prompts]]
 when = "Stop alpha"
@@ -329,7 +329,7 @@ func waitForResearchers(t *testing.T, server *testserver.Server, replies ...stri
 	})
 }
 
-func TestSendResearcherDetailsStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testing.T) {
+func TestSendMessageToAResearcherStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectResearcher(t, fake, researchLeadOfDetails, hangingResearcher)
@@ -418,10 +418,11 @@ func TestTheResearcherToolsRefuseAResearcherOfAnotherWorkstream(t *testing.T) {
 		calls := leadCalls(t, server)
 		return calls, len(calls) == 2
 	})
-	for _, call := range calls {
-		if call["error"] != "No Researcher 2 of this Workstream runs now." {
-			t.Errorf("call = %+v", call)
-		}
+	if calls[0]["error"] != "No Researcher or Operator 2 of this Workstream runs now." {
+		t.Errorf("call = %+v", calls[0])
+	}
+	if calls[1]["error"] != "No Researcher 2 of this Workstream runs now." {
+		t.Errorf("call = %+v", calls[1])
 	}
 	if session := chatSessions(t, server, other, engine.ResearcherRole)[0]; session.EndedAt.Valid {
 		t.Errorf("session = %+v", session)
@@ -437,7 +438,7 @@ call = { tool = "start_researcher", arguments = { repository = "owner/shop", que
 
 [[prompts]]
 when = "Details for gamma"
-call = { tool = "send_researcher_details", arguments = { id = 4, text = "Ask about the discount too." } }
+call = { tool = "send_message", arguments = { id = 4, text = "Ask about the discount too." } }
 `
 
 // answeringGammaResearcher is hangingResearcher with a Gamma question that gets an answer.
@@ -677,7 +678,7 @@ call = { tool = "background_state", arguments = { state = "running" } }
 }
 
 // Serial: the test changes backgroundCheckInterval.
-func TestSendResearcherDetailsDuringTheSleepOfTheWaitForABackgroundTaskGivesTheDetailsPromptAtOnce(t *testing.T) {
+func TestSendMessageToAResearcherDuringTheSleepOfTheWaitForABackgroundTaskGivesTheDetailsPromptAtOnce(t *testing.T) {
 	shortBackgroundCheck(t, time.Hour)
 	fake := testkit.NewFakeGitHub(t)
 	researcher := `

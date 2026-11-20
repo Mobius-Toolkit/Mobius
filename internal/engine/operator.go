@@ -138,11 +138,18 @@ func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, 
 		memorySection = "# MEMORY.md\n\n" + memory + "\n\n"
 	}
 	prompt := fmt.Sprintf("%s\n# Brief\n\n%s\n\n%s# Text\n\n%s", operatorPrompt, row.Body, memorySection, text)
-	err = a.Prompt(ctx, prompt, nil)
-	if err == nil {
-		err = a.waitBackground(ctx, backgroundPrompt)
+	for {
+		err := a.Prompt(ctx, prompt, nil)
+		if err == nil {
+			err = a.waitBackground(ctx, backgroundPrompt)
+		}
+		taken := e.takeDetails(e.operators, a.id, a, true)
+		if taken != "" && ctx.Err() == nil {
+			prompt = detailsPrompt("work", taken)
+			continue
+		}
+		return a.replyText(), err
 	}
-	return a.replyText(), err
 }
 
 // deliverOperatorReport gives the report of the Operator id to the Lead chat as an Operator message.

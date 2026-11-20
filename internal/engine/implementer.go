@@ -1555,6 +1555,50 @@ func (e *Engine) addDetails(open map[int64]*Agent, id int64, text string) bool {
 	return true
 }
 
+type sendMessageInput struct {
+	ID         int64  `json:"id"`
+	Repository string `json:"repository"`
+	N          int64  `json:"n"`
+	Text       string `json:"text"`
+}
+
+// sendMessage gives a message to the Implementer of the task repository#n, or to the Researcher or the Operator id of
+// the Workstream.
+func (e *Engine) sendMessage(ctx context.Context, c caller, _ github.Repository, input sendMessageInput) (string, error) {
+	if empty(input.Text) {
+		return "", refuse("text must not be empty.")
+	}
+	byID := input.ID != 0
+	byTask := input.Repository != "" || input.N != 0
+	if byID == byTask {
+		return "", refuse("Give id for a Researcher or an Operator, or give repository and n for an Implementer. Give only one of the two forms.")
+	}
+	if byID {
+		return e.sendAgentMessage(c, input.ID, input.Text)
+	}
+	repository, err := e.organizationRepository(c.organization, input.Repository)
+	if err != nil {
+		return "", err
+	}
+	return e.sendDetails(ctx, c, repository, textInput{repositoryInput{input.Repository}, input.N, input.Text})
+}
+
+// sendAgentMessage gives the text to the Researcher or the Operator id that runs for the Workstream of c.
+func (e *Engine) sendAgentMessage(c caller, id int64, text string) (string, error) {
+	e.detailsMu.Lock()
+	open, role := e.researchers, "Researcher"
+	a := ownedLocked(c, open, id)
+	if a == nil {
+		open, role = e.operators, "Operator"
+		a = ownedLocked(c, open, id)
+	}
+	e.detailsMu.Unlock()
+	if a == nil || !e.addDetails(open, id, text) {
+		return "", refuse("No Researcher or Operator %d of this Workstream runs now.", id)
+	}
+	return fmt.Sprintf("Sent the details to the %s %d.", role, id), nil
+}
+
 // sendDetails gives new details of the Owner to the open Implementer session of the task. With steering, the details
 // go into the turn that runs. Else the turn ends, and the details go to the agent as the next prompt.
 func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {

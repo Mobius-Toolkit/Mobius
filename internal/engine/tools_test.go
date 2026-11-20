@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "background_state", "clear_owner_action", "close_question", "close_task", "comment_pull_request", "create_issue", "create_recurring_task", "create_workstream", "decline", "delete_recurring_task", "edit_brief", "edit_issue_body", "hold_event", "list_tasks", "mark_owner_action", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "report_finished", "rerun_failed_jobs", "send_details", "send_researcher_details", "set_implementer_binding", "start_fix_round", "start_implementer", "start_operator", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "update_recurring_task", "withdraw"}
+	want := []string{"approve_pull_request", "ask", "background_state", "clear_owner_action", "close_question", "close_task", "comment_pull_request", "create_issue", "create_recurring_task", "create_workstream", "decline", "delete_recurring_task", "edit_brief", "edit_issue_body", "hold_event", "list_tasks", "mark_owner_action", "mark_ready", "message_lead", "move_task", "propose_skill", "read_issue", "reject_skill_proposal", "reply_thread", "report_finished", "rerun_failed_jobs", "send_message", "set_implementer_binding", "start_fix_round", "start_implementer", "start_operator", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "update_blockers", "update_branch", "update_recurring_task", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -909,11 +909,11 @@ func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T)
 	}
 }
 
-func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplementerSession(t *testing.T) {
+func TestSendMessageToAnImplementerRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplementerSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("send_details", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`)+
-		call("send_details", `{ repository = "owner/shop", n = 42, text = "Round prices down." }`))
+	server, _ := connect(t, fake, call("send_message", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`)+
+		call("send_message", `{ repository = "owner/shop", n = 42, text = "Round prices down." }`))
 	addTask(t, server, fake, 41, 12, 45)
 	addTask(t, server, fake, 42, 20, 46)
 
@@ -926,10 +926,10 @@ func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplement
 	}
 }
 
-func TestSendDetailsTellsTheLeadToStartAnImplementerForADispatchedTask(t *testing.T) {
+func TestSendMessageToAnImplementerTellsTheLeadToStartAnImplementerForADispatchedTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("send_details", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`))
+	server, _ := connect(t, fake, call("send_message", `{ repository = "owner/shop", n = 41, text = "Round prices down." }`))
 	addTask(t, server, fake, 41, 12, 45)
 	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {
 		t.Fatal(err)
@@ -968,5 +968,22 @@ reply = ["Seen"]
 		if line.Author == "tell_owner" {
 			t.Errorf("chat = %+v", chatLines(t, server, coordinatorChat))
 		}
+	}
+}
+
+func TestSendMessageRefusesAnIdOfNoRunningAgentAndAnInputWithBothFormsOrNeitherForm(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("send_message", `{ id = 7, text = "Round prices down." }`)+
+		call("send_message", `{ id = 7, repository = "owner/shop", n = 41, text = "Round prices down." }`)+
+		call("send_message", `{ text = "Round prices down." }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+
+	forms := "error: Give id for a Researcher or an Operator, or give repository and n for an Implementer. Give only one of the two forms."
+	want := "error: No Researcher or Operator 7 of this Workstream runs now." + forms + forms
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
 	}
 }
