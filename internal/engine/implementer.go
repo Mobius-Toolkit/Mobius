@@ -19,6 +19,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
@@ -1411,7 +1412,9 @@ func (e *Engine) initWorktree(ctx context.Context, a *Agent, j *job) (string, er
 	}
 	started := time.Now()
 	startedAt := now()
-	output, passed, err := runner.Init(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, e.config.CheckTimeout)
+	portKey := e.agents.MCP.OpenPorts()
+	output, passed, err := runner.Init(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, mcp.PortURL(e.agents.Addr, portKey), e.config.CheckTimeout)
+	e.agents.MCP.Close(portKey)
 	if err != nil {
 		a.endStep(ctx, "init", startedAt, sql.NullInt64{}, err)
 		return "", err
@@ -1651,7 +1654,9 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		var startedAt, endedAt string
 		if err == nil {
 			startedAt = now()
-			output, passed, err = runner.Check(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, e.config.CheckTimeout)
+			portKey := e.agents.MCP.OpenPorts()
+			output, passed, err = runner.Check(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, mcp.PortURL(e.agents.Addr, portKey), e.config.CheckTimeout)
+			e.agents.MCP.Close(portKey)
 			if err != nil {
 				a.endStep(ctx, "check", startedAt, attempt, err)
 			}

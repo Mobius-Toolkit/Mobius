@@ -26,6 +26,9 @@ func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(runner.GH(os.Args[1:], os.Getenv))
 	}
+	if filepath.Base(os.Args[0]) == "mobius-port" {
+		os.Exit(runner.Port(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
+	}
 	*engine.ToolsTimeout = 3 * time.Second
 	*engine.RestartDelays = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
 	*engine.LoadAverage = func() (float64, error) { return 0, nil }

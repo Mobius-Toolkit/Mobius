@@ -48,8 +48,11 @@ Environment:
 `
 
 func main() {
-	if filepath.Base(os.Args[0]) == "gh" {
+	switch filepath.Base(os.Args[0]) {
+	case "gh":
 		os.Exit(runner.GH(os.Args[1:], os.Getenv))
+	case "mobius-port":
+		os.Exit(runner.Port(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 	}
 	if os.Getenv("GORK_EXPORT") == "1" {
 		router := api.Routes(http.NewServeMux(), nil, nil, nil, nil, nil)
