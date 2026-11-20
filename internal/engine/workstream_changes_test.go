@@ -88,9 +88,9 @@ func TestACloseAndThenARemovalOfTheWorkstreamLabelByATrustedUserInOnePollStillCl
 
 // closeInOnePoll starts a server for fake, makes change and the close of the Workstream #12 while one poll waits for
 // its issue list, and waits until the poll closed #41.
-func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) {
+func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) *testserver.Server {
 	t.Helper()
-	startCopied(t, fake)
+	server := startCopied(t, fake)
 	issueListReads := func() int {
 		reads := 0
 		for _, request := range fake.Requests() {
@@ -110,6 +110,7 @@ func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) {
 
 	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
 	waitForPolls(t, fake)
+	return server
 }
 
 // closeWithNewSubIssue makes one poll see the close of #12 and the add of #42, which author wrote, as a sub-issue of
@@ -171,6 +172,41 @@ func TestAClosedWorkstreamAlsoClosesASubIssueThatTheSamePollSees(t *testing.T) {
 			requireClosedNotPlanned(t, fake, 42)
 		})
 	}
+}
+
+func TestAClosedWorkstreamAlsoClosesANewSubIssueOfAClosedIssueOfTheCopiedTreeThatTheSamePollSees(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 40, "Add plan table")
+	fake.AddSubIssue(shop, 12, 40)
+	fake.CloseIssue(shop, 40)
+	fake.AddIssue(shop, 43, "Add plan list")
+	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 40, 43, "owner") })
+
+	requireClosedNotPlanned(t, fake, 43)
+}
+
+func TestARetryOfAClosedWorkstreamClosesTheSubIssueThatTheFirstTryDidNotClose(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	fake.FailClose(shop, 42)
+	server := closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 12, 42, "owner") })
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 1") == 1
+	})
+	if state, _ := fake.State(shop, 42); state != "open" {
+		t.Fatalf("state of #42 = %s", state)
+	}
+
+	fake.AllowClose(shop, 42)
+
+	requireClosedNotPlanned(t, fake, 42)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM workstreams WHERE number = 12 AND close_pending = 0") == 1
+	})
 }
 
 func TestAClosedWorkstreamKeepsASubIssueThatAPersonWhoIsNotTrustedAddsInTheSamePoll(t *testing.T) {

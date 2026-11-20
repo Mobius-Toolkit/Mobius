@@ -156,19 +156,11 @@ func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Re
 			return err
 		}
 	}
-	var openIssues []subIssueParent
-	if closed {
-		if openIssues, err = e.openTreeIssues(ctx, repository, number); err != nil {
-			return err
-		}
-	}
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
-	if closed {
-		if err := e.closeUncopiedSubIssues(ctx, repository, number, openIssues); err != nil {
-			return err
-		}
+	if err := e.closeUncopiedSubIssues(ctx, repository, number); err != nil {
+		return err
 	}
 	if err := e.removeClosedWorkstreamTree(ctx, repository.FullName, number); err != nil {
 		return err
@@ -904,44 +896,33 @@ func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Reposit
 	return e.closeTreeIssue(ctx, source, number, "not_planned")
 }
 
-// subIssueParent is an issue of a copied tree, with the repository that holds it.
-type subIssueParent struct {
-	source github.Repository
-	number int64
-}
-
-// openTreeIssues gives the open issues of the copied tree of the Workstream number of repository.
-func (e *Engine) openTreeIssues(ctx context.Context, repository github.Repository, number int64) ([]subIssueParent, error) {
-	var open []subIssueParent
-	_, err := e.walkTasks(ctx, repository, number, func(source github.Repository, issue treeIssue) (bool, error) {
-		if issue.state == "open" {
-			open = append(open, subIssueParent{source, issue.number})
-		}
-		return false, nil
-	})
-	return open, err
-}
-
 // closeUncopiedSubIssues closes each open sub-issue on GitHub that has no row in issues, at each depth below the
-// Workstream and below each issue of openIssues, as closeBelowWorkstream does. A poll that sees a new sub-issue and
-// the close of its Workstream together does not copy the sub-issue, because the tree check skips a closed Workstream.
-// As in the tree check, an issue stays open when the actor of its newest add as a sub-issue is not trusted, and the
-// sub-issues of that issue stay open.
-func (e *Engine) closeUncopiedSubIssues(ctx context.Context, repository github.Repository, workstream int64, openIssues []subIssueParent) error {
-	if err := e.closeSubIssuesOf(ctx, repository, workstream, repository, workstream); err != nil {
+// Workstream and below each issue of its copied tree, as closeBelowWorkstream does. A poll that sees a new sub-issue
+// and the close of its Workstream together does not copy the sub-issue, because the tree check skips a closed
+// Workstream. As in the tree check, an issue stays open when the actor of its newest add as a sub-issue is not
+// trusted, and the sub-issues of that issue stay open. An issue that was added as a sub-issue at the close of the
+// Workstream or later stays open. The rows of the tree stay until removeClosedWorkstreamTree.
+func (e *Engine) closeUncopiedSubIssues(ctx context.Context, repository github.Repository, workstream int64) error {
+	issue, err := repository.Issue(ctx, workstream)
+	if err != nil {
 		return err
 	}
-	for _, parent := range openIssues {
-		if err := e.closeSubIssuesOf(ctx, repository, workstream, parent.source, parent.number); err != nil {
-			return err
-		}
+	closedAt := issue.GetClosedAt().Time
+	if closedAt.IsZero() {
+		closedAt = time.Now()
 	}
-	return nil
+	if err := e.closeSubIssuesOf(ctx, repository, workstream, closedAt, repository, workstream); err != nil {
+		return err
+	}
+	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
+		return false, e.closeSubIssuesOf(ctx, repository, workstream, closedAt, source, issue.number)
+	})
+	return err
 }
 
-// closeSubIssuesOf closes the sub-issues of the issue parent of from that closeUncopiedSubIssues closes, and then the
-// sub-issues of each of them.
-func (e *Engine) closeSubIssuesOf(ctx context.Context, repository github.Repository, workstream int64, from github.Repository, parent int64) error {
+// closeSubIssuesOf closes the sub-issues of the issue parent of from that closeUncopiedSubIssues closes. It closes the
+// sub-issues of a sub-issue first, so a retry after a failed close reaches them.
+func (e *Engine) closeSubIssuesOf(ctx context.Context, repository github.Repository, workstream int64, closedAt time.Time, from github.Repository, parent int64) error {
 	var leaves copiedTree
 	subIssues, err := e.flatSubIssues(ctx, from, parent, 0, false, &leaves)
 	if err != nil {
@@ -975,13 +956,13 @@ func (e *Engine) closeSubIssuesOf(ctx context.Context, repository github.Reposit
 			return err
 		}
 		actor := added.Actor.Login
-		if !found || !e.isTreeAppActor(repository, actor, source.FullName, parentMetadata{parentRepository, parentNumber}) && !e.trustedUser(actor) {
+		if !found || !added.CreatedAt.Before(closedAt) || !e.isTreeAppActor(repository, actor, source.FullName, parentMetadata{parentRepository, parentNumber}) && !e.trustedUser(actor) {
 			continue
 		}
-		if err := e.closeBelowWorkstream(ctx, source, number, labelNames(sub.issue), true); err != nil {
+		if err := e.closeSubIssuesOf(ctx, repository, workstream, closedAt, source, number); err != nil {
 			return err
 		}
-		if err := e.closeSubIssuesOf(ctx, repository, workstream, source, number); err != nil {
+		if err := e.closeBelowWorkstream(ctx, source, number, labelNames(sub.issue), true); err != nil {
 			return err
 		}
 	}
