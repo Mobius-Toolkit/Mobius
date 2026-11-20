@@ -2272,10 +2272,11 @@ test("a Workstream with all tasks closed and one open todo hides Close Workstrea
     const todoRow = main
       .getByRole("list", { name: "Pending actions" })
       .getByRole("listitem")
-      .filter({ hasText: "MOBIUS_SMTP_HOST" });
+      .filter({ hasText: "Deployment todos" });
     await expect(todoRow).toBeVisible();
-    await todoRow.getByRole("button", { name: "Complete MOBIUS_SMTP_HOST" }).click();
+    await todoRow.getByRole("button", { name: "Complete todos (1)" }).click();
     const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
     await dialog.getByRole("textbox", { name: "Note" }).fill("Set MOBIUS_SMTP_HOST.");
     const done = page.waitForResponse(`**/api/inbox/${todoId}/done`);
     await dialog.getByRole("button", { name: "Send", exact: true }).click();
