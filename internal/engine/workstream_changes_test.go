@@ -86,6 +86,39 @@ func TestACloseAndThenARemovalOfTheWorkstreamLabelByATrustedUserInOnePollStillCl
 	testkit.WaitFor(t, func() bool { return !hasWorkstreamRow(t, server, 12) })
 }
 
+func TestAClosedWorkstreamAlsoClosesASubIssueThatTheSamePollSees(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddIssue(shop, 42, "Add plan view")
+	startCopied(t, fake)
+	issueListReads := func() int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if request.Method == "GET" && request.Path == "/repos/"+shop+"/issues" {
+				reads++
+			}
+		}
+		return reads
+	}
+	beforeReads := issueListReads()
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	testkit.WaitFor(t, func() bool { return issueListReads() > beforeReads })
+
+	fake.AddSubIssue(shop, 12, 42)
+	fake.CloseIssueBy(shop, 12, "owner")
+	release()
+
+	testkit.WaitFor(t, func() bool {
+		state, reason := fake.State(shop, 42)
+		return state == "closed" && reason == "not_planned"
+	})
+	waitForPolls(t, fake)
+	if got := len(fake.Comments(shop, 42)); got != 1 {
+		t.Errorf("comments of #42 = %d", got)
+	}
+}
+
 func TestACloseOfAWorkstreamIssueByAPersonWhoIsNotTrustedIsWrittenBack(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -861,30 +861,68 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		}
 	}
 	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
-		if err := e.dismissIssueItems(ctx, source.FullName, issue.number, inboxKinds...); err != nil {
-			return false, err
-		}
-		for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
-			if !slices.Contains(issue.labels, label) {
-				continue
-			}
-			if err := source.RemoveLabel(ctx, issue.number, label); err != nil {
-				return false, err
-			}
-		}
-		if issue.state != "open" {
-			return false, nil
-		}
-		current, err := source.Issue(ctx, issue.number)
-		if err != nil || current == nil || current.GetState() != "open" {
-			return false, err
-		}
-		if err := e.postCommentOnce(ctx, source, issue.number, closedText); err != nil {
-			return false, err
-		}
-		return false, e.closeTreeIssue(ctx, source, issue.number, "not_planned")
+		return false, e.closeBelowWorkstream(ctx, source, issue.number, issue.labels, issue.state == "open")
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return e.closeUncopiedSubIssues(ctx, repository, workstream)
+}
+
+// closeBelowWorkstream dismisses the Inbox items of the issue number below a closing Workstream, removes its Mobius
+// labels among labels, and, when open is true and the issue is still open, closes it as not planned.
+func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Repository, number int64, labels []string, open bool) error {
+	if err := e.dismissIssueItems(ctx, source.FullName, number, inboxKinds...); err != nil {
+		return err
+	}
+	for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
+		if !slices.Contains(labels, label) {
+			continue
+		}
+		if err := source.RemoveLabel(ctx, number, label); err != nil {
+			return err
+		}
+	}
+	if !open {
+		return nil
+	}
+	current, err := source.Issue(ctx, number)
+	if err != nil || current == nil || current.GetState() != "open" {
+		return err
+	}
+	if err := e.postCommentOnce(ctx, source, number, closedText); err != nil {
+		return err
+	}
+	return e.closeTreeIssue(ctx, source, number, "not_planned")
+}
+
+// closeUncopiedSubIssues closes each open sub-issue of the Workstream on GitHub that has no row in issues, as
+// closeBelowWorkstream does. A poll that sees a new sub-issue and the close of its Workstream together does not copy
+// the sub-issue, because the tree check skips a closed Workstream. An issue of an author who is not trusted stays open.
+func (e *Engine) closeUncopiedSubIssues(ctx context.Context, repository github.Repository, workstream int64) error {
+	var leaves copiedTree
+	subIssues, err := e.flatSubIssues(ctx, repository, workstream, 0, false, &leaves)
+	if err != nil {
+		return err
+	}
+	for _, sub := range subIssues {
+		source, readable := e.issueRepository(sub.issue, sub.from)
+		if !readable || sub.issue.GetState() != "open" || !e.trustedUser(sub.issue.GetUser().GetLogin()) {
+			continue
+		}
+		number := int64(sub.issue.GetNumber())
+		_, inTree, err := e.treeIssueOf(ctx, source.FullName, number)
+		if err != nil {
+			return err
+		}
+		if inTree {
+			continue
+		}
+		if err := e.closeBelowWorkstream(ctx, source, number, labelNames(sub.issue), true); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) closeTreeIssue(ctx context.Context, repository github.Repository, number int64, reason string) error {
