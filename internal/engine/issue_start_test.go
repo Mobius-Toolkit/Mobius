@@ -95,6 +95,26 @@ func TestAnUntrustedAddOfMobiusReadySetsNoStartColumnAndTheSendRemovesTheLabel(t
 	}
 }
 
+func TestATrustedAddOfMobiusReadyToAClosedIssueSetsNoStartColumn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).State == "closed" })
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		return !slices.Contains(fake.Labels(shop, 41), "mobius:ready") &&
+			incomingChanges(t, server, "pending") == 0 &&
+			outgoingChanges(t, server, "pending") == 0
+	})
+	if hasStart(t, server, 41) {
+		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
+	}
+}
+
 func TestAStartOfAnIssueWithAnOpenBlockerKeepsItsColumnsAndDispatchesAfterTheBlockerCloses(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

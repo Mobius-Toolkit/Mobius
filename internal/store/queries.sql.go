@@ -1278,6 +1278,7 @@ VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
 ON CONFLICT (repository, number) DO UPDATE SET
     start_requested_at = excluded.start_requested_at,
     start_requested_by = excluded.start_requested_by
+WHERE issues.state = 'open'
 `
 
 type AddStartIssueParams struct {
@@ -12864,7 +12865,7 @@ func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepo
 
 const setIssueStart = `-- name: SetIssueStart :exec
 UPDATE issues SET start_requested_at = ?1, start_requested_by = ?2
-WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER) AND state = 'open'
 `
 
 type SetIssueStartParams struct {
@@ -12885,7 +12886,10 @@ func (q *Queries) SetIssueStart(ctx context.Context, arg SetIssueStartParams) er
 }
 
 const setIssueState = `-- name: SetIssueState :execrows
-UPDATE issues SET state = ?1 WHERE id = ?2 AND state != ?1
+UPDATE issues SET state = ?1,
+    start_requested_at = CASE WHEN ?1 = 'open' THEN start_requested_at END,
+    start_requested_by = CASE WHEN ?1 = 'open' THEN start_requested_by ELSE '' END
+WHERE id = ?2 AND state != ?1
 `
 
 type SetIssueStateParams struct {
@@ -12893,6 +12897,7 @@ type SetIssueStateParams struct {
 	ID    int64
 }
 
+// A closed issue has no Start.
 func (q *Queries) SetIssueState(ctx context.Context, arg SetIssueStateParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setIssueState, arg.State, arg.ID)
 	if err != nil {
@@ -12902,7 +12907,9 @@ func (q *Queries) SetIssueState(ctx context.Context, arg SetIssueStateParams) (i
 }
 
 const setIssueStateByRepoNumber = `-- name: SetIssueStateByRepoNumber :execrows
-UPDATE issues SET state = ?1
+UPDATE issues SET state = ?1,
+    start_requested_at = CASE WHEN ?1 = 'open' THEN start_requested_at END,
+    start_requested_by = CASE WHEN ?1 = 'open' THEN start_requested_by ELSE '' END
 WHERE repository = ?2 AND number = CAST(?3 AS INTEGER) AND state != ?1
 `
 
@@ -12912,6 +12919,7 @@ type SetIssueStateByRepoNumberParams struct {
 	Number     int64
 }
 
+// A closed issue has no Start.
 func (q *Queries) SetIssueStateByRepoNumber(ctx context.Context, arg SetIssueStateByRepoNumberParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setIssueStateByRepoNumber, arg.State, arg.Repository, arg.Number)
 	if err != nil {

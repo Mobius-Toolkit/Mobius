@@ -1348,11 +1348,18 @@ UPDATE issues SET title = sqlc.arg(title) WHERE id = sqlc.arg(id) AND title != s
 -- name: SetIssueBody :execrows
 UPDATE issues SET body = sqlc.arg(body) WHERE id = sqlc.arg(id) AND body != sqlc.arg(body);
 
+-- A closed issue has no Start.
 -- name: SetIssueState :execrows
-UPDATE issues SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state != sqlc.arg(state);
+UPDATE issues SET state = sqlc.arg(state),
+    start_requested_at = CASE WHEN sqlc.arg(state) = 'open' THEN start_requested_at END,
+    start_requested_by = CASE WHEN sqlc.arg(state) = 'open' THEN start_requested_by ELSE '' END
+WHERE id = sqlc.arg(id) AND state != sqlc.arg(state);
 
+-- A closed issue has no Start.
 -- name: SetIssueStateByRepoNumber :execrows
-UPDATE issues SET state = sqlc.arg(state)
+UPDATE issues SET state = sqlc.arg(state),
+    start_requested_at = CASE WHEN sqlc.arg(state) = 'open' THEN start_requested_at END,
+    start_requested_by = CASE WHEN sqlc.arg(state) = 'open' THEN start_requested_by ELSE '' END
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != sqlc.arg(state);
 
 -- name: GetIssueTriage :one
@@ -1388,7 +1395,7 @@ WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: SetIssueStart :exec
 UPDATE issues SET start_requested_at = sqlc.arg(start_requested_at), start_requested_by = sqlc.arg(start_requested_by)
-WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND state = 'open';
 
 -- A row that exists keeps its fields, and only its Start changes.
 -- name: AddStartIssue :exec
@@ -1398,7 +1405,8 @@ VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title)
         sqlc.arg(start_requested_at), sqlc.arg(start_requested_by), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
     start_requested_at = excluded.start_requested_at,
-    start_requested_by = excluded.start_requested_by;
+    start_requested_by = excluded.start_requested_by
+WHERE issues.state = 'open';
 
 -- name: ClearIssueStart :execrows
 UPDATE issues SET start_requested_at = NULL, start_requested_by = ''

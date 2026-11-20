@@ -29,7 +29,7 @@ func (e *Engine) requestStart(ctx context.Context, repository github.Repository,
 	var found *gh.Issue
 	var metadata string
 	if err != nil {
-		if found, err = repository.Issue(ctx, number); err != nil || found == nil {
+		if found, err = repository.Issue(ctx, number); err != nil || found == nil || found.GetState() != "open" {
 			return err
 		}
 		if metadata, err = githubMetadata(found, 0); err != nil {
