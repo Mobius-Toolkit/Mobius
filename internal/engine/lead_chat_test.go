@@ -26,6 +26,10 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
+// noTodos is the section of a Lead prompt for a Workstream with no open todo. Each prompt for an event or an Owner
+// message after the first prompt starts with it.
+const noTodos = "# Open todos\n\nNo todo is open.\n\n"
+
 // leadChat is the Lead chat of the Workstream #12.
 var leadChat = engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 12}
 
@@ -563,7 +567,7 @@ func TestANewOwnerMessageWaitsForTheTurnAndAStopEndsTheTurn(t *testing.T) {
 	if session.EndReason.String != "idle" {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
-	if got := promptTexts(t, server, session.ID); got[1] != "Also add a plan price" {
+	if got := promptTexts(t, server, session.ID); got[1] != noTodos+"Also add a plan price" {
 		t.Errorf("prompts = %q", got)
 	}
 }
@@ -791,7 +795,7 @@ func TestTheLeadGetsAnEventAndTheNextOwnerQuestionInTheSameSession(t *testing.T)
 		t.Fatalf("sessions = %+v", sessions)
 	}
 	prompts := promptTexts(t, server, sessions[0].ID)
-	if len(prompts) != 2 || !strings.Contains(prompts[0], "# Event\n\n") || !strings.Contains(prompts[0], ` dispatch of #41 "Add plan model" by @owner:`) || prompts[1] != "What happened with #41?" {
+	if len(prompts) != 2 || !strings.Contains(prompts[0], "# Event\n\n") || !strings.Contains(prompts[0], ` dispatch of #41 "Add plan model" by @owner:`) || prompts[1] != noTodos+"What happened with #41?" {
 		t.Errorf("prompts = %q", prompts)
 	}
 	// The reply text of a turn for an event goes only to the Transcript.
@@ -828,7 +832,7 @@ func TestAnEventDuringATurnForAnOwnerMessageGetsItsOwnTurnAfterThatTurn(t *testi
 		prompts := promptTexts(t, server, session.ID)
 		return prompts, len(prompts) == 2 && eventDelivered(t, server)
 	})
-	if !strings.HasSuffix(prompts[0], "# Owner message\n\nPlan the API") || !strings.HasPrefix(prompts[1], "# Event\n\n") || !strings.Contains(prompts[1], " dispatch of #41 ") {
+	if !strings.HasSuffix(prompts[0], "# Owner message\n\nPlan the API") || !strings.HasPrefix(prompts[1], noTodos+"# Event\n\n") || !strings.Contains(prompts[1], " dispatch of #41 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
@@ -852,7 +856,7 @@ func TestAnOwnerMessageComesBeforeAQueuedEventOfAnEarlierTurn(t *testing.T) {
 		prompts := promptTexts(t, server, session.ID)
 		return prompts, len(prompts) == 3 && eventDelivered(t, server)
 	})
-	if prompts[1] != "Also add a price" || !strings.Contains(prompts[2], " dispatch of #41 ") {
+	if prompts[1] != noTodos+"Also add a price" || !strings.Contains(prompts[2], " dispatch of #41 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -878,7 +882,7 @@ func TestAnOwnerMessageComesBeforeAnEventThatCameDuringASlowTurnForAnEvent(t *te
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 3 && eventDelivered(t, server)
 	})
-	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != "Decision" || !strings.Contains(prompts[2], " dispatch of #42 ") {
+	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != noTodos+"Decision" || !strings.Contains(prompts[2], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -905,7 +909,7 @@ func TestOwnerMessagesKeepTheirOrderBeforeAnEventThatWaitsBehindASlowTurn(t *tes
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 4 && eventDelivered(t, server)
 	})
-	if prompts[1] != "First" || prompts[2] != "Second" || !strings.Contains(prompts[3], " dispatch of #42 ") {
+	if prompts[1] != noTodos+"First" || prompts[2] != noTodos+"Second" || !strings.Contains(prompts[3], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -1123,7 +1127,7 @@ reply = ["Noted."]
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 4 && held(t, server, 2)
 	})
-	if !strings.Contains(prompts[1], " dispatch of #42 ") || prompts[2] != "First decision" || !strings.HasPrefix(prompts[3], "# Event\n\n") || !strings.Contains(prompts[3], " dispatch of #41 ") {
+	if !strings.Contains(prompts[1], " dispatch of #42 ") || prompts[2] != noTodos+"First decision" || !strings.HasPrefix(prompts[3], noTodos+"# Event\n\n") || !strings.Contains(prompts[3], " dispatch of #41 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 
@@ -1132,7 +1136,7 @@ reply = ["Noted."]
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 7 && eventDelivered(t, server)
 	})
-	if prompts[4] != "Second decision" || !strings.Contains(prompts[5], " dispatch of #41 ") || !strings.Contains(prompts[6], " comment on #41 ") {
+	if prompts[4] != noTodos+"Second decision" || !strings.Contains(prompts[5], " dispatch of #41 ") || !strings.Contains(prompts[6], " comment on #41 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -1176,7 +1180,7 @@ reply = ["Noted."]
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 5 && eventDelivered(t, server)
 	})
-	if prompts[1] != "First decision" || prompts[2] != "Second decision" || !strings.Contains(prompts[3], " dispatch of #41 ") || !strings.Contains(prompts[4], " dispatch of #42 ") {
+	if prompts[1] != noTodos+"First decision" || prompts[2] != noTodos+"Second decision" || !strings.Contains(prompts[3], " dispatch of #41 ") || !strings.Contains(prompts[4], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -1203,7 +1207,7 @@ func TestAHeldEventStaysHeldAfterARestartUntilATurnForAnOwnerMessageEnds(t *test
 
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
 	prompts := onlySession(t, server)
-	if len(prompts) != 2 || !strings.HasSuffix(prompts[0], "# Owner message\n\nDecision") || prompts[1] != "# Event\n\nA held comment." {
+	if len(prompts) != 2 || !strings.HasSuffix(prompts[0], "# Owner message\n\nDecision") || prompts[1] != noTodos+"# Event\n\nA held comment." {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -1598,7 +1602,7 @@ func TestAQueuedOwnerMessageKeepsItsImages(t *testing.T) {
 	if got, want := reply(t, server, session.ID), "After the stop"+imageReply(pngImage); got != want {
 		t.Errorf("reply = %q, want %q", got, want)
 	}
-	if got := promptTexts(t, server, session.ID); got[1] != "" {
+	if got := promptTexts(t, server, session.ID); got[1] != noTodos {
 		t.Errorf("prompts = %q", got)
 	}
 }
