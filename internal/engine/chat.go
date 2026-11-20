@@ -274,8 +274,22 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 	return message, e.announceChatMessage(ctx, key, author, message)
 }
 
+// addDisplayOnlyChatMessage stores an Owner message that the chat shows without giving it to an agent, and sends it
+// to the listeners.
+func (e *Engine) addDisplayOnlyChatMessage(ctx context.Context, key ChatKey, text string, inboxItems []ChatInboxItem) (store.ChatMessage, error) {
+	message, err := e.storeChatMessageRow(ctx, e.queries, key, ownerAuthor, text, "", "", inboxItems, nil, false, true)
+	if err != nil {
+		return message, err
+	}
+	return message, e.announceChatMessage(ctx, key, ownerAuthor, message)
+}
+
 // storeChatMessage writes the chat message of addChatMessage with q, and sends it to no listener.
 func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) (store.ChatMessage, error) {
+	return e.storeChatMessageRow(ctx, q, key, author, text, images, browserID, inboxItems, selections, voice, false)
+}
+
+func (e *Engine) storeChatMessageRow(ctx context.Context, q *store.Queries, key ChatKey, author, text, images, browserID string, inboxItems []ChatInboxItem, selections []ChatSelection, voice, displayOnly bool) (store.ChatMessage, error) {
 	if inboxItems == nil {
 		inboxItems = []ChatInboxItem{}
 	}
@@ -290,9 +304,12 @@ func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key Cha
 	if err != nil {
 		return store.ChatMessage{}, err
 	}
-	var marked int64
+	var marked, display int64
 	if voice {
 		marked = 1
+	}
+	if displayOnly {
+		display = 1
 	}
 	message, err := q.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
@@ -305,6 +322,7 @@ func (e *Engine) storeChatMessage(ctx context.Context, q *store.Queries, key Cha
 		InboxItems:   string(items),
 		Voice:        marked,
 		Selections:   string(storedSelections),
+		DisplayOnly:  display,
 	})
 	if err != nil {
 		return message, err

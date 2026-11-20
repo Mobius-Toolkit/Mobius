@@ -157,10 +157,10 @@ func (q *Queries) AddCIFailurePlace(ctx context.Context, arg AddCIFailurePlacePa
 }
 
 const addChatMessage = `-- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections, display_only)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type AddChatMessageParams struct {
@@ -174,6 +174,7 @@ type AddChatMessageParams struct {
 	InboxItems   string
 	Voice        int64
 	Selections   string
+	DisplayOnly  int64
 }
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (ChatMessage, error) {
@@ -188,6 +189,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.InboxItems,
 		arg.Voice,
 		arg.Selections,
+		arg.DisplayOnly,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -206,6 +208,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -1697,7 +1700,7 @@ func (q *Queries) AdvanceRecurringTask(ctx context.Context, arg AdvanceRecurring
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type AppendChatMessageParams struct {
@@ -1724,6 +1727,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -1731,7 +1735,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 const cancelChatMessage = `-- name: CancelChatMessage :one
 UPDATE chat_messages SET cancelled_at = ?1
 WHERE id = ?2 AND delivered_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type CancelChatMessageParams struct {
@@ -1758,6 +1762,7 @@ func (q *Queries) CancelChatMessage(ctx context.Context, arg CancelChatMessagePa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -2628,7 +2633,7 @@ func (q *Queries) DeleteWorkstreamToCreate(ctx context.Context, id int64) error 
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = ?, failed_at = NULL WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type DeliverChatMessageParams struct {
@@ -2655,6 +2660,7 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -2976,7 +2982,7 @@ func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) 
 const failChatMessage = `-- name: FailChatMessage :one
 UPDATE chat_messages SET failed_at = ?1
 WHERE id = ?2 AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type FailChatMessageParams struct {
@@ -3003,6 +3009,7 @@ func (q *Queries) FailChatMessage(ctx context.Context, arg FailChatMessageParams
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -3347,7 +3354,7 @@ func (q *Queries) GetCIDiagnosisBySession(ctx context.Context, session sql.NullI
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages WHERE id = ?
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages WHERE id = ?
 `
 
 func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -3369,6 +3376,7 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -3962,7 +3970,7 @@ func (q *Queries) GetIssueTriage(ctx context.Context, arg GetIssueTriageParams) 
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -3998,6 +4006,7 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -6625,9 +6634,9 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
-  AND cancelled_at IS NULL
+  AND cancelled_at IS NULL AND display_only = 0
 ORDER BY id DESC LIMIT ?
 `
 
@@ -6670,6 +6679,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -6685,7 +6695,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Operator', 'Curator', 'Approval', 'Changelog') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -6730,6 +6740,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -7688,7 +7699,7 @@ func (q *Queries) ListEndedTaskQuality(ctx context.Context) ([]ListEndedTaskQual
 }
 
 const listFailedChatMessages = `-- name: ListFailedChatMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ?
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7725,6 +7736,7 @@ func (q *Queries) ListFailedChatMessages(ctx context.Context, arg ListFailedChat
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -7740,7 +7752,7 @@ func (q *Queries) ListFailedChatMessages(ctx context.Context, arg ListFailedChat
 }
 
 const listFailedChatMessagesOfRepository = `-- name: ListFailedChatMessagesOfRepository :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ?
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7776,6 +7788,7 @@ func (q *Queries) ListFailedChatMessagesOfRepository(ctx context.Context, arg Li
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -7791,7 +7804,7 @@ func (q *Queries) ListFailedChatMessagesOfRepository(ctx context.Context, arg Li
 }
 
 const listFailedCoordinatorMessages = `-- name: ListFailedCoordinatorMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ''
   AND failed_at IS NOT NULL AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
@@ -7822,6 +7835,7 @@ func (q *Queries) ListFailedCoordinatorMessages(ctx context.Context, organizatio
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -11056,9 +11070,9 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 }
 
 const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
-  AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
+  AND (author = 'Owner' AND browser_id IS NOT NULL AND display_only = 0 OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id
 `
@@ -11094,6 +11108,7 @@ func (q *Queries) ListUndeliveredOwnerMessages(ctx context.Context, arg ListUnde
 			&i.CancelledAt,
 			&i.Voice,
 			&i.Selections,
+			&i.DisplayOnly,
 		); err != nil {
 			return nil, err
 		}
@@ -13653,7 +13668,7 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 
 const stopChatMessage = `-- name: StopChatMessage :one
 UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 type StopChatMessageParams struct {
@@ -13680,6 +13695,7 @@ func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -13766,7 +13782,7 @@ func (q *Queries) TrimRecurringTaskRuns(ctx context.Context, task int64) error {
 
 const undeliverChatMessage = `-- name: UndeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = NULL WHERE id = ? AND delivered_at IS NOT NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -13788,6 +13804,7 @@ func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessa
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }
@@ -13795,7 +13812,7 @@ func (q *Queries) UndeliverChatMessage(ctx context.Context, id int64) (ChatMessa
 const undoCancelChatMessage = `-- name: UndoCancelChatMessage :one
 UPDATE chat_messages SET cancelled_at = NULL
 WHERE id = ?1 AND delivered_at IS NULL AND cancelled_at IS NOT NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items, failed_at, cancelled_at, voice, selections, display_only
 `
 
 func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -13817,6 +13834,7 @@ func (q *Queries) UndoCancelChatMessage(ctx context.Context, id int64) (ChatMess
 		&i.CancelledAt,
 		&i.Voice,
 		&i.Selections,
+		&i.DisplayOnly,
 	)
 	return i, err
 }

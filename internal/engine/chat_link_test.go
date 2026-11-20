@@ -75,9 +75,10 @@ func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *
 	if done.State != "done" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	if _, body := fake.Issue(shop, 13); body != "Sell gift cards.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1) {
-		t.Errorf("body = %q", body)
-	}
+	testkit.WaitFor(t, func() bool {
+		_, body := fake.Issue(shop, 13)
+		return body == "Sell gift cards.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1)
+	})
 }
 
 func TestEditBriefWritesTheLinkToTheLeadChatOneTime(t *testing.T) {

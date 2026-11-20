@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -304,7 +305,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
-		if err := e.SendChat(ctx, key, rand.Text(), text, nil, nil, nil, false); err != nil {
+		if err := e.SendChat(ctx, key, rand.Text(), text, nil, []ChatInboxItem{chatInboxItem(item)}, nil, false); err != nil {
 			return "", err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
@@ -334,6 +335,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	if err := e.queries.AddOwnerAnswer(ctx, store.AddOwnerAnswerParams{Repository: repository.FullName, CommentID: comment.GetID()}); err != nil {
 		return "", err
 	}
+	e.addInboxOwnerMessage(ctx, item, text)
 	return comment.GetHTMLURL(), nil
 }
 
@@ -452,6 +454,39 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 
 func inboxChat(item store.InboxItem) ChatKey {
 	return ChatKey{item.Organization, item.WorkstreamRepository, item.Workstream}
+}
+
+// chatInboxItem gives the card of item for a chat message, matching itemReference in the web UI.
+func chatInboxItem(item store.InboxItem) ChatInboxItem {
+	ofPullRequest := item.Kind == readyForReviewKind ||
+		item.Kind == todoKind ||
+		(item.Kind == ownerActionKind && item.PullRequest != 0)
+	var reference, link string
+	if item.Issue != 0 {
+		if ofPullRequest {
+			reference = fmt.Sprintf("PR #%d", item.PullRequest)
+		} else {
+			reference = fmt.Sprintf("#%d", item.Issue)
+		}
+	}
+	if ofPullRequest {
+		// The web URL of a pull request differs from the web URL of its issue only in the path.
+		link = strings.TrimSuffix(item.Link, fmt.Sprintf("/issues/%d", item.Issue)) + fmt.Sprintf("/pull/%d", item.PullRequest)
+	} else {
+		link = item.Link
+	}
+	return ChatInboxItem{Reference: reference, Title: item.Title, Reason: item.Reason, Link: link}
+}
+
+// addInboxOwnerMessage adds text as a display-only message of the Owner with the card of item to inboxChat(item). No
+// agent gets it through the chat. A failed write only goes to the log, because the action has succeeded.
+func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string) {
+	if empty(text) {
+		return
+	}
+	if _, err := e.addDisplayOnlyChatMessage(ctx, inboxChat(item), text, []ChatInboxItem{chatInboxItem(item)}); err != nil {
+		log.Printf("add an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
+	}
 }
 
 // Dismiss removes the Inbox item id from the Inbox.
