@@ -47,7 +47,7 @@ type changeEvent struct {
 }
 
 // eventField gives the field of the event and the metadata of its incoming change. It tells false for an event that is
-// no change of a field of a Workstream or of a tree issue.
+// no change of a field of a Workstream, of a tree issue or of the triage of an issue.
 func eventField(event *gh.IssueEvent) (string, map[string]string, bool) {
 	switch event.GetEvent() {
 	case labeledChange, unlabeledChange:
@@ -57,6 +57,9 @@ func eventField(event *gh.IssueEvent) (string, map[string]string, bool) {
 		}
 		if label == projectLabel {
 			return kindField, map[string]string{"label": label}, true
+		}
+		if label == triageLabel {
+			return triageField, map[string]string{"label": label}, true
 		}
 		field, setting := settingField(label)
 		return field, map[string]string{"label": label}, setting
@@ -249,6 +252,9 @@ func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repo
 	}
 	if change.Field == kindField {
 		return false, e.applyTreeIssueChange(ctx, repository, change)
+	}
+	if change.Field == triageField {
+		return false, e.applyTriageChange(ctx, repository, change)
 	}
 	if _, setting := settingLabels[change.Field]; setting {
 		return false, e.applySettingChange(ctx, repository, change)

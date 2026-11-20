@@ -393,7 +393,7 @@ func TestStartAddsMobiusReadyAsTheOwner(t *testing.T) {
 	}
 }
 
-func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatchesTheIssue(t *testing.T) {
+func TestStartClearsTheTriageStateAsTheAppAndAddsMobiusReadyAsTheOwnerAndTheNextPollDispatchesTheIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -408,8 +408,8 @@ func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatc
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if !fake.LabelRemovedBy(shop, 41, "mobius:triage", "owner") {
-		t.Error("the Owner did not remove mobius:triage")
+	if !fake.LabelRemovedBy(shop, 41, "mobius:triage", testkit.AppSlug+"[bot]") {
+		t.Error("the App did not remove mobius:triage")
 	}
 	if !fake.LabelAddedBy(shop, 41, "mobius:ready", "owner") {
 		t.Error("the Owner did not add mobius:ready")
@@ -420,7 +420,7 @@ func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatc
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:triage") })
 }
 
-func TestStopReplacesMobiusReadyWithMobiusTriageAsTheOwnerAndTheNextPollsStartNoTask(t *testing.T) {
+func TestStopSetsTheTriageStateAsTheAppAndRemovesMobiusReadyAsTheOwnerAndTheNextPollsStartNoTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -443,7 +443,7 @@ func TestStopReplacesMobiusReadyWithMobiusTriageAsTheOwnerAndTheNextPollsStartNo
 	if !fake.LabelRemovedBy(shop, 41, "mobius:ready", "owner") {
 		t.Error("the Owner did not remove mobius:ready")
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:triage"); got != "owner" {
+	if got := fake.LabelActor(shop, 41, "mobius:triage"); got != testkit.AppSlug+"[bot]" {
 		t.Errorf("actor of mobius:triage = %s", got)
 	}
 	if got := stateOfTask(t, server); got != "triage" {

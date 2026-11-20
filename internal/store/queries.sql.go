@@ -253,9 +253,10 @@ func (q *Queries) AddCopiedBlocker(ctx context.Context, arg AddCopiedBlockerPara
 }
 
 const addCopiedBlockerIssue = `-- name: AddCopiedBlockerIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, kind, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
-        ?7, json_object('github', json(CAST(?8 AS TEXT))))
+        ?7, EXISTS (SELECT 1 FROM json_each(CAST(?8 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
+        json_object('github', json(CAST(?8 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
 RETURNING id
 `
@@ -289,9 +290,11 @@ func (q *Queries) AddCopiedBlockerIssue(ctx context.Context, arg AddCopiedBlocke
 }
 
 const addCopiedIssue = `-- name: AddCopiedIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, triage, metadata)
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
-        ?7, ?8, ?9, json_object('github', json(CAST(?10 AS TEXT))))
+        ?7, ?8, ?9,
+        EXISTS (SELECT 1 FROM json_each(CAST(?10 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
+        json_object('github', json(CAST(?10 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
     title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
     body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
@@ -683,9 +686,9 @@ func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) 
 }
 
 const addIssueToCreate = `-- name: AddIssueToCreate :one
-INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, metadata)
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, metadata)
 VALUES (?1, ?2, ?3, 'open', ?4,
-        ?5, ?6, 'task', ?7)
+        ?5, ?6, 'task', CAST(?7 AS BOOLEAN), ?8)
 RETURNING id
 `
 
@@ -696,6 +699,7 @@ type AddIssueToCreateParams struct {
 	Author     string
 	Workstream sql.NullInt64
 	Parent     sql.NullInt64
+	Triage     bool
 	Metadata   string
 }
 
@@ -708,6 +712,7 @@ func (q *Queries) AddIssueToCreate(ctx context.Context, arg AddIssueToCreatePara
 		arg.Author,
 		arg.Workstream,
 		arg.Parent,
+		arg.Triage,
 		arg.Metadata,
 	)
 	var id int64
@@ -1443,6 +1448,41 @@ func (q *Queries) AddTranscriptRow(ctx context.Context, arg AddTranscriptRowPara
 		&i.Json,
 	)
 	return i, err
+}
+
+const addTriageIssue = `-- name: AddTriageIssue :exec
+INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
+VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
+        ?7, CAST(?8 AS BOOLEAN), json_object('github', json(CAST(?9 AS TEXT))))
+ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage
+`
+
+type AddTriageIssueParams struct {
+	Repository string
+	Number     int64
+	Title      string
+	Body       string
+	State      string
+	Author     string
+	Kind       string
+	Triage     bool
+	Github     string
+}
+
+// A row that exists keeps its fields, and only its triage changes.
+func (q *Queries) AddTriageIssue(ctx context.Context, arg AddTriageIssueParams) error {
+	_, err := q.db.ExecContext(ctx, addTriageIssue,
+		arg.Repository,
+		arg.Number,
+		arg.Title,
+		arg.Body,
+		arg.State,
+		arg.Author,
+		arg.Kind,
+		arg.Triage,
+		arg.Github,
+	)
+	return err
 }
 
 const addTriagerTurn = `-- name: AddTriagerTurn :exec
@@ -2516,10 +2556,10 @@ func (q *Queries) DeleteToolAutoUpgrade(ctx context.Context, package_ string) er
 }
 
 const deleteUnusedIssues = `-- name: DeleteUnusedIssues :exec
-DELETE FROM issues WHERE workstream IS NULL AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id)
+DELETE FROM issues WHERE workstream IS NULL AND triage = 0 AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id)
 `
 
-// An issue that is in no tree and blocks no issue goes away.
+// An issue that is in no tree, has no triage and blocks no issue goes away.
 func (q *Queries) DeleteUnusedIssues(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteUnusedIssues)
 	return err
@@ -3579,7 +3619,7 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 }
 
 const getDispatchIssue = `-- name: GetDispatchIssue :one
-SELECT i.kind, i.metadata,
+SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage,
     EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i
 WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
@@ -3591,15 +3631,15 @@ type GetDispatchIssueParams struct {
 }
 
 type GetDispatchIssueRow struct {
-	Kind     string
-	Metadata string
-	Blocked  bool
+	Kind    string
+	Triage  bool
+	Blocked bool
 }
 
 func (q *Queries) GetDispatchIssue(ctx context.Context, arg GetDispatchIssueParams) (GetDispatchIssueRow, error) {
 	row := q.db.QueryRowContext(ctx, getDispatchIssue, arg.Repository, arg.Number)
 	var i GetDispatchIssueRow
-	err := row.Scan(&i.Kind, &i.Metadata, &i.Blocked)
+	err := row.Scan(&i.Kind, &i.Triage, &i.Blocked)
 	return i, err
 }
 
@@ -3777,7 +3817,7 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -3794,6 +3834,7 @@ type GetIssueByIDRow struct {
 	Workstream           sql.NullInt64
 	Parent               sql.NullInt64
 	Kind                 string
+	Triage               bool
 	Metadata             string
 	WorkstreamRepository sql.NullString
 	WorkstreamNumber     sql.NullInt64
@@ -3812,6 +3853,7 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, 
 		&i.Workstream,
 		&i.Parent,
 		&i.Kind,
+		&i.Triage,
 		&i.Metadata,
 		&i.WorkstreamRepository,
 		&i.WorkstreamNumber,
@@ -3892,6 +3934,22 @@ func (q *Queries) GetIssueTreeNode(ctx context.Context, arg GetIssueTreeNodePara
 		&i.WorkstreamState,
 	)
 	return i, err
+}
+
+const getIssueTriage = `-- name: GetIssueTriage :one
+SELECT CAST(triage AS BOOLEAN) FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+`
+
+type GetIssueTriageParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetIssueTriage(ctx context.Context, arg GetIssueTriageParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, getIssueTriage, arg.Repository, arg.Number)
+	var triage bool
+	err := row.Scan(&triage)
+	return triage, err
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
@@ -6804,7 +6862,7 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 }
 
 const listCopiedTree = `-- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
@@ -6825,6 +6883,7 @@ type ListCopiedTreeRow struct {
 	State           string
 	Author          string
 	Kind            string
+	Triage          bool
 	Metadata        string
 }
 
@@ -6846,6 +6905,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.State,
 			&i.Author,
 			&i.Kind,
+			&i.Triage,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -12611,6 +12671,22 @@ func (q *Queries) SetIssueTitle(ctx context.Context, arg SetIssueTitleParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setIssueTriage = `-- name: SetIssueTriage :exec
+UPDATE issues SET triage = CAST(?1 AS BOOLEAN)
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
+`
+
+type SetIssueTriageParams struct {
+	Triage     bool
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) SetIssueTriage(ctx context.Context, arg SetIssueTriageParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueTriage, arg.Triage, arg.Repository, arg.Number)
+	return err
 }
 
 const setIssueWorkstream = `-- name: SetIssueWorkstream :exec
