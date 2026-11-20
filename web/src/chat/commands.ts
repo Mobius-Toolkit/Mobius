@@ -661,6 +661,11 @@ export const RunTrayAction = Command.define("RunTrayAction", {
         const res = yield* request(() => (kind === "dismiss" ? dismiss(id) : sendAgain(id)));
         if (res.status === 204) {
           if (kind === "dismiss") {
+            if (item.todo !== null) {
+              yield* Effect.sync(() =>
+                hideInboxItem({ id, repository: item.repository, issue: item.issue }),
+              );
+            }
             yield* showNoticeOf(`Dismissed: ${item.title || item.reason}`);
           }
           return done("");

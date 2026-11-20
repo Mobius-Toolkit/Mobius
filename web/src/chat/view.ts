@@ -48,6 +48,7 @@ import {
   type Model,
   taskOfLink,
   type TaskRef,
+  todoRowOf,
   type Waiting,
 } from "./model";
 import { type InboxRow, inboxRows } from "@/lib/inboxRows";
@@ -691,14 +692,21 @@ function trayButton(
     [
       h.Type("button"),
       h.Disabled(options.disabled || options.pending),
-      h.Class(buttonClass({ variant: options.variant, size: "sm" })),
-      h.OnClick(options.message),
+      h.Class(
+        buttonClass({
+          variant: options.variant,
+          size: "sm",
+          className: "disabled:pointer-events-auto",
+        }),
+      ),
+      h.OnClick(options.message, { propagation: "Stop" }),
     ],
     [...(options.pending ? [spinnerIcon(h)] : []), options.label],
   );
 }
 
-function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): Html[] {
+function renderTrayButtons(h: H, row: InboxRow, model: Model, chat: Message): Html[] {
+  const { item } = row;
   const running = model.trayRunning[item.id];
   const merging = model.trayMerging[item.id] ?? item.merging;
   const buttons: Html[] = [];
@@ -708,7 +716,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
         [
           h.Type("button"),
           h.Class(buttonClass({ size: "sm" })),
-          h.OnClick(Message.OpenAnswerPanel({ item })),
+          h.OnClick(Message.OpenAnswerPanel({ item }), { propagation: "Stop" }),
         ],
         ["Answer"],
       ),
@@ -720,7 +728,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
         [
           h.Type("button"),
           h.Class(buttonClass({ size: "sm" })),
-          h.OnClick(Message.OpenAnswerPanel({ item })),
+          h.OnClick(Message.OpenAnswerPanel({ item }), { propagation: "Stop" }),
         ],
         ["Resume"],
       ),
@@ -744,6 +752,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
           h.Attribute("target", "_blank"),
           h.Attribute("rel", "noreferrer"),
           h.Class(buttonClass({ variant: "outline", size: "sm" })),
+          h.OnClick(Message.CompletedStopPropagation(), { propagation: "Stop" }),
         ],
         ["Open GitHub"],
       ),
@@ -768,9 +777,27 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
         [
           h.Type("button"),
           h.Class(buttonClass({ size: "sm" })),
-          h.OnClick(Message.OpenAnswerPanel({ item })),
+          h.OnClick(Message.OpenAnswerPanel({ item }), { propagation: "Stop" }),
         ],
         ["Done"],
+      ),
+    );
+  }
+  if (row.todos.length > 0) {
+    buttons.push(
+      h.button(
+        [
+          h.Type("button"),
+          h.Class(buttonClass({ size: "sm" })),
+          h.OnClick(
+            Message.OpenTodoList({
+              repository: item.repository,
+              pullRequest: item.pullRequest,
+            }),
+            { propagation: "Stop" },
+          ),
+        ],
+        [`Complete todos (${row.todos.length})`],
       ),
     );
   }
@@ -793,6 +820,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
           h.Attribute("target", "_blank"),
           h.Attribute("rel", "noreferrer"),
           h.Class(buttonClass({ variant: "outline", size: "sm" })),
+          h.OnClick(Message.CompletedStopPropagation(), { propagation: "Stop" }),
         ],
         ["Open PR"],
       ),
@@ -807,7 +835,7 @@ function renderTrayButtons(h: H, item: InboxItem, model: Model, chat: Message): 
         h.AriaLabel(chatLabel),
         h.Title(chatLabel),
         h.Class(buttonClass({ variant: "outline", size: "icon-sm" })),
-        h.OnClick(chat),
+        h.OnClick(chat, { propagation: "Stop" }),
       ],
       [messageSquareIcon(h)],
     ),
@@ -829,7 +857,7 @@ function renderTraySideButtons(h: H, item: InboxItem, model: Model): Html[] {
         [
           h.Type("button"),
           h.Class(buttonClass({ variant: "ghost", size: "sm" })),
-          h.OnClick(Message.OpenDetailsPanel({ item, fromTray: true })),
+          h.OnClick(Message.OpenDetailsPanel({ item, fromTray: true }), { propagation: "Stop" }),
         ],
         ["Details"],
       ),
@@ -859,92 +887,6 @@ function refusalText(model: Model, item: InboxItem) {
 export function trayRows(model: Model) {
   return inboxRows(
     model.trayItems.filter((item) => !item.action || item.action.state === "pending"),
-  );
-}
-
-const shownTodos = 3;
-
-function renderTodoLine(h: H, todoItem: InboxItem, model: Model): Html {
-  const { todo } = todoItem;
-  if (!todo) return h.empty;
-  const running = model.trayRunning[todoItem.id];
-  const refusal = refusalText(model, todoItem);
-  return h.div(
-    [
-      h.DataAttribute("todo-item", String(todoItem.id)),
-      h.Class("grid min-w-0 grid-cols-1 gap-1 py-1"),
-    ],
-    [
-      h.div(
-        [h.Class("flex items-center gap-2")],
-        [
-          h.span([h.Class("min-w-0 grow truncate")], [todo.name]),
-          todo.mandatory ? h.empty : renderBadge(h, "outline", "optional"),
-          todo.afterMerge ? renderBadge(h, "outline", "after merge") : h.empty,
-          h.div(
-            [h.Class("flex shrink-0 items-center gap-2")],
-            [
-              h.button(
-                [
-                  h.Type("button"),
-                  h.AriaLabel(`Complete ${todo.name}`),
-                  h.Class(buttonClass({ size: "sm" })),
-                  h.OnClick(Message.OpenAnswerPanel({ item: todoItem })),
-                ],
-                ["Complete"],
-              ),
-              todo.dismissable
-                ? h.button(
-                    [
-                      h.Type("button"),
-                      h.AriaLabel(`Dismiss ${todo.name}`),
-                      h.Disabled(running !== undefined),
-                      h.Class(buttonClass({ variant: "outline", size: "sm" })),
-                      h.OnClick(Message.TrayActionClicked({ item: todoItem, kind: "dismiss" })),
-                    ],
-                    [...(running === "dismiss" ? [spinnerIcon(h)] : []), "Dismiss"],
-                  )
-                : h.empty,
-            ],
-          ),
-        ],
-      ),
-      todo.reason
-        ? h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [todo.reason])
-        : h.empty,
-      refusal
-        ? h.p([h.Role("alert"), h.Class("text-sm text-destructive wrap-anywhere")], [refusal])
-        : h.empty,
-    ],
-  );
-}
-
-function renderTodoLines(h: H, row: InboxRow, model: Model): Html {
-  if (row.todos.length === 0) return h.empty;
-  const expanded = model.expandedTodoRows.includes(row.item.id);
-  const hidden = row.todos.length - shownTodos;
-  const shown = expanded ? row.todos : row.todos.slice(0, shownTodos);
-  return h.div(
-    [h.Class("grid min-w-0 basis-full grid-cols-1 gap-1 border-t pt-2")],
-    [
-      h.div(
-        [h.Role("group"), h.AriaLabel("Todos"), h.Class("grid min-w-0 grid-cols-1 gap-1")],
-        shown.map((todoItem) => renderTodoLine(h, todoItem, model)),
-      ),
-      hidden > 0
-        ? h.button(
-            [
-              h.Type("button"),
-              h.AriaExpanded(expanded),
-              h.Class(
-                buttonClass({ variant: "ghost", size: "sm", className: "justify-self-start" }),
-              ),
-              h.OnClick(Message.TodoRowToggled({ id: row.item.id })),
-            ],
-            [expanded ? "Show less" : `Show ${hidden} more`],
-          )
-        : h.empty,
-    ],
   );
 }
 
@@ -997,6 +939,7 @@ export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message):
   if (isMissingWorkstream(item)) {
     return renderMissingWorkstreamRow(h, item, model);
   }
+  const hasTodos = row.todos.length > 0;
   const { reference, link: referenceLink } = itemReference(item);
   const refNode = reference
     ? referenceLink
@@ -1006,6 +949,7 @@ export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message):
             h.Attribute("target", "_blank"),
             h.Attribute("rel", "noreferrer"),
             h.Class(cn("shrink-0", link)),
+            h.OnClick(Message.CompletedStopPropagation(), { propagation: "Stop" }),
           ],
           [reference],
         )
@@ -1022,7 +966,22 @@ export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message):
   return h.li(
     [
       h.DataAttribute("inbox-item", String(item.id)),
-      h.Class("flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2"),
+      h.Class(
+        cn(
+          "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2 flex-wrap gap-y-2 py-2",
+          hasTodos && "cursor-pointer",
+        ),
+      ),
+      ...(hasTodos
+        ? [
+            h.OnClick(
+              Message.OpenTodoList({
+                repository: item.repository,
+                pullRequest: item.pullRequest,
+              }),
+            ),
+          ]
+        : []),
     ],
     [
       h.div(
@@ -1078,7 +1037,7 @@ export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message):
             [
               h.div(
                 [h.Class("flex flex-wrap items-center gap-2 empty:hidden")],
-                renderTrayButtons(h, item, model, chat),
+                renderTrayButtons(h, row, model, chat),
               ),
               h.div(
                 [h.Class("ml-auto flex items-center gap-2")],
@@ -1088,7 +1047,6 @@ export function renderItemRow(h: H, row: InboxRow, model: Model, chat: Message):
           ),
         ],
       ),
-      renderTodoLines(h, row, model),
       refusalText(model, item)
         ? h.p(
             [h.Role("alert"), h.Class("basis-full text-sm text-destructive wrap-anywhere")],
@@ -1463,6 +1421,12 @@ export function renderAnswerDialog(h: H, model: Model): Html {
                       : "This todo blocks the merge until you complete or dismiss it.",
                 ],
               ),
+              refusalText(model, item)
+                ? h.p(
+                    [h.Role("alert"), h.Class("text-sm text-destructive wrap-anywhere")],
+                    [refusalText(model, item)],
+                  )
+                : h.empty,
             ],
           )
         : h.div(
@@ -1500,6 +1464,47 @@ export function renderAnswerDialog(h: H, model: Model): Html {
     close: Message.ClosePanel(),
     body,
     footer: input ? renderPanelComposer(h, model, item) : h.empty,
+  });
+}
+
+export function renderTodoListDialog(h: H, model: Model): Html {
+  if (model.activePanel !== null) return h.empty;
+  const row = todoRowOf(model.trayItems, model.todoList);
+  if (!row) return h.empty;
+
+  const body = h.div(
+    [h.Class("grid min-w-0 content-start gap-1 overflow-y-auto px-4 pb-4")],
+    row.todos.map((todoItem) => {
+      const { todo } = todoItem;
+      if (!todo) return h.empty;
+      return h.button(
+        [
+          h.Key(`todo-${todoItem.id}`),
+          h.Type("button"),
+          h.AriaLabel(todo.name),
+          h.Class(
+            "flex min-h-11 w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-muted/60",
+          ),
+          h.OnClick(Message.OpenAnswerPanel({ item: todoItem })),
+        ],
+        [
+          h.span([h.Class("min-w-0 grow truncate")], [todo.name]),
+          todo.mandatory ? h.empty : renderBadge(h, "outline", "optional"),
+          todo.afterMerge ? renderBadge(h, "outline", "after merge") : h.empty,
+          chevronRightIcon(h, "size-4 shrink-0 text-muted-foreground"),
+        ],
+      );
+    }),
+  );
+
+  return renderDialog(h, {
+    mount: h.OnMount(PanelOpened()),
+    titleId: "todo-list-title",
+    title: `Todos of PR #${row.item.pullRequest}`,
+    description: "",
+    close: Message.CloseTodoList(),
+    body,
+    footer: h.empty,
   });
 }
 
@@ -1647,6 +1652,7 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
         },
         toParentMessage: toGotComposerMessage,
       }),
+      renderTodoListDialog(h, model),
       renderAnswerDialog(h, model),
       renderSelectionPopover(h, model.selection, toGotSelectionMessage),
     ],
