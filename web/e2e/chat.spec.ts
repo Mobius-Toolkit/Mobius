@@ -1108,6 +1108,9 @@ test("the Coordinator chat stays open after its actions", async ({ page }) => {
     ).toBeVisible();
     await expect(page).toHaveURL("/chat");
     await expect(link).toBeAttached();
+    // The move requests a Start, and the dispatch gives the issue a task.
+    const reset = await page.request.delete(`/e2e/dispatches/owner/shop/${issue}`);
+    expect(reset.ok()).toBe(true);
   }
 });
 

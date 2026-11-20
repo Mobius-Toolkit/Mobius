@@ -542,7 +542,7 @@ func TestServer(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if kind == "question" && repository != "" && issue != 0 && slices.Contains(github.Labels(repository, issue), "mobius:question") {
+		if kind == "question" && repository != "" && issue != 0 {
 			github.RemoveLabel(repository, issue, "mobius:question", "owner")
 		}
 	})

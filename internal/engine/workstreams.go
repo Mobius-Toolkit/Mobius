@@ -890,7 +890,7 @@ func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Reposit
 	if err := e.clearStart(ctx, source.FullName, number); err != nil {
 		return err
 	}
-	for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
+	for _, label := range []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
 		if !slices.Contains(labels, label) {
 			continue
 		}

@@ -222,8 +222,9 @@ func TestACloseAsWontDoClosesEachOpenIssueOfTheTreeInTheTableIssues(t *testing.T
 			t.Errorf("comments of #%d = %v", number, comments)
 		}
 	}
-	if slices.Contains(fake.Labels(shop, 45), "mobius:ready") {
-		t.Errorf("labels of #45 = %v", fake.Labels(shop, 45))
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 45), "mobius:ready") })
+	if start := startByOf(t, server, shop, 45); start != "" {
+		t.Errorf("start of #45 = %q", start)
 	}
 	unchanged(t, fake, shop, 43, "closed")
 }
