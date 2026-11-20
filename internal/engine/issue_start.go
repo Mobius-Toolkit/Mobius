@@ -150,9 +150,8 @@ func isStartEvent(event *gh.IssueEvent) bool {
 }
 
 // applyStartChange requests a Start for an add of mobius:ready by a trusted user, and adds an outgoing change that
-// removes mobius:ready as an own write. Upgrade events from before this change keep the earlier TrustedAuthor check,
-// because mark_ready, move_issue and record issues added mobius:ready as the Mobius App. A removal of mobius:ready
-// changes nothing.
+// removes mobius:ready as an own write. An upgrade event also accepts the Mobius App, because an open mobius:ready
+// from before the upgrade can have the App as its actor. A removal of mobius:ready changes nothing.
 func (e *Engine) applyStartChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	if change.Change != labeledChange {
 		return nil
