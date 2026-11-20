@@ -257,7 +257,10 @@ INSERT INTO issues (repository, number, title, body, state, author, kind, triage
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, EXISTS (SELECT 1 FROM json_each(CAST(?8 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(?8 AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
+ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.triage THEN issues.title ELSE excluded.title END,
+    state = excluded.state,
+    author = excluded.author
 RETURNING id
 `
 
@@ -272,7 +275,8 @@ type AddCopiedBlockerIssueParams struct {
 	Github     string
 }
 
-// A row that exists keeps its Workstream, parent, body and labels.
+// A row that exists keeps its Workstream, parent, body and labels. A row with the triage state keeps its title, because
+// the Triager reads it.
 func (q *Queries) AddCopiedBlockerIssue(ctx context.Context, arg AddCopiedBlockerIssueParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, addCopiedBlockerIssue,
 		arg.Repository,
@@ -6944,7 +6948,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 
 const listCopiedTreeAllBlockers = `-- name: ListCopiedTreeAllBlockers :many
 SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
-       bi.title, bi.state, bi.author, bi.workstream
+       bi.title, bi.state, bi.author, bi.workstream, CAST(bi.triage AS BOOLEAN) AS triage
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream
@@ -6966,6 +6970,7 @@ type ListCopiedTreeAllBlockersRow struct {
 	State             string
 	Author            string
 	Workstream        sql.NullInt64
+	Triage            bool
 }
 
 func (q *Queries) ListCopiedTreeAllBlockers(ctx context.Context, arg ListCopiedTreeAllBlockersParams) ([]ListCopiedTreeAllBlockersRow, error) {
@@ -6985,6 +6990,7 @@ func (q *Queries) ListCopiedTreeAllBlockers(ctx context.Context, arg ListCopiedT
 			&i.State,
 			&i.Author,
 			&i.Workstream,
+			&i.Triage,
 		); err != nil {
 			return nil, err
 		}

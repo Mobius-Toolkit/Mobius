@@ -1145,13 +1145,17 @@ ON CONFLICT (repository, number) DO UPDATE SET
     metadata = json_set(issues.metadata, '$.github', json(json_extract(excluded.metadata, '$.github')))
 RETURNING id;
 
--- A row that exists keeps its Workstream, parent, body and labels.
+-- A row that exists keeps its Workstream, parent, body and labels. A row with the triage state keeps its title, because
+-- the Triager reads it.
 -- name: AddCopiedBlockerIssue :one
 INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(kind), EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
-ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
+ON CONFLICT (repository, number) DO UPDATE SET
+    title = CASE WHEN issues.triage THEN issues.title ELSE excluded.title END,
+    state = excluded.state,
+    author = excluded.author
 RETURNING id;
 
 -- name: AddCopiedBlocker :exec
@@ -1445,7 +1449,7 @@ ORDER BY b.issue, bi.repository, bi.number;
 
 -- name: ListCopiedTreeAllBlockers :many
 SELECT b.issue, bi.repository AS blocker_repository, CAST(bi.number AS INTEGER) AS number,
-       bi.title, bi.state, bi.author, bi.workstream
+       bi.title, bi.state, bi.author, bi.workstream, CAST(bi.triage AS BOOLEAN) AS triage
 FROM blockers b
 JOIN issues i ON i.id = b.issue
 JOIN workstreams w ON w.id = i.workstream

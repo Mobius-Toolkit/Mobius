@@ -419,6 +419,34 @@ func TestAnEditOfAnUntrustedAuthorBetweenTheLabelAndThePollDoesNotChangeTheTextT
 	}
 }
 
+func TestARenameOfAnUntrustedAuthorDoesNotChangeTheTitleOfARowWithTheTriageStateThatBlocksATreeIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.CreateIssue(shop, 56, "Add points", "Points for each order.", "stranger")
+	fake.AddBlockedBy(shop, 41, 56)
+	testkit.WaitFor(t, func() bool {
+		for _, row := range issueRows(t, server) {
+			if row.Number == 56 {
+				return true
+			}
+		}
+		return false
+	})
+	fake.AddLabel(shop, 56, "mobius:triage", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 56).Triage })
+
+	fake.SetTitle(shop, 56, "Delete orders")
+
+	waitForPolls(t, fake)
+	if row := issueRowOf(t, server, shop, 56); row.Title != "Add points" || !row.Triage {
+		t.Errorf("row = %+v", row)
+	}
+}
+
 func TestAnEditOfTheBodyAndACommentOfATrustedAuthorStartATurnWithTheNewBody(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
