@@ -1050,9 +1050,9 @@ WHERE status = 'pending' AND issue IN (SELECT id FROM issues WHERE workstream IS
 -- name: DeleteBlockersOfDetachedIssues :exec
 DELETE FROM blockers WHERE issue IN (SELECT id FROM issues WHERE workstream IS NULL);
 
--- An issue that is in no tree and blocks no issue goes away.
+-- An issue that is in no tree, has no triage and blocks no issue goes away.
 -- name: DeleteUnusedIssues :exec
-DELETE FROM issues WHERE workstream IS NULL AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);
+DELETE FROM issues WHERE workstream IS NULL AND triage = 0 AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);
 
 -- The row stays after its Workstream closes. It gives 1 when it added the row.
 -- name: AddWorkstream :execrows
@@ -1125,9 +1125,11 @@ FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTE
 
 -- The GitHub data of a row is the JSON object $.github of its metadata.
 -- name: AddCopiedIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
-        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
+        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind),
+        EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
+        json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
     title = CASE WHEN issues.workstream IS NULL THEN excluded.title ELSE issues.title END,
     body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
@@ -1145,9 +1147,10 @@ RETURNING id;
 
 -- A row that exists keeps its Workstream, parent, body and labels.
 -- name: AddCopiedBlockerIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, kind, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
-        sqlc.arg(kind), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
+        sqlc.arg(kind), EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
+        json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET title = excluded.title, state = excluded.state, author = excluded.author
 RETURNING id;
 
@@ -1292,7 +1295,7 @@ LEFT JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -1300,9 +1303,9 @@ WHERE i.id = ?;
 
 -- The row has no number until the send of its create writes it.
 -- name: AddIssueToCreate :one
-INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, metadata)
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, metadata)
 VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(author),
-        sqlc.arg(workstream), sqlc.arg(parent), 'task', sqlc.arg(metadata))
+        sqlc.arg(workstream), sqlc.arg(parent), 'task', CAST(sqlc.arg(triage) AS BOOLEAN), sqlc.arg(metadata))
 RETURNING id;
 
 -- name: SetIssueNumber :execrows
@@ -1338,6 +1341,20 @@ UPDATE issues SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state != s
 UPDATE issues SET state = sqlc.arg(state)
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER) AND state != sqlc.arg(state);
 
+-- name: GetIssueTriage :one
+SELECT CAST(triage AS BOOLEAN) FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- name: SetIssueTriage :exec
+UPDATE issues SET triage = CAST(sqlc.arg(triage) AS BOOLEAN)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- A row that exists keeps its fields, and only its triage changes.
+-- name: AddTriageIssue :exec
+INSERT INTO issues (repository, number, title, body, state, author, kind, triage, metadata)
+VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
+        sqlc.arg(kind), CAST(sqlc.arg(triage) AS BOOLEAN), json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
+ON CONFLICT (repository, number) DO UPDATE SET triage = excluded.triage;
+
 -- name: SetIssueKind :execrows
 UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
 
@@ -1366,7 +1383,7 @@ JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)
@@ -1380,7 +1397,7 @@ JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetDispatchIssue :one
-SELECT i.kind, i.metadata,
+SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage,
     EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);

@@ -106,31 +106,20 @@ func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t
 	}
 }
 
-func TestTheRemovalOfMobiusTriageThatTheLeadMadeStopsTheTriager(t *testing.T) {
+func TestTheRemovalOfMobiusTriageThatTheAppMadeDoesNotStopTheTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {
 	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := connectLeadWrites(t, fake, "gh issue edit 51 -R owner/shop --remove-label mobius:triage")
-			fake.AddIssue(shop, 51, "Rename plans")
-			fake.AddLabel(shop, 51, "mobius:triage", "owner")
-			waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return !session.EndedAt.Valid })
-			if recorded {
-				leadWrites(t, server, 1)
-			}
+	fake := testkit.NewFakeGitHub(t)
+	server := connectLeadWrites(t, fake, "gh issue edit 51 -R owner/shop --remove-label mobius:triage")
+	fake.AddIssue(shop, 51, "Rename plans")
+	fake.AddLabel(shop, 51, "mobius:triage", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return !session.EndedAt.Valid })
+	leadWrites(t, server, 1)
 
-			fake.RemoveLabel(shop, 51, "mobius:triage", app)
+	fake.RemoveLabel(shop, 51, "mobius:triage", app)
 
-			if recorded {
-				waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndReason.String == "stopped" })
-				return
-			}
-			waitForPolls(t, fake)
-			if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 || sessions[0].EndedAt.Valid {
-				t.Errorf("sessions = %+v", sessions)
-			}
-		})
+	waitForPolls(t, fake)
+	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 || sessions[0].EndedAt.Valid {
+		t.Errorf("sessions = %+v", sessions)
 	}
 }
 
@@ -165,29 +154,18 @@ func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
 }
 
-func TestTheAddOfMobiusTriageThatTheLeadMadeStartsATriager(t *testing.T) {
+func TestTheAddOfMobiusTriageThatTheAppMadeStartsNoTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {
 	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server := connectLeadWrites(t, fake, "gh issue edit 53 -R owner/shop --add-label mobius:triage")
-			fake.AddIssue(shop, 53, "Add points")
-			if recorded {
-				leadWrites(t, server, 1)
-			}
+	fake := testkit.NewFakeGitHub(t)
+	server := connectLeadWrites(t, fake, "gh issue edit 53 -R owner/shop --add-label mobius:triage")
+	fake.AddIssue(shop, 53, "Add points")
+	leadWrites(t, server, 1)
 
-			fake.AddLabel(shop, 53, "mobius:triage", app)
+	fake.AddLabel(shop, 53, "mobius:triage", app)
 
-			if recorded {
-				waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndReason.String == "done" })
-				return
-			}
-			waitForPolls(t, fake)
-			if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
-				t.Errorf("sessions = %+v", got)
-			}
-		})
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
+		t.Errorf("sessions = %+v", got)
 	}
 }
 

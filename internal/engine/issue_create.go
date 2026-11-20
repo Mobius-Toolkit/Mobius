@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -48,7 +49,7 @@ func parseIssueMetadata(metadata string) (issueMetadata, error) {
 // addIssueToCreate is the create handler for a tree issue. In one transaction, it adds the row of issues with no
 // number, adds its blockers, and adds the outgoing changes create, parent and blockers in order. It gives the id of
 // the row and the id of its create change. A non-nil record is the handler of a record of Mobius: it stores the id of
-// the row in the record in the same transaction.
+// the row in the record in the same transaction. The row of a curator issue has the triage state.
 func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator bool, record func(*store.Queries, int64) error) (int64, int64, error) {
 	meta := issueMetadata{
 		GitHub: issueGitHub{Labels: append(make([]string, 0, len(labels)), labels...)},
@@ -108,6 +109,7 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 			Author:     appLogin(repository.AppSlug),
 			Workstream: sql.NullInt64{Int64: workstreamID, Valid: true},
 			Parent:     parentID,
+			Triage:     curator,
 			Metadata:   string(metadata),
 		})
 		if err != nil {
@@ -208,9 +210,9 @@ func (e *Engine) sendIssueCreate(ctx context.Context, repository github.Reposito
 		if change.Text.String != "" {
 			body = runner.WithMark(body, change.Text.String)
 		}
-		var labels []string
-		if len(meta.GitHub.Labels) > 0 {
-			labels = meta.GitHub.Labels
+		labels := meta.GitHub.Labels
+		if row.Triage {
+			labels = append(slices.Clone(labels), triageLabel)
 		}
 		issue, err := e.findOrCreateIssue(ctx, repository, writeMarker(change.ID), row.Title, body, labels)
 		if permanentRefusal(err) {
@@ -222,6 +224,11 @@ func (e *Engine) sendIssueCreate(ctx context.Context, repository github.Reposito
 		}
 		if err := e.addIssueCreatedNumber(ctx, repository, row, int64(issue.GetNumber()), issue.GetID(), meta, change.ID); err != nil {
 			return false, err
+		}
+		if row.Triage {
+			if err := e.changeCopiedLabels(ctx, change.Repository, int64(issue.GetNumber()), []string{triageLabel}, nil); err != nil {
+				return false, err
+			}
 		}
 	} else if err := e.markSent(ctx, change); err != nil {
 		return false, err

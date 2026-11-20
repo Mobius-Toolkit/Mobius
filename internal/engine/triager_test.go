@@ -458,7 +458,8 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	fake.AddLabel(shop, 51, "mobius:triage", "owner")
 	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
-		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"})
+		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"}) &&
+			doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 && outgoingChanges(t, server, "pending") == 0
 	})
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
@@ -493,7 +494,8 @@ func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
 	fake.AddLabel(shop, 51, "mobius:triage", "owner")
 	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
-		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"})
+		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"}) &&
+			doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 && outgoingChanges(t, server, "pending") == 0
 	})
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")

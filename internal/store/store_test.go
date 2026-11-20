@@ -1729,3 +1729,56 @@ func TestTheBucketsMigrationMovesTheRowsOfWorkstreamBucketsIntoTheMetadataOfTheW
 		t.Error("own_writes accepts an unknown field")
 	}
 }
+
+func TestTheIssueTriageMigrationSetsTriageFromTheLabelsAndKeepsTheChangeRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270422000000)
+	for _, statement := range []string{
+		`INSERT INTO issues (id, repository, number, title, body, state, author, metadata) VALUES
+			(1, 'o/a', 41, 'Triaged', '', 'open', 'owner', '{"github": {"id": 1, "labels": ["mobius:ready", "mobius:triage"]}}'),
+			(2, 'o/a', 42, 'Plain', '', 'open', 'owner', '{"github": {"id": 2, "labels": ["mobius:ready"]}}'),
+			(3, 'o/a', 43, 'No labels', '', 'open', 'owner', '{}')`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 41, 'kind', '{}', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES (9, 'github', '77', 'o/a', 41, 'kind', 'labeled', 'owner', 'done', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO outgoing_changes (id, integration, repository, number, field, status, created_at)
+			VALUES (10, 'github', 'o/a', 41, 'kind', 'sent', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var got string
+	if err := db.QueryRow(`SELECT group_concat(number || ':' || triage, ',') FROM (SELECT number, triage FROM issues ORDER BY number)`).Scan(&got); err != nil || got != "41:1,42:0,43:0" {
+		t.Errorf("triage = %q, %v", got, err)
+	}
+	for table, id := range map[string]int{"own_writes": 8, "incoming_changes": 9, "outgoing_changes": 10} {
+		var kept int
+		if err := db.QueryRow(`SELECT count(*) FROM `+table+` WHERE id = ? AND field = 'kind'`, id).Scan(&kept); err != nil || kept != 1 {
+			t.Errorf("kept rows of %s = %d, %v", table, kept, err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 41, 'triage', '{}', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES ('github', '78', 'o/a', 41, 'triage', 'labeled', 'owner', 'pending', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+			VALUES ('github', 'o/a', 41, 'triage', 'pending', '2027-03-01T10:00:01Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Errorf("%s: %v", statement, err)
+		}
+	}
+}
