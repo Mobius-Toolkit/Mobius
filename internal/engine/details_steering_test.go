@@ -35,7 +35,7 @@ func harnessFileLines(t *testing.T, dataDir, name string) []string {
 func implementerGetsDetails(t *testing.T, header string) string {
 	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_message\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "", noChange)
 	testkit.InstallFakeHarness(t, dataDir, "devin", header+options+
 		"[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n"+commitCents)
