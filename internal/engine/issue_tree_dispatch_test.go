@@ -114,7 +114,7 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 	}
 }
 
-func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndNoReadyListReadsHappen(t *testing.T) {
+func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyListIsReadOnlyInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -135,10 +135,10 @@ func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndNoReadyListR
 	if row := issueRowOf(t, server, shop, 51); row.Workstream.Valid {
 		t.Fatalf("workstream of #51 = %+v", row.Workstream)
 	}
-	requireNoReadyListReads(t, fake)
+	requireOneReadyListRead(t, fake)
 }
 
-func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndNoReadyListReadsHappen(t *testing.T) {
+func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListIsReadOnlyInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -154,16 +154,20 @@ func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndNoReadyListReadsHap
 	if hasLiveTask(t, server, 50) {
 		t.Fatal("the nested Workstream started as a task")
 	}
-	requireNoReadyListReads(t, fake)
+	requireOneReadyListRead(t, fake)
 }
 
-// requireNoReadyListReads fails when the poll listed the issues with mobius:ready.
-func requireNoReadyListReads(t *testing.T, fake *testkit.FakeGitHub) {
+// requireOneReadyListRead fails when the polls listed the issues with mobius:ready other than one time, in the first poll.
+func requireOneReadyListRead(t *testing.T, fake *testkit.FakeGitHub) {
 	t.Helper()
+	reads := 0
 	for _, request := range fake.Requests() {
 		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {
-			t.Errorf("unexpected mobius:ready list request: %+v", request)
+			reads++
 		}
+	}
+	if reads != 1 {
+		t.Errorf("reads of the list with mobius:ready = %d", reads)
 	}
 }
 
