@@ -30,6 +30,7 @@ type ChatMessage struct {
 	CancelledAt  sql.NullString
 	Voice        int64
 	Selections   string
+	DisplayOnly  int64
 }
 
 type CheckTimeout struct {

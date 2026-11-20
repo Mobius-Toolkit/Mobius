@@ -60,6 +60,10 @@ type QuestionType = InboxItem["questions"][number];
 export type H = HtmlBuilder<Message>;
 
 function renderOwnerStatus(h: H, message: ChatMessage): Html {
+  if (message.displayOnly) {
+    const label = `Sent from the Inbox at ${clock(message.time)}`;
+    return h.span([h.Role("img"), h.AriaLabel(label), h.Attribute("title", label)], [checkIcon(h)]);
+  }
   if (message.stoppedAt) {
     const label = `Stopped, the agent did not get it, at ${clock(message.stoppedAt)}`;
     return h.span([h.Role("img"), h.AriaLabel(label), h.Attribute("title", label)], [banIcon(h)]);
@@ -1607,6 +1611,7 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
                     : messages.some(
                           (m) =>
                             m.author === "Owner" &&
+                            !m.displayOnly &&
                             !m.deliveredAt &&
                             !m.stoppedAt &&
                             !m.cancelledAt,

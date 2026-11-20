@@ -45,6 +45,8 @@ type ChatMessage struct {
 	Selections []ChatSelection `gork:"selections"`
 	// Voice is true when the message came from a voice recording
 	Voice bool `gork:"voice"`
+	// DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat
+	DisplayOnly bool `gork:"displayOnly"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
 	BrowserID string `gork:"browserId"`
 	// DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the
@@ -346,6 +348,7 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		InboxItems:   inboxItems,
 		Selections:   selections,
 		Voice:        message.Voice != 0,
+		DisplayOnly:  message.DisplayOnly != 0,
 		BrowserID:    message.BrowserID.String,
 	}
 	if message.DeliveredAt.Valid {

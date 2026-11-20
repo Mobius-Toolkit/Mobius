@@ -424,8 +424,8 @@ WHERE pending_actions.role = ? AND pending_actions.organization = ? AND pending_
 ORDER BY inbox_items.id;
 
 -- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections, display_only)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -465,7 +465,7 @@ SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages;
 -- name: ListUndeliveredOwnerMessages :many
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
-  AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
+  AND (author = 'Owner' AND browser_id IS NOT NULL AND display_only = 0 OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL AND cancelled_at IS NULL
 ORDER BY id;
 
@@ -514,7 +514,7 @@ ORDER BY id DESC LIMIT ?;
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author != 'Record' AND id < ?
-  AND cancelled_at IS NULL
+  AND cancelled_at IS NULL AND display_only = 0
 ORDER BY id DESC LIMIT ?;
 
 -- name: SetChatSeen :exec

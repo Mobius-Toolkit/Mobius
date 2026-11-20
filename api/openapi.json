@@ -8199,6 +8199,10 @@
             "description": "DeliveredAt is the time of the first thought or tool call of the agent for the message of the Owner, or of the successful end of the turn, or null before that and for another message",
             "format": "date-time"
           },
+          "displayOnly": {
+            "type": "boolean",
+            "description": "DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat"
+          },
           "failedAt": {
             "type": [
               "string",
@@ -8288,6 +8292,7 @@
           "inboxItems",
           "selections",
           "voice",
+          "displayOnly",
           "browserId",
           "deliveredAt",
           "failedAt",
