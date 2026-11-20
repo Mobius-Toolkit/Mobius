@@ -634,6 +634,11 @@ func TestAShortPromptHasTheNewIssueBody(t *testing.T) {
 	waitForKept(t, server, 41)
 
 	fake.SetBody(shop, 41, "Plans have a new price.")
+	testkit.WaitFor(t, func() bool {
+		var body string
+		err := server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = 41", shop).Scan(&body)
+		return err == nil && body == "Plans have a new price."
+	})
 	startFixRound(t, server)
 
 	sessions := waitForImplementerSessions(t, server, 2)
