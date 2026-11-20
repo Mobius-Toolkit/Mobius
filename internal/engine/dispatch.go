@@ -110,11 +110,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
-		stored, err := parseMetadata(row.Metadata)
-		if err != nil {
-			return err
-		}
-		if row.Blocked || row.Kind == projectKind || slices.Contains(stored.Labels, triageLabel) {
+		if row.Blocked || row.Kind == projectKind || row.Triage {
 			continue
 		}
 		if !live {
@@ -1104,7 +1100,7 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream int64, stop map[int64]bool) (bool, error) {
 	return e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
 		number := issue.number
-		if issue.state != "open" || issue.blocked || issue.kind == projectKind || slices.Contains(issue.labels, triageLabel) {
+		if issue.state != "open" || issue.blocked || issue.kind == projectKind || issue.triage {
 			return false, nil
 		}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: source.FullName, Issue: number})

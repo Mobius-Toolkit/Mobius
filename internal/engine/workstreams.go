@@ -485,6 +485,7 @@ type treeIssue struct {
 	author string
 	kind   string
 	labels []string
+	triage bool
 	// blocked is true when the issue has an open blocker.
 	blocked bool
 }
@@ -529,6 +530,7 @@ func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, nu
 			author:  row.Author,
 			kind:    row.Kind,
 			labels:  row.labels,
+			triage:  row.Triage,
 			blocked: slices.Contains(blockedIDs, row.ID),
 		}
 		if done, err := visit(source, issue); err != nil || done {

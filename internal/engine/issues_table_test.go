@@ -23,6 +23,7 @@ type issueRow struct {
 	Workstream sql.NullInt64
 	Parent     sql.NullInt64
 	Kind       string
+	Triage     bool
 	GitHubID   int64
 	Labels     string
 }
@@ -30,8 +31,8 @@ type issueRow struct {
 func issueRows(t *testing.T, server *testserver.Server) []issueRow {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, i *issueRow) error {
-		return rows.Scan(&i.ID, &i.Repository, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.Workstream, &i.Parent, &i.Kind, &i.GitHubID, &i.Labels)
-	}, `SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.author, w.number, p.number, i.kind,
+		return rows.Scan(&i.ID, &i.Repository, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.Workstream, &i.Parent, &i.Kind, &i.Triage, &i.GitHubID, &i.Labels)
+	}, `SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.author, w.number, p.number, i.kind, i.triage,
 		json_extract(i.metadata, '$.github.id'), json_extract(i.metadata, '$.github.labels')
 		FROM issues i
 		LEFT JOIN workstreams w ON w.id = i.workstream

@@ -79,7 +79,7 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 		if cursor.Since.String == labeledAt {
 			return false, nil
 		}
-	} else if err := repository.AddLabel(ctx, number, triageLabel); err != nil {
+	} else if err := e.setTriage(ctx, repository, number, true); err != nil {
 		return false, err
 	}
 	replies, _, err := e.replies(ctx, repository, number, comments)
