@@ -87,7 +87,7 @@ func TestACloseAndThenARemovalOfTheWorkstreamLabelByATrustedUserInOnePollStillCl
 }
 
 // closeInOnePoll starts a server for fake, makes change and the close of the Workstream #12 while one poll waits for
-// its issue list, and waits until the poll closed #41.
+// its issue list, and waits for more polls.
 func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) *testserver.Server {
 	t.Helper()
 	server := startCopied(t, fake)
@@ -108,7 +108,6 @@ func closeInOnePoll(t *testing.T, fake *testkit.FakeGitHub, change func()) *test
 	fake.CloseIssueBy(shop, 12, "owner")
 	release()
 
-	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
 	waitForPolls(t, fake)
 	return server
 }
@@ -122,6 +121,7 @@ func closeWithNewSubIssue(t *testing.T, author, adder string) *testkit.FakeGitHu
 	fake.AddIssue(shop, 42, "Add plan view")
 	fake.SetAuthor(shop, 42, author)
 	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 12, 42, adder) })
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
 	return fake
 }
 
@@ -174,7 +174,7 @@ func TestAClosedWorkstreamAlsoClosesASubIssueThatTheSamePollSees(t *testing.T) {
 	}
 }
 
-func TestAClosedWorkstreamAlsoClosesANewSubIssueOfAClosedIssueOfTheCopiedTreeThatTheSamePollSees(t *testing.T) {
+func TestAClosedWorkstreamKeepsANewSubIssueOfAClosedIssueOfTheCopiedTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
@@ -184,7 +184,13 @@ func TestAClosedWorkstreamAlsoClosesANewSubIssueOfAClosedIssueOfTheCopiedTreeTha
 	fake.AddIssue(shop, 43, "Add plan list")
 	closeInOnePoll(t, fake, func() { fake.AddSubIssueBy(shop, 40, 43, "owner") })
 
-	requireClosedNotPlanned(t, fake, 43)
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
+	if state, _ := fake.State(shop, 43); state != "open" {
+		t.Errorf("state of #43 = %s", state)
+	}
+	if got := len(fake.Comments(shop, 43)); got != 0 {
+		t.Errorf("comments of #43 = %d", got)
+	}
 }
 
 func TestARetryOfAClosedWorkstreamClosesTheSubIssueThatTheFirstTryDidNotClose(t *testing.T) {
