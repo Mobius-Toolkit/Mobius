@@ -21,6 +21,7 @@ type taskLine struct {
 	Depth           int64         `json:"depth"`
 	OtherRepository bool          `json:"otherRepository"`
 	BlockedBy       []taskBlocker `json:"blockedBy"`
+	StartWait       string        `json:"startWait"`
 }
 
 type taskBlocker struct {
@@ -57,6 +58,11 @@ func apiData[T any](t *testing.T, server *testserver.Server, path string) T {
 
 func line(number int64, title, state string, depth int64) taskLine {
 	return taskLine{Number: number, Title: title, State: state, URL: "https://github.com/owner/shop/issues/" + itoa(number), Depth: depth, BlockedBy: []taskBlocker{}}
+}
+
+func startWaiting(l taskLine, reason string) taskLine {
+	l.StartWait = reason
+	return l
 }
 
 // waitForTasks waits until the Tasks tab of the Workstream #12 has want.
@@ -423,7 +429,7 @@ func TestStopClearsAWaitingStartWithoutSettingTriageAndTheNextPollsStartNoTask(t
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
-	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "ready" })
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "start waits" })
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -566,5 +572,94 @@ func TestStopRefusesAnOpenIssueWithNoTaskAndChangesNoLabel(t *testing.T) {
 	}
 	if got := fake.Labels(shop, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestTheTasksTabGivesTheReasonOfEachWaitingStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	turnStartOff(t, server)
+	for number, title := range map[int64]string{40: "Add the price table", 41: "Add plan model", 42: "Add plan price", 43: "Add plan name"} {
+		fake.AddIssue(shop, number, title)
+		fake.AddSubIssue(shop, 12, number)
+	}
+	fake.AddBlockedBy(shop, 42, 40)
+	for _, number := range []int64{41, 42, 43} {
+		fake.AddLabel(shop, number, "mobius:ready", "owner")
+	}
+	fake.AddLabel(shop, 41, "mobius:triage", "owner")
+
+	blocked := line(42, "Add plan price", "start waits", 0)
+	blocked.BlockedBy = []taskBlocker{{Number: 40}}
+	waitForTasks(t, server, []taskLine{
+		line(40, "Add the price table", "open", 0),
+		startWaiting(line(41, "Add plan model", "start waits", 0), "waits for the triage"),
+		blocked,
+		startWaiting(line(43, "Add plan name", "start waits", 0), "waits for the Start switch"),
+	})
+}
+
+func TestTheTasksTabWritesNoHeldWorkWhileTheStartSwitchIsOff(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startLabeled(t, fake, false, "")
+	turnStartOff(t, server)
+	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	lines := taskTab(t, server)
+
+	if len(lines) != 1 || lines[0].State != "start waits" || lines[0].StartWait != "waits for the Start switch" {
+		t.Errorf("lines = %+v", lines)
+	}
+	if held := getSwitches(t, server).Held; len(held) != 0 {
+		t.Errorf("held = %+v", held)
+	}
+}
+
+func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaitingWith(t, fake, "owner_action", "")
+	fake.RemoveLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	waitForPolls(t, fake)
+	startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if len(lines) != 1 || lines[0].State != "waits for Owner action" {
+		t.Errorf("lines = %+v", lines)
+	}
+}
+
+func TestTheTasksTabGivesTheReasonOfAWaitingStartOfAStoppedTaskWithNoPullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("stop status = %d: %s", status, body)
+	}
+	turnStartOff(t, server)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("start status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if len(lines) != 1 || lines[0].State != "start waits" || lines[0].StartWait != "waits for the Start switch" {
+		t.Errorf("lines = %+v", lines)
 	}
 }

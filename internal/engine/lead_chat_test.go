@@ -495,7 +495,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 50)
 	fake.AddSubIssue(shop, 50, 51)
 	waitForPoll(t, server, fake)
-	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "ready", 0), line(43, "Plan API", "open", 1), line(42, "Old spike", "closed", 0)})
+	waitForTasks(t, server, []taskLine{startWaiting(line(41, "Add plan model", "start waits", 0), "waits for the Start switch"), line(43, "Plan API", "open", 1), line(42, "Old spike", "closed", 0)})
 	lead := filepath.Join(dataDir, "leads", "owner", "shop", "12")
 	if err := os.MkdirAll(lead, 0o750); err != nil {
 		t.Fatal(err)
@@ -528,7 +528,7 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\nnote 1\n",
 		"note 200\nMEMORY.md is too long. Make it shorter.\n",
-		"# Task list\n\nowner/shop#41 Add plan model: ready\nowner/shop#43 Plan API: open\n\n",
+		"# Task list\n\nowner/shop#41 Add plan model: start waits\nowner/shop#43 Plan API: open\n\n",
 		"# Chat history\n\nLead (",
 		"):\nmessage 2\n\n",
 		"):\nmessage 21\n\n",

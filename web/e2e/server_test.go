@@ -277,7 +277,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, the
 // user code "shop-code" of the first App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
-// Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
+// Workstream plants/garden#19 has an open task, an open task that the first blocks, a task that needs a human, and an open task #90 whose Start waits for the triage.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
 // The Workstream plants/garden#11 has the task #85. Its Implementer round ran after the engine clock was set, and the
@@ -390,6 +390,7 @@ func TestServer(t *testing.T) {
 	github.AddBlockedBy("plants/garden", 71, 70)
 	github.AddSubIssueOf("plants/garden", 19, 72, "Water the bark")
 	github.AddLabel("plants/garden", 72, "mobius:needs-human", "owner")
+	github.AddSubIssueOf("plants/garden", 19, 90, "Choose the bark color")
 	engine.Release = "v0.1.0"
 	github.SetLatestRelease("v0.1.4")
 	github.SetComparedCommits(
@@ -708,6 +709,15 @@ func TestServer(t *testing.T) {
 
 	shop := engine.ChatKey{Organization: "owner", Repository: "owner/shop", Workstream: 12}
 	github.AddLabel("owner/shop", 45, "mobius:ready", "owner")
+	github.AddLabel("plants/garden", 90, "mobius:ready", "owner")
+	github.AddLabel("plants/garden", 90, "mobius:triage", "owner")
+	testkit.WaitFor(t, func() bool {
+		var waiting int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM issues WHERE repository = 'plants/garden' AND number = 90 AND triage AND start_requested_at IS NOT NULL").Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		return waiting == 1
+	})
 	waitForChat(t, server, shop, "tell_owner")
 	testkit.WaitFor(t, func() bool {
 		var open int

@@ -120,7 +120,7 @@ func TestTheStopOfAReadyIssueAddsOneRecordToTheLeadChat(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddBlockedBy(shop, 41, 40)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "ready" })
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "start waits" })
 	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
