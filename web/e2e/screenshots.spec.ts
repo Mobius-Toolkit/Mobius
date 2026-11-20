@@ -1970,7 +1970,7 @@ test("screenshots", async ({ page }) => {
     const body = (await response.json()) as { data: { number: number; state: string }[] };
     for (const line of body.data) {
       if (line.number === 71) {
-        line.state = "ready";
+        line.state = "start waits";
       }
     }
     await route.fulfill({ response, json: body });
@@ -1988,7 +1988,10 @@ test("screenshots", async ({ page }) => {
           ]
         : [page.getByLabel("Upgrade available")]),
       page.getByText("#71 Spread the bark").filter({ visible: true }),
-      page.getByText("ready", { exact: true }).filter({ visible: true }),
+      page
+        .getByRole("button", { name: /#71 Spread the bark/ })
+        .getByText("start waits", { exact: true })
+        .filter({ visible: true }),
       page.getByText("blocked by #70").filter({ visible: true }),
     ],
     async (device) => {
@@ -1999,6 +2002,34 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(blockedReadyRoute);
+  await screenshot(
+    page,
+    "chat-tasks-start-waits",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("#90 Choose the bark color").filter({ visible: true }),
+      page.getByText("waits for the triage").filter({ visible: true }),
+      page.getByText("start waits", { exact: true }).filter({ visible: true }),
+      page.getByRole("button", { name: "Stop #90" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByText("#90 Choose the bark color")
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
   const taskDetailRoute = "**/api/workstreams/plants/garden/19/tasks/plants/garden/71";
   await page.route(taskDetailRoute, (route) =>
     route.fulfill({
@@ -2288,6 +2319,7 @@ test("screenshots", async ({ page }) => {
       otherRepository: true,
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
+      startWait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -2328,6 +2360,7 @@ test("screenshots", async ({ page }) => {
       otherRepository: false,
       url: "https://github.com/plants/garden/issues/74",
       blockedBy: [],
+      startWait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -2368,6 +2401,7 @@ test("screenshots", async ({ page }) => {
       otherRepository: false,
       url: "https://github.com/plants/garden/issues/75",
       blockedBy: [],
+      startWait: "",
     });
     await route.fulfill({ response, json: body });
   });

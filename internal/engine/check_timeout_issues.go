@@ -88,7 +88,7 @@ func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.
 		return e.queries.EndCheckTimeout(ctx, store.EndCheckTimeoutParams{EndedAt: now(), ID: timeout.ID})
 	}
 	title := fmt.Sprintf("Examine the time of the local check of %s", repository.FullName)
-	return e.createRecordIssue(ctx, repository, workstream, title, checkTimeoutBody(timeout), []string{readyLabel}, func(q *store.Queries, row int64) error {
+	return e.createRecordIssue(ctx, repository, workstream, title, checkTimeoutBody(timeout), true, func(q *store.Queries, row int64) error {
 		return q.SetCheckTimeoutIssueRow(ctx, store.SetCheckTimeoutIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: timeout.ID})
 	})
 }

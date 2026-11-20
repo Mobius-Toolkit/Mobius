@@ -1108,6 +1108,9 @@ test("the Coordinator chat stays open after its actions", async ({ page }) => {
     ).toBeVisible();
     await expect(page).toHaveURL("/chat");
     await expect(link).toBeAttached();
+    // The move requests a Start, and the dispatch gives the issue a task.
+    const reset = await page.request.delete(`/e2e/dispatches/owner/shop/${issue}`);
+    expect(reset.ok()).toBe(true);
   }
 });
 
@@ -1503,13 +1506,13 @@ test("Start of a task with a blocker sends the start request, and the row shows 
   await start.click();
   expect((await request).status()).toBe(204);
   await expect(page.getByText("#71 starts when unblocked")).toBeVisible();
-  await expect(row.getByText("ready", { exact: true })).toBeVisible();
+  await expect(row.getByText("start waits", { exact: true })).toBeVisible();
   await expect(row.getByText("blocked by #70")).toBeVisible();
   await expect(start).toHaveCount(0);
 
   await page.reload();
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
-  await expect(row.getByText("ready", { exact: true })).toBeVisible();
+  await expect(row.getByText("start waits", { exact: true })).toBeVisible();
   await expect(row.getByText("blocked by #70")).toBeVisible();
   await expect(start).toHaveCount(0);
 
@@ -1535,6 +1538,7 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
       otherRepository: false,
       url: "https://github.com/plants/garden/issues/73",
       blockedBy: [{ number: 70, repository: null, workstreamTitle: "" }],
+      startWait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -1587,6 +1591,7 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
       otherRepository: true,
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
+      startWait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -1620,6 +1625,7 @@ const stopStates = [
   "waits for Lead",
   "waits for Owner",
   "waits for start_implementer",
+  "start waits",
 ];
 
 async function routeStopTasks(page: Page) {
@@ -1636,6 +1642,7 @@ async function routeStopTasks(page: Page) {
           otherRepository: false,
           url: `https://github.com/plants/garden/issues/${80 + index}`,
           blockedBy: index === 5 ? [{ number: 70, repository: null, workstreamTitle: "" }] : [],
+          startWait: "",
         })),
       },
     }),
@@ -3713,7 +3720,7 @@ test.describe("the Chat button of a task row", () => {
     const composer = main.locator("form");
     const chat = page.getByRole("button", { name: "Chat about #70" });
     await expect(chat).toHaveAttribute("title", "Chat about #70");
-    await expect(page.getByRole("button", { name: /^Chat about #/ })).toHaveCount(3);
+    await expect(page.getByRole("button", { name: /^Chat about #/ })).toHaveCount(4);
     await chat.click();
     const card = composer.getByRole("button", { name: "Remove #70" });
     await expect(card).toHaveCount(1);
@@ -3883,6 +3890,7 @@ test.describe("the detail view of a task", () => {
       depth: 0,
       otherRepository: false,
       blockedBy: [],
+      startWait: "",
       implementer: null,
     }));
 

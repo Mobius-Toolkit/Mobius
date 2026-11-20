@@ -251,7 +251,10 @@ func TestTheStopHoldsTheDispatchWhileTheDiagnoserReadsAHardBreak(t *testing.T) {
 	if hasLiveTask(t, server, 45) {
 		t.Error("a task started")
 	}
-	if labels := fake.Labels(shop, 45); !slices.Contains(labels, "mobius:ready") {
+	if got := startByOf(t, server, shop, 45); got != "owner" {
+		t.Errorf("start_requested_by = %q", got)
+	}
+	if labels := fake.Labels(shop, 45); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels = %v", labels)
 	}
 }

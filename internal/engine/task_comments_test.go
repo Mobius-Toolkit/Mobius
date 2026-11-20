@@ -125,7 +125,7 @@ when = "Dollars were chosen"
 call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 `+askScript)
 	dispatchTask(fake, 41, "Add plan model")
-	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 2 })
 	fake.FailAddComment(shop, 41, true)
 	fake.FailAddLabels(shop, 41, true)
 

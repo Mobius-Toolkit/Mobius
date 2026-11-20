@@ -66,6 +66,67 @@ type TaskLine struct {
 	BlockedBy []Blocker
 	// Implementer is the own Implementer setting of an open task, or nil.
 	Implementer *store.IssueBinding
+	// StartWait is the reason that a Start waits when State is "start waits", or "". An open blocker gives no reason,
+	// because BlockedBy shows it.
+	StartWait string
+}
+
+// startWaits holds the state that Tasks reads one time to give the reason of each waiting Start. ciStops has the
+// result of ciStop of each repository that a waiting Start needs.
+type startWaits struct {
+	draining   bool
+	startOff   bool
+	repairsOff bool
+	ciStops    map[string]map[int64]bool
+}
+
+func (e *Engine) readStartWaits(ctx context.Context) (*startWaits, error) {
+	startOff, err := e.startOff(ctx)
+	if err != nil {
+		return nil, err
+	}
+	repairsOff, err := e.repairsOff(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &startWaits{draining: e.draining(), startOff: startOff, repairsOff: repairsOff, ciStops: map[string]map[int64]bool{}}, nil
+}
+
+// startWait gives the reason that the Start of the issue of repository waits, or "". Triage comes first, because it
+// holds the Start also after the drain ends. The other reasons follow the order of the holds of dispatchReady. It writes
+// no held work.
+func (e *Engine) startWait(ctx context.Context, reads *startWaits, repository string, row treeRow, blocked bool) (string, error) {
+	if row.Triage {
+		return "waits for the triage", nil
+	}
+	if reads.draining {
+		return "waits for the upgrade", nil
+	}
+	stop, ok := reads.ciStops[repository]
+	if !ok {
+		var err error
+		if stop, err = e.ciStop(ctx, repository); err != nil {
+			return "", err
+		}
+		reads.ciStops[repository] = stop
+	}
+	switch {
+	case len(stop) > 0 && !stop[row.Number]:
+		return "waits for the CI break of main", nil
+	case blocked:
+		return "", nil
+	case row.Kind == projectKind:
+		return "a Project does not start", nil
+	case reads.startOff:
+		return "waits for the Start switch", nil
+	case reads.repairsOff:
+		repair, err := e.repairIssue(ctx, repository, row.Number)
+		if repair {
+			return "waits for the Repairs switch", nil
+		}
+		return "", err
+	}
+	return "", nil
 }
 
 // Blocker is an open blocker of a task.
@@ -115,6 +176,10 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		}
 		blockers[row.Issue] = append(blockers[row.Issue], blocker)
 	}
+	reads, err := e.readStartWaits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	lines := []TaskLine{}
 	// depths holds the depth of the sub-issues of each issue by its id. The id 0 is the Workstream issue.
 	depths := map[int64]int64{}
@@ -143,8 +208,9 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 				if found {
 					line.Implementer = &setting
 				}
-				if line.State == "working" || line.State == "open" {
+				if line.State == "working" || line.State == "open" || line.State == "triage" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
+					live := err == nil
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
@@ -155,10 +221,18 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 							return nil, err
 						}
 						line.State = waitState(task.State, line.State, heldEvent)
-					case task.State == "needs_human":
+					case line.State == "open" && task.State == "needs_human":
 						line.State = "ready"
-					case task.State == "owner_action":
+					case line.State == "open" && task.State == "owner_action":
 						line.State = waitState(task.State, line.State, false)
+					case row.StartRequested && (!live || task.State == "stopped" && !task.PullRequest.Valid):
+						line.State = "start waits"
+						line.StartWait, err = e.startWait(ctx, reads, issueRepositoryName, row, len(line.BlockedBy) > 0)
+						if err != nil {
+							return nil, err
+						}
+					case row.StartRequested && live && line.State == "open":
+						line.State = "ready"
 					}
 				}
 			}
@@ -239,8 +313,12 @@ func waitState(task, label string, heldEvent bool) string {
 }
 
 // labelState gives the first Mobius label of labels in the order of Labels, with no "mobius:", or open.
+// mobius:ready is an input label with no copy state, so labelState skips it.
 func labelState(labels []string) string {
 	for _, label := range Labels {
+		if label.Name == readyLabel {
+			continue
+		}
 		if slices.Contains(labels, label.Name) {
 			return strings.TrimPrefix(label.Name, "mobius:")
 		}
@@ -390,9 +468,9 @@ func stopReason(number int64, text string) string {
 }
 
 // ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
-// task. The next poll continues the task. An issue with no live task has lost its task: ResumeIssue adds mobius:ready
-// instead, so the dispatch starts a new task. The label change uses the user token of the Owner, because the poll
-// trusts a label change only from a trusted user.
+// task. The next poll continues the task. An issue with no live task has lost its task: ResumeIssue requests a Start
+// instead, so the dispatch starts a new task. The removal of mobius:needs-human uses the user token of the Owner,
+// because the poll trusts that change only from a trusted user.
 func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -408,10 +486,10 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err := asOwner.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
 			return err
 		}
-		if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
 			return err
 		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{needsHumanLabel}); err != nil {
+		if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
 			return err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
@@ -459,9 +537,7 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 }
 
 // StopIssue stops the work on the issue number of repositoryName. A live task that is not stopped stops with its
-// Workers. An issue with mobius:ready and no such task gets the triage state instead, so the dispatch does not start it.
-// The removal of mobius:ready uses the user token of the Owner, because the poll trusts a label change only from a
-// trusted user.
+// Workers and clears any waiting Start. An issue with a waiting Start and no such task clears its Start.
 func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
 	e.stopMu.Lock()
 	defer e.stopMu.Unlock()
@@ -469,13 +545,7 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 	if err != nil {
 		return err
 	}
-	asOwner, err := e.github.AsOwner(ctx, repository)
-	if err != nil {
-		// The text tells the Owner how to authorize the Mobius App.
-		return refusal(err.Error())
-	}
-	issue, err := e.existingIssue(ctx, repository, number)
-	if err != nil {
+	if _, err := e.existingIssue(ctx, repository, number); err != nil {
 		return err
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
@@ -483,31 +553,24 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return err
 	}
 	if err == nil && task.State != "stopped" {
-		removed := []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel}
-		if hasLabel(issue, readyLabel) {
-			// The dispatch continues a stopped task that has mobius:ready, so the label must go before the task stops.
-			if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
-				return err
-			}
-			removed = append(removed, readyLabel)
+		if err := e.clearStart(ctx, repository.FullName, number); err != nil {
+			return err
 		}
 		if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
 			return err
 		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, removed); err != nil {
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel}); err != nil {
 			return err
 		}
 		e.addIssueRecord(ctx, repository, number, "You stopped")
 		return nil
 	}
-	if hasLabel(issue, readyLabel) {
-		if _, err := e.setTriage(ctx, repository, number, true); err != nil {
-			return err
-		}
-		if err := asOwner.RemoveLabel(ctx, number, readyLabel); err != nil {
-			return err
-		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{readyLabel}); err != nil {
+	start, err := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: repository.FullName, Number: number})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if err == nil && start.StartRequestedAt.Valid {
+		if err := e.clearStart(ctx, repository.FullName, number); err != nil {
 			return err
 		}
 		e.addIssueRecord(ctx, repository, number, "You stopped")
@@ -520,25 +583,16 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 	return refuse("%s has no task to stop.", eventRef(workstreamRepository, repository.FullName, number))
 }
 
-// StartIssue clears the triage state of the issue number of repositoryName and adds mobius:ready. The label mobius:ready
-// uses the user token of the Owner, because the dispatch trusts mobius:ready only from a trusted user.
+// StartIssue clears the triage state of the issue number of repositoryName and requests a Start.
 func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err
 	}
-	asOwner, err := e.github.AsOwner(ctx, repository)
-	if err != nil {
-		// The text tells the Owner how to authorize the Mobius App.
-		return refusal(err.Error())
-	}
 	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
 		return err
 	}
-	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
-		return err
-	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, nil); err != nil {
+	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
 		return err
 	}
 	e.addIssueRecord(ctx, repository, number, "You started")

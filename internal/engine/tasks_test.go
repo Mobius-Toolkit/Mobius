@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -22,6 +21,7 @@ type taskLine struct {
 	Depth           int64         `json:"depth"`
 	OtherRepository bool          `json:"otherRepository"`
 	BlockedBy       []taskBlocker `json:"blockedBy"`
+	StartWait       string        `json:"startWait"`
 }
 
 type taskBlocker struct {
@@ -58,6 +58,11 @@ func apiData[T any](t *testing.T, server *testserver.Server, path string) T {
 
 func line(number int64, title, state string, depth int64) taskLine {
 	return taskLine{Number: number, Title: title, State: state, URL: "https://github.com/owner/shop/issues/" + itoa(number), Depth: depth, BlockedBy: []taskBlocker{}}
+}
+
+func startWaiting(l taskLine, reason string) taskLine {
+	l.StartWait = reason
+	return l
 }
 
 // waitForTasks waits until the Tasks tab of the Workstream #12 has want.
@@ -359,50 +364,43 @@ func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQu
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question", "mobius:ready"}) {
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question"}) {
 		t.Errorf("labels = %v", got)
 	}
-	for _, label := range []string{"mobius:needs-human", "mobius:ready"} {
-		if got := fake.LabelActor(shop, 41, label); got != "owner" {
-			t.Errorf("actor of %s = %s", label, got)
-		}
+	if got := fake.LabelActor(shop, 41, "mobius:needs-human"); got != "owner" {
+		t.Errorf("actor of mobius:needs-human = %s", got)
+	}
+	if got := startByOf(t, server, shop, 41); got != "ui" {
+		t.Errorf("start_requested_by = %q", got)
 	}
 }
 
-func TestStartAddsMobiusReadyAsTheOwner(t *testing.T) {
+func TestStartRequestsAStartWithNoOwnerToken(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	server := startCopied(t, fake)
-
-	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusConflict {
-		t.Errorf("status = %d: %s", status, body)
-	}
-	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:ready"}) {
+	if got := fake.Labels(shop, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:ready"); got != "owner" {
-		t.Errorf("actor of mobius:ready = %s", got)
+	if got := startByOf(t, server, shop, 41); got != "ui" {
+		t.Errorf("start_requested_by = %q", got)
 	}
 }
 
-func TestStartClearsTheTriageStateAsTheAppAndAddsMobiusReadyAsTheOwnerAndTheNextPollDispatchesTheIssue(t *testing.T) {
+func TestStartClearsTheTriageStateAsTheAppAndRequestsAStartAndTheNextPollDispatchesTheIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:triage", testkit.AppSlug+"[bot]")
 	waitForPoll(t, server, fake)
-	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -411,8 +409,8 @@ func TestStartClearsTheTriageStateAsTheAppAndAddsMobiusReadyAsTheOwnerAndTheNext
 	if !fake.LabelRemovedBy(shop, 41, "mobius:triage", testkit.AppSlug+"[bot]") {
 		t.Error("the App did not remove mobius:triage")
 	}
-	if !fake.LabelAddedBy(shop, 41, "mobius:ready", "owner") {
-		t.Error("the Owner did not add mobius:ready")
+	if slices.Contains(fake.Labels(shop, 41), "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
 		t.Errorf("task = %+v", task)
@@ -420,33 +418,30 @@ func TestStartClearsTheTriageStateAsTheAppAndAddsMobiusReadyAsTheOwnerAndTheNext
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:triage") })
 }
 
-func TestStopSetsTheTriageStateAsTheAppAndRemovesMobiusReadyAsTheOwnerAndTheNextPollsStartNoTask(t *testing.T) {
+func TestStopClearsAWaitingStartWithoutSettingTriageAndTheNextPollsStartNoTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 40, "Add the price table")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddBlockedBy(shop, 41, 40)
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "ready" })
-	authorize(t, server)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server) == "start waits" })
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:triage"}) {
+	if got := fake.Labels(shop, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
 	}
-	if !fake.LabelRemovedBy(shop, 41, "mobius:ready", "owner") {
-		t.Error("the Owner did not remove mobius:ready")
+	if hasStart(t, server, 41) {
+		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:triage"); got != testkit.AppSlug+"[bot]" {
-		t.Errorf("actor of mobius:triage = %s", got)
-	}
-	if got := stateOfTask(t, server); got != "triage" {
+	if got := stateOfTask(t, server); got != "open" {
 		t.Errorf("state = %s", got)
 	}
 	fake.RemoveBlockedBy(shop, 41, 40)
@@ -459,11 +454,9 @@ func TestStopSetsTheTriageStateAsTheAppAndRemovesMobiusReadyAsTheOwnerAndTheNext
 func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
-	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -483,23 +476,22 @@ func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testi
 	}
 }
 
-func TestStopOfARunningTaskWithMobiusReadyRemovesMobiusReadyAsTheOwnerAndTheNextPollsDoNotContinueTheTask(t *testing.T) {
+func TestStopOfARunningTaskWithAWaitingStartClearsTheStartAndTheNextPollsDoNotContinueTheTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
-	fake.KeepLabelFromBot(shop, 41, "mobius:ready")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	authorize(t, server)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if !fake.LabelRemovedBy(shop, 41, "mobius:ready", "owner") {
-		t.Error("the Owner did not remove mobius:ready")
+	if hasStart(t, server, 41) {
+		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
 	}
 	if labels := fake.Labels(shop, 41); len(labels) != 0 {
 		t.Errorf("labels = %v", labels)
@@ -513,41 +505,23 @@ func TestStopOfARunningTaskWithMobiusReadyRemovesMobiusReadyAsTheOwnerAndTheNext
 	}
 }
 
-func TestAStopAfterThePageReadOfAPollDoesNotLetThePollEndTheStoppedTaskAndDispatchTheIssueAgain(t *testing.T) {
+func TestAStopDuringDispatchDoesNotLetThePollEndTheStoppedTaskAndDispatchTheIssueAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddIssue(shop, 43, "Add plan price")
+	fake.AddSubIssue(shop, 12, 43)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
-	fake.KeepLabelFromBot(shop, 41, "mobius:ready")
-	waitForPolls(t, fake)
-	authorize(t, server)
-	changedReached, releaseChanged := fake.HoldIssueEvents(shop, 41)
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	<-changedReached
-	dispatchReached, releaseDispatch := fake.HoldIssueEvents(shop, 41)
-	releaseChanged()
-	<-dispatchReached
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/43")
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/43/start", ""); status != http.StatusNoContent {
+		t.Fatalf("start #43 status = %d: %s", status, body)
+	}
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("stop #41 status = %d: %s", status, body)
+	}
+	release()
 
-	stopped := make(chan int)
-	go func() {
-		status, _ := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", "")
-		stopped <- status
-	}()
-	status := 0
-	select {
-	case status = <-stopped:
-	case <-time.After(time.Second):
-	}
-	releaseDispatch()
-	if status == 0 {
-		status = <-stopped
-	}
-
-	if status != http.StatusNoContent {
-		t.Fatalf("status = %d", status)
-	}
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)
@@ -598,5 +572,94 @@ func TestStopRefusesAnOpenIssueWithNoTaskAndChangesNoLabel(t *testing.T) {
 	}
 	if got := fake.Labels(shop, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestTheTasksTabGivesTheReasonOfEachWaitingStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	turnStartOff(t, server)
+	for number, title := range map[int64]string{40: "Add the price table", 41: "Add plan model", 42: "Add plan price", 43: "Add plan name"} {
+		fake.AddIssue(shop, number, title)
+		fake.AddSubIssue(shop, 12, number)
+	}
+	fake.AddBlockedBy(shop, 42, 40)
+	for _, number := range []int64{41, 42, 43} {
+		fake.AddLabel(shop, number, "mobius:ready", "owner")
+	}
+	fake.AddLabel(shop, 41, "mobius:triage", "owner")
+
+	blocked := line(42, "Add plan price", "start waits", 0)
+	blocked.BlockedBy = []taskBlocker{{Number: 40}}
+	waitForTasks(t, server, []taskLine{
+		line(40, "Add the price table", "open", 0),
+		startWaiting(line(41, "Add plan model", "start waits", 0), "waits for the triage"),
+		blocked,
+		startWaiting(line(43, "Add plan name", "start waits", 0), "waits for the Start switch"),
+	})
+}
+
+func TestTheTasksTabWritesNoHeldWorkWhileTheStartSwitchIsOff(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startLabeled(t, fake, false, "")
+	turnStartOff(t, server)
+	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	lines := taskTab(t, server)
+
+	if len(lines) != 1 || lines[0].State != "start waits" || lines[0].StartWait != "waits for the Start switch" {
+		t.Errorf("lines = %+v", lines)
+	}
+	if held := getSwitches(t, server).Held; len(held) != 0 {
+		t.Errorf("held = %+v", held)
+	}
+}
+
+func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaitingWith(t, fake, "owner_action", "")
+	fake.RemoveLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	waitForPolls(t, fake)
+	startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if len(lines) != 1 || lines[0].State != "waits for Owner action" {
+		t.Errorf("lines = %+v", lines)
+	}
+}
+
+func TestTheTasksTabGivesTheReasonOfAWaitingStartOfAStoppedTaskWithNoPullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("stop status = %d: %s", status, body)
+	}
+	turnStartOff(t, server)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("start status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("task state = %s", state)
+	}
+	if len(lines) != 1 || lines[0].State != "start waits" || lines[0].StartWait != "waits for the Start switch" {
+		t.Errorf("lines = %+v", lines)
 	}
 }

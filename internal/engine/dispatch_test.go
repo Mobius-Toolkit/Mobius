@@ -177,8 +177,11 @@ func TestAReadyLabelOfAStrangerDoesNotDispatch(t *testing.T) {
 	dispatchTask(fake, 43, "Add plan model")
 
 	liveTaskOf(t, server, 43)
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
-		t.Errorf("labels %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return len(fake.Labels(shop, 41)) == 0 && outgoingChanges(t, server, "pending") == 0
+	})
+	if hasLiveTask(t, server, 41) || hasStart(t, server, 41) {
+		t.Errorf("startBy = %q", startByOf(t, server, shop, 41))
 	}
 }
 
@@ -194,8 +197,11 @@ func TestAnIssueWithAnOpenBlockerWaitsUntilTheBlockerCloses(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	dispatchTask(fake, 43, "Price rounding")
 	liveTaskOf(t, server, 43)
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
-		t.Fatalf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && len(fake.Labels(shop, 41)) == 0
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Fatalf("the blocked issue started")
 	}
 
 	fake.CloseIssue(shop, 40)
@@ -216,8 +222,11 @@ func TestAnIssueWithATriageLabelWaitsUntilTheOwnerRemovesTheLabel(t *testing.T) 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	dispatchTask(fake, 43, "Price rounding")
 	liveTaskOf(t, server, 43)
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:triage", "mobius:ready"}) {
-		t.Fatalf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:triage"})
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Fatalf("the issue with triage started")
 	}
 
 	fake.RemoveLabel(shop, 41, "mobius:triage", "owner")

@@ -1292,7 +1292,9 @@ export interface TaskLine {
   otherRepository: boolean;
   /** Repository is the full name of the repository of the task issue */
   repository: string;
-  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". */
+  /** StartWait is the reason that a Start waits when State is "start waits", or an empty text */
+  startWait: string;
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task whose Lead event is held until the Owner answers shows "waits for Owner". A task that waits for start_implementer shows "waits for start_implementer". A task that waits for an action of the Owner shows "waits for Owner action". A Start that waits shows "start waits". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
@@ -6681,7 +6683,7 @@ export const getStartIssueUrl = (owner: string,
 }
 
 /**
- * StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * StartIssue clears the triage state of an issue and requests a Start, so Mobius starts the task.
  */
 export const startIssue = async (owner: string,
     name: string,
@@ -6755,7 +6757,7 @@ export const getStopIssueUrl = (owner: string,
 }
 
 /**
- * StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and with the reason when the issue has no task to stop.
+ * StopIssue stops the live task of an issue and its agents, or clears a waiting Start when the issue has no running task. It returns 409 with the reason when the issue has no task to stop.
  */
 export const stopIssue = async (owner: string,
     name: string,

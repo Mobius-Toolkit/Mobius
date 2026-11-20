@@ -53,11 +53,8 @@ func TestTheSameTestInTwoPullRequestsGivesOneIssueBelowTheMaintenanceWorkstream(
 			t.Errorf("body does not have %q:\n%s", want, body)
 		}
 	}
-	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:triage") {
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:triage") || slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels = %v", labels)
-	}
-	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
-		t.Errorf("the App did not add mobius:ready to the issue")
 	}
 	testkit.WaitFor(t, func() bool {
 		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
@@ -96,8 +93,8 @@ func TestANewCIFailureIssueGetsReadyAndTheUsualFlowStartsItsTask(t *testing.T) {
 	twoPlacesOfTheSameFailure(t, fake, server)
 
 	number := ciBreakIssue(t, fake)
-	if !fake.LabelAddedBy(shop, number, "mobius:ready", testkit.AppSlug+"[bot]") {
-		t.Errorf("the App did not add mobius:ready to the issue")
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels = %v", labels)
 	}
 	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
 		t.Errorf("task = %+v", task)
@@ -119,7 +116,10 @@ func TestRepairsOffHoldsTheReadyIssueOfACIFailureAndRepairsOnStartsItsTask(t *te
 	if count := tasksOf(t, server, number); count != 0 {
 		t.Errorf("tasks = %d", count)
 	}
-	if labels := fake.Labels(shop, number); !slices.Contains(labels, "mobius:ready") {
+	if got := startByOf(t, server, shop, number); got != "record" {
+		t.Errorf("start_requested_by = %q", got)
+	}
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels = %v", labels)
 	}
 
@@ -171,7 +171,9 @@ func TestAPendingCIFailureIssueWithNoReadyGetsBelowTheWorkstreamWithNoLabelAndNo
 	twoPlacesOfTheSameFailure(t, fake, server)
 
 	number := createdCIFailureIssue(t, server)
-	fake.RemoveLabel(shop, number, "mobius:ready", "owner")
+	if err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
+		t.Fatal(err)
+	}
 	waitForPolls(t, fake)
 
 	fake.FailAddSubIssue(shop, maintenance, false)
@@ -201,9 +203,13 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelWrite(t
 	twoPlacesOfTheSameFailure(t, fake, server)
 
 	number := createdCIFailureIssue(t, server)
-	fake.RemoveLabel(shop, number, "mobius:ready", "owner")
+	if err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
+		t.Fatal(err)
+	}
 	fake.AddSubIssue(shop, maintenance, number)
-	fake.AddLabel(shop, number, "mobius:ready", "owner")
+	if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+		t.Fatal(err)
+	}
 	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {
 		t.Errorf("task = %+v", task)
 	}

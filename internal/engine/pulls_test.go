@@ -112,8 +112,8 @@ func TestAPollReadsThePullRequestsOfManyReviewedTasksWithOneCall(t *testing.T) {
 
 	waitForPolls(t, fake)
 
-	// Each poll makes two requests that GitHub answers with Not Modified.
-	if got, polls := fake.PullRequestReads()-reads, (fake.NotModifiedCount()-notModified)/2; got > polls+1 {
+	// Each poll makes one request that GitHub answers with Not Modified.
+	if got, polls := fake.PullRequestReads()-reads, fake.NotModifiedCount()-notModified; got > polls+1 {
 		t.Errorf("reads of pull requests = %d in %d polls", got, polls)
 	}
 	if states := []string{liveTaskState(t, server, 41), liveTaskState(t, server, 43)}; states[0] != "reviewed" || states[1] != "reviewed" {

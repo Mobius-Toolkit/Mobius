@@ -52,7 +52,7 @@ func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Rep
 		return err
 	}
 	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
-	return e.createRecordIssue(ctx, repository, workstream, title, ciFailureBody(repository, failure, places), []string{readyLabel}, func(q *store.Queries, row int64) error {
+	return e.createRecordIssue(ctx, repository, workstream, title, ciFailureBody(repository, failure, places), true, func(q *store.Queries, row int64) error {
 		return q.SetCIFailureIssueRow(ctx, store.SetCIFailureIssueRowParams{IssueRow: sql.NullInt64{Int64: row, Valid: true}, ID: failure.ID})
 	})
 }

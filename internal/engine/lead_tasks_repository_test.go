@@ -122,7 +122,7 @@ func TestMarkReadyAddsTheLabelToATaskIssueInAnotherRepository(t *testing.T) {
 
 	session := run(t, server, leadSpec(t), "Start it")
 
-	if got := reply(t, server, session); got != "Marked owner/garden#7 ready." {
+	if got := reply(t, server, session); got != "Requested a Start of owner/garden#7." {
 		t.Errorf("reply = %q", got)
 	}
 	testkit.WaitFor(t, func() bool {

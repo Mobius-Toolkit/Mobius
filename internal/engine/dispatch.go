@@ -17,20 +17,16 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-// readyEndpoint is the endpoint of the list of the issues with mobius:ready in the sync_cursors table.
-const readyEndpoint = "ready"
-
-// dispatchReady acts on the open issues with mobius:ready of a trusted actor:
-//   - An issue with no Workstream waits.
+// dispatchReady acts on the issues of repository with start_requested_at set, in the order of start_requested_at:
 //   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). Each other issue with a live
-//     task, also a task that waits for a human, loses mobius:ready.
-//   - An issue with an open blocker or with mobius:triage waits.
+//     task, also a task that waits for a human, clears its Start.
+//   - An issue with no open Workstream, a closed issue, an issue with an open blocker, a Project, or an issue with
+//     triage waits and keeps its Start.
 //   - An issue with no live task continues its earlier task when the pull request of that task is still open.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
-// The drain holds each new dispatch, and then the next poll after the drain reads the same list again. The stop of a
-// hard break of the CI holds each issue except the issue of a CI task in the same way: the issue keeps mobius:ready.
-// The Start switch holds each issue that would get a new task in the same way.
+// The drain, the stop of a hard break of the CI, and the Start and Repairs switches hold each new dispatch and keep its
+// Start columns.
 func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
@@ -39,104 +35,104 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
 	e.stopMu.Lock()
 	defer e.stopMu.Unlock()
-	page, changed, err := repository.OpenIssuesWithLabelPage(ctx, readyLabel, cursor.Etag.String)
-	if err != nil || !changed {
+	rows, err := e.queries.ListStartIssues(ctx, repository.FullName)
+	if err != nil {
 		return err
 	}
-	held := false
-	for _, issue := range page.Issues {
-		if issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
+	for _, row := range rows {
+		if len(stop) > 0 && !stop[row.Number] {
 			continue
 		}
-		number := int64(issue.GetNumber())
-		if len(stop) > 0 && !stop[number] {
-			held = true
-			continue
-		}
-		events, err := e.issueEvents(ctx, repository, number)
-		if err != nil {
-			return err
-		}
-		actor, ok := readyActor(events, appLogin(repository.AppSlug))
-		if !ok || !e.TrustedAuthor(repository.AppSlug, actor) {
-			continue
-		}
-		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: row.Number})
 		live := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		meta, err := parseMetadata(row.Metadata)
+		if err != nil {
+			return err
+		}
+		structural := slices.Contains(meta.Labels, bucketLabel) || slices.Contains(meta.Labels, workstreamLabel)
 		switch {
 		case live && task.State == "stopped" && task.PullRequest.Valid:
-			if err := e.resume(ctx, repository, issue, task, actor); err != nil {
+			if row.State != "open" || structural {
+				continue
+			}
+			issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+			if err != nil || !ok {
+				if err != nil {
+					return err
+				}
+				continue
+			}
+			if err := e.resume(ctx, repository, issue, task, row.StartRequestedBy); err != nil {
 				return err
 			}
 			continue
 		case live && task.State != "stopped":
-			if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+			if err := e.clearStart(ctx, repository.FullName, row.Number); err != nil {
 				return err
 			}
 			continue
 		}
-		workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, number)
+		if !row.Workstream.Valid || !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid || row.WorkstreamState.String != "open" {
+			continue
+		}
+		pendingParent, err := e.queries.HasPendingIssueParent(ctx, store.HasPendingIssueParentParams{Repository: repository.FullName, Number: row.Number})
 		if err != nil {
 			return err
 		}
-		if workstream == 0 {
-			// The link below the Workstream does not change the list of the issues with mobius:ready.
-			pending, err := e.queries.HasPendingIssueParent(ctx, store.HasPendingIssueParentParams{Repository: repository.FullName, Number: number})
+		if pendingParent {
+			_, ws, err := e.workstreamOf(ctx, repository, row.Number)
 			if err != nil {
 				return err
 			}
-			held = held || pending
-			continue
-		}
-		row, err := e.queries.GetDispatchIssue(ctx, store.GetDispatchIssueParams{Repository: repository.FullName, Number: number})
-		if errors.Is(err, sql.ErrNoRows) {
-			// The copy of the tree of an open Workstream can come after the label. A closed Workstream has no tree.
-			open, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: workstreamRepository, Number: workstream})
-			if err != nil {
-				return err
+			if ws == 0 {
+				continue
 			}
-			held = held || open
-			continue
 		}
-		if err != nil {
-			return err
-		}
-		if row.Blocked || row.Kind == projectKind || row.Triage {
+		if row.State != "open" || row.Blocked || row.Kind == projectKind || row.Triage || structural {
 			continue
 		}
 		if !live {
-			earlier, found, err := e.endedTaskToContinue(ctx, repository, number)
+			earlier, found, err := e.endedTaskToContinue(ctx, repository, row.Number)
 			if err != nil {
 				return err
 			}
 			if found {
-				if err := e.continueEndedTask(ctx, repository, issue, earlier, actor); err != nil {
+				issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+				if err != nil || !ok {
+					if err != nil {
+						return err
+					}
+					continue
+				}
+				if err := e.continueEndedTask(ctx, repository, issue, earlier, row.StartRequestedBy); err != nil {
 					return err
 				}
 				continue
 			}
 		}
-		off, err := e.holdStart(ctx, repository.FullName, number)
+		off, err := e.holdStart(ctx, repository.FullName, row.Number)
 		if err != nil {
 			return err
 		}
 		if !off {
-			off, err = e.holdRepairs(ctx, repository.FullName, number)
+			off, err = e.holdRepairs(ctx, repository.FullName, row.Number)
 			if err != nil {
 				return err
 			}
 		}
 		if off {
-			held = true
+			continue
+		}
+		issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+		if err != nil || !ok {
+			if err != nil {
+				return err
+			}
 			continue
 		}
 		if live {
@@ -146,23 +142,44 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			e.closeKept(task.ID)
 			e.publish(Change{Workstreams: true})
 		}
-		if err := e.dispatch(ctx, repository, issue, workstreamRepository, workstream, actor); err != nil {
+		if err := e.dispatch(ctx, repository, issue, row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, row.StartRequestedBy); err != nil {
 			return err
 		}
 	}
-	if held {
-		return nil
-	}
-	return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{
-		Repository: repository.FullName,
-		Endpoint:   readyEndpoint,
-		Etag:       sql.NullString{String: page.ETag, Valid: page.ETag != ""},
-	})
+	return nil
 }
 
-// dispatch adds a task for the issue in the Workstream, with a dispatch event for the Lead.
-// mobius:working comes before the removal of mobius:ready, so a failure between the two leaves the issue in the
-// list of the next poll.
+// dispatchIssue reads the issue number from GitHub when dispatchReady acts on it, refuses pull requests and
+// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call.
+func (e *Engine) dispatchIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, bool, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return nil, false, err
+	}
+	if issue == nil || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
+		return nil, false, nil
+	}
+	if issue.GetState() != "open" {
+		e.copyWrite.Lock()
+		changed, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      issue.GetState(),
+			Repository: repository.FullName,
+			Number:     number,
+		})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return nil, false, err
+		}
+		if changed > 0 {
+			e.publish(Change{Workstreams: true})
+		}
+		return nil, false, nil
+	}
+	return issue, true, nil
+}
+
+// dispatch adds a task for the issue in the Workstream, clears its Start columns in the same transaction, and adds a
+// dispatch event for the Lead.
 func (e *Engine) dispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, workstreamRepository string, workstream int64, actor string) error {
 	issue, err := e.withRowText(ctx, repository.FullName, issue)
 	if err != nil {
@@ -172,13 +189,18 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
 	}
-	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, nil); err != nil {
 		return err
 	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, []string{readyLabel}); err != nil {
+	e.copyWrite.Lock()
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		if _, err := q.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()}); err != nil {
+			return err
+		}
+		_, err := q.ClearIssueStart(ctx, store.ClearIssueStartParams{Repository: repository.FullName, Number: number})
 		return err
-	}
-	_, err = e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()})
+	})
+	e.copyWrite.Unlock()
 	if err != nil {
 		return err
 	}
@@ -199,44 +221,14 @@ func pullRequestLink(repository string, number int64) string {
 	return fmt.Sprintf("https://github.com/%s/pull/%d", repository, number)
 }
 
-// readyActor gives the actor of the last mobius:ready of events. After a move_issue of the Triager, the Mobius App
-// removes mobius:no-workstream and adds mobius:ready again. Only this sequence, after a triage of the Mobius App with
-// no other mobius:ready between, counts with the actor of the mobius:ready before the triage.
-func readyActor(events []*gh.IssueEvent, app string) (string, bool) {
-	byApp := func(event *gh.IssueEvent) bool { return strings.EqualFold(event.GetActor().GetLogin(), app) }
-	last, ready := lastEvent(events, "labeled", readyLabel)
-	if ready == nil || ready.Actor == nil {
-		return "", false
-	}
-	login := ready.GetActor().GetLogin()
-	earlier := events[:last]
-	_, moved := lastEvent(earlier, "", "")
-	if !byApp(ready) || moved == nil || moved.GetEvent() != "unlabeled" || moved.GetLabel().GetName() != noWorkstreamLabel || !byApp(moved) {
-		return login, true
-	}
-	triage, triaged := lastEvent(earlier, "labeled", noWorkstreamLabel)
-	if triaged == nil || !byApp(triaged) {
-		return login, true
-	}
-	if _, between := lastEvent(earlier[triage:], "labeled", readyLabel); between != nil {
-		return login, true
-	}
-	_, first := lastEvent(earlier[:triage], "labeled", readyLabel)
-	if first == nil || first.Actor == nil {
-		return "", false
-	}
-	return first.GetActor().GetLogin(), true
-}
-
-// lastEvent gives the last event of kind with label in events, and its index. With an empty kind, it gives the last
-// event. It gives -1 and nil when events has no such event.
-func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent) {
-	for i, event := range slices.Backward(events) {
-		if kind == "" || event.GetEvent() == kind && event.GetLabel().GetName() == label {
-			return i, event
+// lastEvent gives the last event of kind with label in events, or nil when events has no such event.
+func lastEvent(events []*gh.IssueEvent, kind, label string) *gh.IssueEvent {
+	for _, event := range slices.Backward(events) {
+		if event.GetEvent() == kind && event.GetLabel().GetName() == label {
+			return event
 		}
 	}
-	return -1, nil
+	return nil
 }
 
 // commentEvents acts on the new comments of the issue of a live task: a new comment that is an event resets the
@@ -1074,10 +1066,6 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if startsTasks(level) {
 			continue
 		}
-		issue, err := repository.Issue(ctx, task.Issue)
-		if err != nil || issue == nil {
-			return err
-		}
 		off, err := e.holdStart(ctx, repository.FullName, task.Issue)
 		if err != nil {
 			return err
@@ -1090,6 +1078,10 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		}
 		if off {
 			continue
+		}
+		issue, err := repository.Issue(ctx, task.Issue)
+		if err != nil || issue == nil {
+			return err
 		}
 		if err := e.dispatchAnswer(ctx, repository, issue, task); err != nil {
 			return err
@@ -1160,14 +1152,13 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
 // actor: a task with a pull request continues as continueTask says, and a task with no pull request goes back to the
-// Lead with a dispatch event. The counters of the task go back to 0 when the actor is not the Mobius App.
-// mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
+// Lead with a dispatch event. The counters of the task go back to 0 for each actor except the Mobius App and "record".
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
 	issue, err := e.withRowText(ctx, repository.FullName, issue)
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(actor, appLogin(repository.AppSlug)) {
+	if !strings.EqualFold(actor, appLogin(repository.AppSlug)) && actor != "record" {
 		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 			return err
 		}
@@ -1189,13 +1180,23 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err != nil || !moved {
 		return err
 	}
-	if err := e.dismissItems(ctx, stopped); err != nil {
-		return err
+	return e.dismissItems(ctx, stopped)
+}
+
+// restoreIssueStart puts back a Start that setTaskStateClearStart cleared when the step after the move fails and rolls
+// back the state of the task.
+func (e *Engine) restoreIssueStart(ctx context.Context, repository string, number int64, start store.GetIssueStartRow, hadStart bool) error {
+	if !hadStart || !start.StartRequestedAt.Valid {
+		return nil
 	}
-	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
-		return err
-	}
-	return nil
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
+	return e.queries.SetIssueStart(ctx, store.SetIssueStartParams{
+		StartRequestedAt: start.StartRequestedAt,
+		StartRequestedBy: start.StartRequestedBy,
+		Repository:       repository,
+		Number:           number,
+	})
 }
 
 // redispatch gives the task with no pull request back to the Lead with a dispatch event that has text and comment. It
@@ -1204,14 +1205,19 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
-	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: task.State})
+	start, startErr := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: task.Repository, Number: task.Issue})
+	if startErr != nil && !errors.Is(startErr, sql.ErrNoRows) {
+		return false, startErr
+	}
+	moved, err := e.setTaskStateClearStart(ctx, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: task.State}, task.Repository, task.Issue)
 	if err != nil || moved == 0 {
 		return false, err
 	}
 	err = e.addCommentLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})
-		return false, errors.Join(err, stateErr)
+		restoreErr := e.restoreIssueStart(ctx, task.Repository, task.Issue, start, startErr == nil)
+		return false, errors.Join(err, stateErr, restoreErr)
 	}
 	return true, nil
 }
@@ -1258,7 +1264,11 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 			return false, err
 		}
 	}
-	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
+	start, startErr := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: task.Repository, Number: task.Issue})
+	if startErr != nil && !errors.Is(startErr, sql.ErrNoRows) {
+		return false, startErr
+	}
+	moved, err := e.setTaskStateClearStart(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from}, task.Repository, task.Issue)
 	if err != nil || moved == 0 {
 		return false, err
 	}
@@ -1274,7 +1284,8 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	}
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
-		return false, errors.Join(err, stateErr)
+		restoreErr := e.restoreIssueStart(ctx, task.Repository, task.Issue, start, startErr == nil)
+		return false, errors.Join(err, stateErr, restoreErr)
 	}
 	if ci != "" {
 		head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}

@@ -45,6 +45,7 @@ const workstream = { owner: "owner", name: "shop", number: 12 };
 
 const line = (number: number, overrides: Partial<TaskLine> = {}): TaskLine => ({
   blockedBy: [],
+  startWait: "",
   depth: 0,
   implementer: null,
   number,
@@ -291,6 +292,18 @@ describe("Start, Resume and Stop of a task", () => {
           error: "The issue has no task to stop.",
         });
       }),
+    );
+  });
+
+  it("shows Stop and the reason on a line that waits for its start, and no Start", () => {
+    const waiting = line(42, { state: "start waits", startWait: "waits for the triage" });
+
+    Scene.scene(
+      { update, view },
+      Scene.given(createModel({ lines: Option.some([waiting]) })),
+      Scene.expect(Scene.role("button", { name: "Stop #42" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Start #42" })).toBeAbsent(),
+      Scene.expect(Scene.text("waits for the triage")).toExist(),
     );
   });
 

@@ -49,8 +49,9 @@ func parseIssueMetadata(metadata string) (issueMetadata, error) {
 // addIssueToCreate is the create handler for a tree issue. In one transaction, it adds the row of issues with no
 // number, adds its blockers, and adds the outgoing changes create, parent and blockers in order. It gives the id of
 // the row and the id of its create change. A non-nil record is the handler of a record of Mobius: it stores the id of
-// the row in the record in the same transaction. The row of a curator issue has the triage state.
-func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator bool, record func(*store.Queries, int64) error) (int64, int64, error) {
+// the row in the record in the same transaction. The row of a curator issue has the triage state. When start is true,
+// the row gets the Start columns with source "record".
+func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Repository, workstream issueRef, title, body, mark string, parent *parentToAdd, blockers []resolvedBlocker, labels []string, setting *implementerSettingInput, curator, start bool, record func(*store.Queries, int64) error) (int64, int64, error) {
 	meta := issueMetadata{
 		GitHub: issueGitHub{Labels: append(make([]string, 0, len(labels)), labels...)},
 	}
@@ -68,6 +69,12 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 	metadata, err := json.Marshal(meta)
 	if err != nil {
 		return 0, 0, err
+	}
+	var startAt sql.NullString
+	startBy := ""
+	if start {
+		startAt = sql.NullString{String: now(), Valid: true}
+		startBy = "record"
 	}
 	var issueID, createID int64
 	e.copyWrite.Lock()
@@ -103,14 +110,16 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 			}
 		}
 		issueID, err = q.AddIssueToCreate(ctx, store.AddIssueToCreateParams{
-			Repository: repository.FullName,
-			Title:      title,
-			Body:       e.WithoutChatLink(workstream.repository, workstream.number, body),
-			Author:     appLogin(repository.AppSlug),
-			Workstream: sql.NullInt64{Int64: workstreamID, Valid: true},
-			Parent:     parentID,
-			Triage:     curator,
-			Metadata:   string(metadata),
+			Repository:       repository.FullName,
+			Title:            title,
+			Body:             e.WithoutChatLink(workstream.repository, workstream.number, body),
+			Author:           appLogin(repository.AppSlug),
+			Workstream:       sql.NullInt64{Int64: workstreamID, Valid: true},
+			Parent:           parentID,
+			Triage:           curator,
+			StartRequestedAt: startAt,
+			StartRequestedBy: startBy,
+			Metadata:         string(metadata),
 		})
 		if err != nil {
 			return err
