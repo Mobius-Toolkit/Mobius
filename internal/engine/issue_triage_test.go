@@ -1,9 +1,13 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -148,5 +152,41 @@ func TestAcceptIssueClearsTheTriageStateAndRemovesTheLabelAndRefusesAnIssueWithN
 	})
 	if _, found := triageRowOf(t, server, 32); found {
 		t.Error("the refused call added a row for #32")
+	}
+}
+
+func TestARefusedWriteOfMobiusTriageLeavesTheLabelsOfTheRowAndMarksTheChangeRefused(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.AddLabel(shop, 41, "mobius:triage", "owner")
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).Triage && doneChangesOfPersons(t, server) == 1 })
+	fake.RefuseAddLabels(shop, 41, http.StatusUnprocessableEntity)
+
+	fake.RemoveLabel(shop, 41, "mobius:triage", "mallory")
+
+	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "refused") == 1 })
+	waitForPolls(t, fake)
+	row := issueRowOf(t, server, shop, 41)
+	if !row.Triage || strings.Contains(row.Labels, "mobius:triage") {
+		t.Errorf("triage = %t, labels = %s", row.Triage, row.Labels)
+	}
+}
+
+func TestTheRemovalOfMobiusTriageByAnUntrustedPersonDoesNotStopTheTriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 51, "Rename plans")
+	fake.AddLabel(shop, 51, "mobius:triage", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return !session.EndedAt.Valid })
+
+	fake.RemoveLabel(shop, 51, "mobius:triage", "mallory")
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 51), "mobius:triage") })
+	waitForPolls(t, fake)
+	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 || sessions[0].EndedAt.Valid {
+		t.Errorf("sessions = %+v", sessions)
 	}
 }

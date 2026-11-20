@@ -110,6 +110,10 @@ func (e *Engine) sendTriage(ctx context.Context, repository github.Repository, c
 	if hasLabel(issue, triageLabel) == triage {
 		return false, nil
 	}
+	sent, err := e.queries.GetOutgoingChange(ctx, change.ID)
+	if err != nil || sent.Status != "sent" {
+		return false, err
+	}
 	if triage {
 		return false, e.changeCopiedLabels(ctx, change.Repository, number, []string{triageLabel}, nil)
 	}

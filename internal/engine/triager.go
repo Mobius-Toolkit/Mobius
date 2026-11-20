@@ -450,8 +450,8 @@ func (e *Engine) labeledText(ctx context.Context, repository github.Repository, 
 	return title, body, nil
 }
 
-// stopTriager stops the Triager of the issue number, and ends its turn in the database, when a person removed
-// mobius:triage last. Mobius ignores its own removal of that label.
+// stopTriager stops the Triager of the issue number, and ends its turn in the database, when a trusted user removed
+// mobius:triage last. Mobius ignores its own removal of that label, and the removal of another person.
 func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, number int64) error {
 	key := triageKey{repository.FullName, number}
 	e.triagesMu.Lock()
@@ -468,7 +468,7 @@ func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, 
 		if event.GetEvent() != "unlabeled" || event.GetLabel().GetName() != triageLabel {
 			continue
 		}
-		if strings.EqualFold(event.GetActor().GetLogin(), appLogin(repository.AppSlug)) {
+		if strings.EqualFold(event.GetActor().GetLogin(), appLogin(repository.AppSlug)) || !e.trustedUser(event.GetActor().GetLogin()) {
 			return nil
 		}
 		e.triagesMu.Lock()
