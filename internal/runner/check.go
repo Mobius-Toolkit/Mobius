@@ -27,7 +27,7 @@ const accessTimeout = 2 * time.Minute
 // The access of the Harness to the model is good when the turn ends with no error. Only a prompt proves it, because a
 // model without access passes the start and the set. The error holds the error text of the Harness.
 func CheckAccess(ctx context.Context, harness config.Harness, model, effort, dir, dataDir, path string) error {
-	session, err := Start(ctx, harness, 0, false, false, dir, dataDir, path, "", nil, "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(ctx, harness, 0, false, false, dir, dataDir, path, "", nil, "", "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		return err
 	}
@@ -49,22 +49,23 @@ func CheckAccess(ctx context.Context, harness config.Harness, model, effort, dir
 // Check runs .mobius/check of the worktree in the agent environment with the Harness commands on path. It gives the
 // output, with stdout and stderr in the order of the writes, and true when the check passes. A worktree with no
 // .mobius/check passes. A check that does not end in timeout fails, and its output ends with a line about the timeout.
-// When ctx ends, Check stops the check and gives the error of ctx.
-func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
-	return runScript(ctx, "check", dataDir, worktree, path, timeout)
+// When ctx ends, Check stops the check and gives the error of ctx. The mobius-port of the check gets its ports from
+// portURL.
+func Check(ctx context.Context, dataDir, worktree, path, portURL string, timeout time.Duration) (string, bool, error) {
+	return runScript(ctx, "check", dataDir, worktree, path, portURL, timeout)
 }
 
 // Init runs .mobius/init of the worktree in the same way as Check. A worktree with no .mobius/init passes.
-func Init(ctx context.Context, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
-	return runScript(ctx, "init", dataDir, worktree, path, timeout)
+func Init(ctx context.Context, dataDir, worktree, path, portURL string, timeout time.Duration) (string, bool, error) {
+	return runScript(ctx, "init", dataDir, worktree, path, portURL, timeout)
 }
 
-func runScript(ctx context.Context, name, dataDir, worktree, path string, timeout time.Duration) (string, bool, error) {
+func runScript(ctx context.Context, name, dataDir, worktree, path, portURL string, timeout time.Duration) (string, bool, error) {
 	script := ".mobius/" + name
 	if _, err := os.Stat(filepath.Join(worktree, script)); errors.Is(err, fs.ErrNotExist) {
 		return "", true, nil
 	}
-	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", "")
+	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", "", portURL)
 	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./"+script+" 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
@@ -124,7 +125,7 @@ func FreeSpace(ctx context.Context, dataDir, path string) (uint64, error) {
 	if df == "" {
 		return 0, errors.New("df is not on PATH")
 	}
-	cmd := command(ctx, df, dataDir, dataDir, path, "", "", "")
+	cmd := command(ctx, df, dataDir, dataDir, path, "", "", "", "")
 	cmd.Args = append(cmd.Args, "-Pk", dataDir)
 	output, err := run(cmd)
 	if err != nil {

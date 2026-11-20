@@ -542,7 +542,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		}
 		servers = runnerMcpServers(selected)
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, mcp.PortURL(e.agents.Addr, a.key), a.update)
 	if err != nil {
 		return err
 	}
@@ -1297,6 +1297,13 @@ func (e *Engine) Listen() (<-chan Change, func()) {
 func (e *Engine) publish(change Change) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.publishLocked(change)
+	if change.Inbox != nil && change.Inbox.Kind == todoKind {
+		e.publishLocked(Change{Workstreams: true})
+	}
+}
+
+func (e *Engine) publishLocked(change Change) {
 	for listener := range e.listeners {
 		select {
 		case listener <- change:

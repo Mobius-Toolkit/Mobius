@@ -1413,6 +1413,8 @@ export interface Workstream {
   evergreen: boolean;
   /** Number is the number of the Workstream issue */
   number: number;
+  /** OpenTodos is the number of open deployment todos of the Workstream */
+  openTodos: number;
   /** ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it */
   readyToMerge: boolean;
   /** ReportedFinished is true when the Workstream issue has no sub-issue and its Lead reported it as finished */
@@ -9308,7 +9310,7 @@ export const getCompleteWorkstreamUrl = (owner: string,
 }
 
 /**
- * CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, or when it has no task and its Lead did not report it as finished.
+ * CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, when the Workstream has an open task, when it has no task and its Lead did not report it as finished, or when it has an open deployment todo.
  */
 export const completeWorkstream = async (owner: string,
     name: string,

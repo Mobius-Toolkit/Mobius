@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -757,6 +758,71 @@ func TestAFailureOfMarkReadyForReviewKeepsTheTodoItemOpenAndASecondCompleteMakes
 
 	if len(itemsOf(t, server, "todo")) != 0 || draft(fake) {
 		t.Errorf("todo items = %d, draft = %v", len(itemsOf(t, server, "todo")), draft(fake))
+	}
+}
+
+func TestACompletionRefusesAWorkstreamWithAnOpenTodoUntilTheOwnerCompletesIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, mandatoryNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	todo := waitForItem(t, server, "todo")
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+
+	status, body := complete(t, server, 12)
+
+	if status != http.StatusConflict || !strings.Contains(body, "The Workstream has 1 open todo.") {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+		t.Fatalf("done status = %d: %s", status, body)
+	}
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("complete status = %d: %s", status, body)
+	}
+	if state, reason := fake.State(shop, 12); state != "closed" || reason != "completed" {
+		t.Errorf("state = %s, %s", state, reason)
+	}
+}
+
+func TestACompletionRefusesAWorkstreamWithMultipleOpenTodosWithTheCount(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, twoNeeds)
+	sendChat(t, server, leadChat, "Approve #41")
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "todo")) == 2 })
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+
+	status, body := complete(t, server, 12)
+
+	if status != http.StatusConflict || !strings.Contains(body, "The Workstream has 2 open todos.") {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+}
+
+func TestTheOwnerDismissesAnOptionalTodoPublishesAWorkstreamsChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := approvableWith(t, fake, "off", true, optionalNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	todo := waitForItem(t, server, "todo")
+	waitForPolls(t, fake)
+	events := liveEvents(t, server, "workstreams")
+
+	if status, body := dismissItem(t, server, todo.ID); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	select {
+	case data := <-events:
+		if data != "{}" {
+			t.Errorf("data = %s", data)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("no workstreams event after one minute")
 	}
 }
 
