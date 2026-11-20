@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -23,8 +24,14 @@ func approvable(t *testing.T, fake *testkit.FakeGitHub, level string, authorized
 // approvableWith is approvable with the script reviewer for the Reviewer.
 func approvableWith(t *testing.T, fake *testkit.FakeGitHub, level string, authorized bool, reviewer string) *testserver.Server {
 	t.Helper()
+	return approvableAdjusting(t, fake, level, authorized, reviewer, keepSessionOpen)
+}
+
+// approvableAdjusting is approvableWith with the config change adjust.
+func approvableAdjusting(t *testing.T, fake *testkit.FakeGitHub, level string, authorized bool, reviewer string, adjust func(*config.Config)) *testserver.Server {
+	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server, _ := connectTask(t, fake, reviewer+leadApproves+leadStarts, commits, keepSessionOpen)
+	server, _ := connectTask(t, fake, reviewer+leadApproves+leadStarts, commits, adjust)
 	if authorized {
 		authorize(t, server)
 	}
