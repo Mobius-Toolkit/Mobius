@@ -569,8 +569,7 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	}
 }
 
-// waitForIssue waits for the final title, body and labels of an issue. The result "Created the Workstream" comes
-// after the number, and the poll can still send the label and the body then.
+// The result "Created the Workstream" comes after the number, and the poll can still send the label and the body then.
 func waitForIssue(t *testing.T, fake *testkit.FakeGitHub, repository string, number int64, title, body string, labels []string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
