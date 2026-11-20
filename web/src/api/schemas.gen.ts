@@ -1202,7 +1202,7 @@ export const ResumeIssueParams = S.Struct({
 
 
 /**
- * StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * StartIssue clears the triage state of an issue and requests a Start, so Mobius starts the task.
  */
 export const StartIssueParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),
@@ -1212,7 +1212,7 @@ export const StartIssueParams = S.Struct({
 
 
 /**
- * StopIssue stops the live task of an issue and its agents. An issue with mobius:ready and no live task gets mobius:triage instead, so Mobius does not start it. Mobius changes the labels of a ready issue with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not, and with the reason when the issue has no task to stop.
+ * StopIssue stops the live task of an issue and its agents, or clears a waiting Start when the issue has no running task. It returns 409 with the reason when the issue has no task to stop.
  */
 export const StopIssueParams = S.Struct({
   "owner": S.String.annotate({ description: 'Owner is the owner of the repository' }),

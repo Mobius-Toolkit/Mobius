@@ -65,7 +65,7 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 		if err != nil {
 			return false, err
 		}
-		_, event := lastEvent(events, "labeled", triageLabel)
+		event := lastEvent(events, "labeled", triageLabel)
 		if event != nil {
 			labeledAt = event.GetCreatedAt().UTC().Format(time.RFC3339)
 		}

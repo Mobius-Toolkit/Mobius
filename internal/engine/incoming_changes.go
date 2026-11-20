@@ -61,6 +61,9 @@ func eventField(event *gh.IssueEvent) (string, map[string]string, bool) {
 		if label == triageLabel {
 			return triageField, map[string]string{"label": label}, true
 		}
+		if label == readyLabel {
+			return startField, map[string]string{"label": label}, true
+		}
 		field, setting := settingField(label)
 		return field, map[string]string{"label": label}, setting
 	case closedChange, reopenedChange:
@@ -255,6 +258,9 @@ func (e *Engine) applyIncomingChange(ctx context.Context, repository github.Repo
 	}
 	if change.Field == triageField {
 		return false, e.applyTriageChange(ctx, repository, change)
+	}
+	if change.Field == startField {
+		return false, e.applyStartChange(ctx, repository, change)
 	}
 	if _, setting := settingLabels[change.Field]; setting {
 		return false, e.applySettingChange(ctx, repository, change)

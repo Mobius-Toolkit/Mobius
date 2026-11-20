@@ -97,8 +97,8 @@ func (e *Engine) matchLeadWrite(ctx context.Context, writes []store.LeadWrite, r
 
 // issueEvents gives the events of the issue or the pull request number. A label event of the Mobius App that matches a
 // write of the Lead has the first trusted user as its actor, so each check treats it as the action of a person. A
-// setting label of a Workstream, the label mobius:workstream and the label mobius:triage are no such labels: Mobius
-// writes them from workstreams and from issues.
+// setting label of a Workstream, mobius:workstream, mobius:triage and mobius:ready are no such labels: Mobius
+// writes them from workstreams and from issues, or ignores mobius:ready from the App.
 func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, number int64) ([]*gh.IssueEvent, error) {
 	events, err := repository.IssueEvents(ctx, number)
 	if err != nil {
@@ -115,7 +115,8 @@ func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, 
 	}
 	result := slices.Clone(events)
 	for i, event := range events {
-		if !isApp(event) || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" || isSettingLabel(event.GetLabel().GetName()) || event.GetLabel().GetName() == workstreamLabel || event.GetLabel().GetName() == triageLabel {
+		label := event.GetLabel().GetName()
+		if !isApp(event) || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" || isSettingLabel(label) || label == workstreamLabel || label == triageLabel || label == readyLabel {
 			continue
 		}
 		item := leadItem{kind: event.GetEvent(), id: event.GetID(), issue: number, label: event.GetLabel().GetName(), at: event.GetCreatedAt().Time}

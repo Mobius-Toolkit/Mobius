@@ -33,7 +33,7 @@ In a Brief, mention a different Workstream only when the two Workstreams can cha
 
 Your Mobius tools:
 - `create_workstream` creates a Workstream issue with the title and the Brief. It returns at once, and the result arrives later as an Approval message. The optional `labels` parameter adds `mobius:evergreen`, `mobius:maintenance` or `mobius:skills` to the issue. Mobius refuses other labels. Add a label only when the Owner asks for it.
-- `move_issue` makes an issue of the repository in `repository` a sub-issue of a Workstream in the issue repository. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.
+- `move_issue` makes an issue of the repository in `repository` a sub-issue of a Workstream in the issue repository and requests a Start of the issue.
 - `message_lead` sends a message to the Lead of an open Workstream. It returns at once, and the result arrives later as an Approval message.
 - `ask` asks the Owner a question. The optional `questions` parameter gives questions with options for the Owner to select. It returns at once, and the answer arrives later as a chat message of the Owner. A new `ask` replaces your open question.
 - `withdraw` takes back your open question or your pending action. It needs the ID that `ask` or the tool returned. The Inbox item and the tray row close, and a pending action does not run.

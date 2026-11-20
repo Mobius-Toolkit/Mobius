@@ -440,12 +440,10 @@ func TestMobiusReadyOnAnIssueWithNoWorkstreamStartsNoTriager(t *testing.T) {
 
 	fake.AddLabel(shop, 59, "mobius:ready", "owner")
 
+	testkit.WaitFor(t, func() bool { return startByOf(t, server, shop, 59) == "owner" && len(fake.Labels(shop, 59)) == 0 })
 	waitForPolls(t, fake)
 	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
 		t.Errorf("sessions = %+v", got)
-	}
-	if got := fake.Labels(shop, 59); !slices.Equal(got, []string{"mobius:ready"}) {
-		t.Errorf("labels = %v", got)
 	}
 }
 

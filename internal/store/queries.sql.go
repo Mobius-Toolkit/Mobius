@@ -686,21 +686,24 @@ func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) 
 }
 
 const addIssueToCreate = `-- name: AddIssueToCreate :one
-INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, metadata)
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, start_requested_at, start_requested_by, metadata)
 VALUES (?1, ?2, ?3, 'open', ?4,
-        ?5, ?6, 'task', CAST(?7 AS BOOLEAN), ?8)
+        ?5, ?6, 'task', CAST(?7 AS BOOLEAN),
+        ?8, ?9, ?10)
 RETURNING id
 `
 
 type AddIssueToCreateParams struct {
-	Repository string
-	Title      string
-	Body       string
-	Author     string
-	Workstream sql.NullInt64
-	Parent     sql.NullInt64
-	Triage     bool
-	Metadata   string
+	Repository       string
+	Title            string
+	Body             string
+	Author           string
+	Workstream       sql.NullInt64
+	Parent           sql.NullInt64
+	Triage           bool
+	StartRequestedAt sql.NullString
+	StartRequestedBy string
+	Metadata         string
 }
 
 // The row has no number until the send of its create writes it.
@@ -713,6 +716,8 @@ func (q *Queries) AddIssueToCreate(ctx context.Context, arg AddIssueToCreatePara
 		arg.Workstream,
 		arg.Parent,
 		arg.Triage,
+		arg.StartRequestedAt,
+		arg.StartRequestedBy,
 		arg.Metadata,
 	)
 	var id int64
@@ -1254,6 +1259,46 @@ func (q *Queries) AddSkillUse(ctx context.Context, arg AddSkillUseParams) error 
 		arg.Skill,
 		arg.Source,
 		arg.UsedAt,
+	)
+	return err
+}
+
+const addStartIssue = `-- name: AddStartIssue :exec
+INSERT INTO issues (repository, number, title, body, state, author, kind, triage, start_requested_at, start_requested_by, metadata)
+VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
+        ?7, EXISTS (SELECT 1 FROM json_each(CAST(?8 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
+        ?9, ?10, json_object('github', json(CAST(?8 AS TEXT))))
+ON CONFLICT (repository, number) DO UPDATE SET
+    start_requested_at = excluded.start_requested_at,
+    start_requested_by = excluded.start_requested_by
+`
+
+type AddStartIssueParams struct {
+	Repository       string
+	Number           int64
+	Title            string
+	Body             string
+	State            string
+	Author           string
+	Kind             string
+	Github           string
+	StartRequestedAt sql.NullString
+	StartRequestedBy string
+}
+
+// A row that exists keeps its fields, and only its Start changes.
+func (q *Queries) AddStartIssue(ctx context.Context, arg AddStartIssueParams) error {
+	_, err := q.db.ExecContext(ctx, addStartIssue,
+		arg.Repository,
+		arg.Number,
+		arg.Title,
+		arg.Body,
+		arg.State,
+		arg.Author,
+		arg.Kind,
+		arg.Github,
+		arg.StartRequestedAt,
+		arg.StartRequestedBy,
 	)
 	return err
 }
@@ -1829,6 +1874,25 @@ UPDATE init_failures SET issue_row = NULL WHERE issue_row = ?
 func (q *Queries) ClearInitFailureIssueRow(ctx context.Context, issueRow sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, clearInitFailureIssueRow, issueRow)
 	return err
+}
+
+const clearIssueStart = `-- name: ClearIssueStart :execrows
+UPDATE issues SET start_requested_at = NULL, start_requested_by = ''
+WHERE repository = ?1 AND number = CAST(?2 AS INTEGER)
+  AND (start_requested_at IS NOT NULL OR start_requested_by != '')
+`
+
+type ClearIssueStartParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) ClearIssueStart(ctx context.Context, arg ClearIssueStartParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearIssueStart, arg.Repository, arg.Number)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const clearMcpServerOAuthTokens = `-- name: ClearMcpServerOAuthTokens :exec
@@ -2556,10 +2620,10 @@ func (q *Queries) DeleteToolAutoUpgrade(ctx context.Context, package_ string) er
 }
 
 const deleteUnusedIssues = `-- name: DeleteUnusedIssues :exec
-DELETE FROM issues WHERE workstream IS NULL AND triage = 0 AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id)
+DELETE FROM issues WHERE workstream IS NULL AND triage = 0 AND start_requested_at IS NULL AND NOT EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id)
 `
 
-// An issue that is in no tree, has no triage and blocks no issue goes away.
+// An issue that is in no tree, has no triage, has no Start and blocks no issue goes away.
 func (q *Queries) DeleteUnusedIssues(ctx context.Context) error {
 	_, err := q.db.ExecContext(ctx, deleteUnusedIssues)
 	return err
@@ -3618,31 +3682,6 @@ func (q *Queries) GetDeploymentTodoOfItem(ctx context.Context, inboxItem int64) 
 	return i, err
 }
 
-const getDispatchIssue = `-- name: GetDispatchIssue :one
-SELECT i.kind, CAST(i.triage AS BOOLEAN) AS triage,
-    EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
-FROM issues i
-WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER)
-`
-
-type GetDispatchIssueParams struct {
-	Repository string
-	Number     int64
-}
-
-type GetDispatchIssueRow struct {
-	Kind    string
-	Triage  bool
-	Blocked bool
-}
-
-func (q *Queries) GetDispatchIssue(ctx context.Context, arg GetDispatchIssueParams) (GetDispatchIssueRow, error) {
-	row := q.db.QueryRowContext(ctx, getDispatchIssue, arg.Repository, arg.Number)
-	var i GetDispatchIssueRow
-	err := row.Scan(&i.Kind, &i.Triage, &i.Blocked)
-	return i, err
-}
-
 const getEndedTaskWithPullRequest = `-- name: GetEndedTaskWithPullRequest :one
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at FROM tasks
 WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
@@ -3870,6 +3909,28 @@ func (q *Queries) GetIssueRepositoryChoice(ctx context.Context, organization str
 	var repository string
 	err := row.Scan(&repository)
 	return repository, err
+}
+
+const getIssueStart = `-- name: GetIssueStart :one
+SELECT start_requested_at, start_requested_by FROM issues
+WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+`
+
+type GetIssueStartParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetIssueStartRow struct {
+	StartRequestedAt sql.NullString
+	StartRequestedBy string
+}
+
+func (q *Queries) GetIssueStart(ctx context.Context, arg GetIssueStartParams) (GetIssueStartRow, error) {
+	row := q.db.QueryRowContext(ctx, getIssueStart, arg.Repository, arg.Number)
+	var i GetIssueStartRow
+	err := row.Scan(&i.StartRequestedAt, &i.StartRequestedBy)
+	return i, err
 }
 
 const getIssueText = `-- name: GetIssueText :one
@@ -6862,7 +6923,7 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 }
 
 const listCopiedTree = `-- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, CAST(i.start_requested_at IS NOT NULL AS BOOLEAN) AS start_requested, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
@@ -6884,6 +6945,7 @@ type ListCopiedTreeRow struct {
 	Author          string
 	Kind            string
 	Triage          bool
+	StartRequested  bool
 	Metadata        string
 }
 
@@ -6906,6 +6968,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.Author,
 			&i.Kind,
 			&i.Triage,
+			&i.StartRequested,
 			&i.Metadata,
 		); err != nil {
 			return nil, err
@@ -10359,6 +10422,66 @@ func (q *Queries) ListSkillUsesBetween(ctx context.Context, arg ListSkillUsesBet
 	return items, nil
 }
 
+const listStartIssues = `-- name: ListStartIssues :many
+SELECT i.id, CAST(i.number AS INTEGER) AS number, i.state, i.kind, CAST(i.triage AS BOOLEAN) AS triage,
+       i.workstream, i.start_requested_by, w.repository AS workstream_repository,
+       w.number AS workstream_number, w.state AS workstream_state,
+       EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
+FROM issues i
+LEFT JOIN workstreams w ON w.id = i.workstream
+WHERE i.repository = ? AND i.start_requested_at IS NOT NULL AND i.number IS NOT NULL
+ORDER BY julianday(i.start_requested_at), i.id
+`
+
+type ListStartIssuesRow struct {
+	ID                   int64
+	Number               int64
+	State                string
+	Kind                 string
+	Triage               bool
+	Workstream           sql.NullInt64
+	StartRequestedBy     string
+	WorkstreamRepository sql.NullString
+	WorkstreamNumber     sql.NullInt64
+	WorkstreamState      sql.NullString
+	Blocked              bool
+}
+
+func (q *Queries) ListStartIssues(ctx context.Context, repository string) ([]ListStartIssuesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listStartIssues, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStartIssuesRow
+	for rows.Next() {
+		var i ListStartIssuesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Number,
+			&i.State,
+			&i.Kind,
+			&i.Triage,
+			&i.Workstream,
+			&i.StartRequestedBy,
+			&i.WorkstreamRepository,
+			&i.WorkstreamNumber,
+			&i.WorkstreamState,
+			&i.Blocked,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStepTimesBetween = `-- name: ListStepTimesBetween :many
 SELECT id, kind, session, task, issue, workstream, organization, repository, role, harness, model, effort, started_at, ended_at, attempt, result FROM step_times WHERE started_at >= ?1 AND started_at < ?2
 `
@@ -12617,6 +12740,28 @@ type SetIssueRepositoryChoiceParams struct {
 
 func (q *Queries) SetIssueRepositoryChoice(ctx context.Context, arg SetIssueRepositoryChoiceParams) error {
 	_, err := q.db.ExecContext(ctx, setIssueRepositoryChoice, arg.Organization, arg.Repository)
+	return err
+}
+
+const setIssueStart = `-- name: SetIssueStart :exec
+UPDATE issues SET start_requested_at = ?1, start_requested_by = ?2
+WHERE repository = ?3 AND number = CAST(?4 AS INTEGER)
+`
+
+type SetIssueStartParams struct {
+	StartRequestedAt sql.NullString
+	StartRequestedBy string
+	Repository       string
+	Number           int64
+}
+
+func (q *Queries) SetIssueStart(ctx context.Context, arg SetIssueStartParams) error {
+	_, err := q.db.ExecContext(ctx, setIssueStart,
+		arg.StartRequestedAt,
+		arg.StartRequestedBy,
+		arg.Repository,
+		arg.Number,
+	)
 	return err
 }
 

@@ -77,9 +77,12 @@ func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) 
 	fake.AddSubIssue(shop, 12, 43)
 	fake.AddIssue(shop, 44, "Price table")
 	fake.AddBlockedBy(shop, 43, 44)
-	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 	fake.AddLabel(shop, 43, "mobius:question", "mobius-test[bot]")
 	server := startWithLiveTask(t, fake)
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return hasStart(t, server, 43) && !slices.Contains(fake.Labels(shop, 43), "mobius:ready")
+	})
 	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, kind, payload, time) VALUES ('owner/shop', 12, 'stop', 'An old event', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
@@ -87,6 +90,9 @@ func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) 
 	fake.CloseIssue(shop, 12)
 
 	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 43); return state == "closed" })
+	if hasStart(t, server, 43) {
+		t.Errorf("#43 still has a Start")
+	}
 	for _, number := range []int64{41, 43} {
 		if state, reason := fake.State(shop, number); state != "closed" || reason != "not_planned" {
 			t.Errorf("state of #%d = %s, %s", number, state, reason)

@@ -266,6 +266,6 @@ func TestMarkReadyContinuesAStoppedTaskWithAPullRequestWhenAutopilotIsOff(t *tes
 	sendChat(t, server, leadChat, "Start #41.")
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
 }

@@ -465,7 +465,7 @@ func TestMarkReadyStartsATrustedIssueOfTheWorkstream(t *testing.T) {
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
 
-	want := "Marked owner/shop#30 ready." +
+	want := "Requested a Start of owner/shop#30." +
 		"error: owner/shop#31 is not an issue of a trusted author." +
 		"error: owner/shop#32 is not in this Workstream."
 	if got := reply(t, server, session); got != want {
@@ -793,12 +793,11 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	}
 }
 
-func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
+func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }")+call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
 	fake.AddIssue(shop, 50, "Add invoices")
-	fake.AddLabel(shop, 50, "mobius:no-workstream", "mobius-test[bot]")
 	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	session := run(t, server, spec, "1. ", "2. ")
@@ -809,8 +808,11 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{50}) {
 		t.Errorf("sub-issues = %v", got)
 	}
-	if got := fake.Labels(shop, 50); !reflect.DeepEqual(got, []string{"mobius:ready"}) {
+	if got := fake.Labels(shop, 50); slices.Contains(got, "mobius:ready") {
 		t.Errorf("labels = %v", got)
+	}
+	if got := startByOf(t, server, shop, 50); got != "coordinator" && !hasLiveTask(t, server, 50) {
+		t.Errorf("start_requested_by = %q and has no live task", got)
 	}
 }
 
@@ -853,7 +855,7 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	}
 }
 
-func TestStopTaskRemovesMobiusReadyAndTheNextPollsDoNotDispatchTheIssueAgain(t *testing.T) {
+func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n" + leadStarts
@@ -862,16 +864,19 @@ func TestStopTaskRemovesMobiusReadyAndTheNextPollsDoNotDispatchTheIssueAgain(t *
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
 	})
-	waitForPolls(t, fake)
-	reached, release := fake.HoldIssueEvents(shop, 12)
-	fake.SetTitle(shop, 12, "Plan the shop")
-	<-reached
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+		t.Fatal(err)
+	}
+	if !hasStart(t, server, 41) {
+		t.Fatal("start was not requested")
+	}
 
 	sendChat(t, server, leadChat, "Stop #41.")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
-	release()
 
+	if hasStart(t, server, 41) {
+		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
+	}
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)

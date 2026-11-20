@@ -106,12 +106,15 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 
 	liveTaskOf(t, server, 43)
 
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
-		t.Errorf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && len(fake.Labels(shop, 41)) == 0
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Errorf("the blocked issue started")
 	}
 }
 
-func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndNoReadyListReadsHappen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -126,13 +129,16 @@ func TestAnIssueWithMobiusReadyBelowAClosedWorkstreamDoesNotStartAndTheReadyList
 
 	waitForPolls(t, fake)
 
-	if hasLiveTask(t, server, 51) || hasIssueRow(t, server, 51) {
-		t.Fatal("the issue below the closed Workstream started or has a row")
+	if hasLiveTask(t, server, 51) {
+		t.Fatal("the issue below the closed Workstream started")
 	}
-	requireReadyListNotModified(t, fake)
+	if row := issueRowOf(t, server, shop, 51); row.Workstream.Valid {
+		t.Fatalf("workstream of #51 = %+v", row.Workstream)
+	}
+	requireNoReadyListReads(t, fake)
 }
 
-func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListGivesNotModified(t *testing.T) {
+func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndNoReadyListReadsHappen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -148,20 +154,16 @@ func TestANestedWorkstreamIssueWithMobiusReadyDoesNotStartAndTheReadyListGivesNo
 	if hasLiveTask(t, server, 50) {
 		t.Fatal("the nested Workstream started as a task")
 	}
-	requireReadyListNotModified(t, fake)
+	requireNoReadyListReads(t, fake)
 }
 
-// requireReadyListNotModified fails when the last read of the list of the issues with mobius:ready gave no 304.
-func requireReadyListNotModified(t *testing.T, fake *testkit.FakeGitHub) {
+// requireNoReadyListReads fails when the poll listed the issues with mobius:ready.
+func requireNoReadyListReads(t *testing.T, fake *testkit.FakeGitHub) {
 	t.Helper()
-	readyReads := []int{}
 	for _, request := range fake.Requests() {
 		if request.Method == http.MethodGet && (strings.Contains(request.Query, "labels=mobius:ready") || strings.Contains(request.Query, "labels=mobius%3Aready")) {
-			readyReads = append(readyReads, request.Status)
+			t.Errorf("unexpected mobius:ready list request: %+v", request)
 		}
-	}
-	if len(readyReads) == 0 || readyReads[len(readyReads)-1] != http.StatusNotModified {
-		t.Errorf("statuses of the mobius:ready list = %v", readyReads)
 	}
 }
 
@@ -180,9 +182,11 @@ func TestAnIssueWithMobiusReadyThatIsAProjectDoesNotStart(t *testing.T) {
 	dispatchTask(fake, 43, "Price rounding")
 
 	liveTaskOf(t, server, 43)
-
-	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:project", "mobius:ready"}) {
-		t.Errorf("labels of #41 = %v", fake.Labels(shop, 41))
+	testkit.WaitFor(t, func() bool {
+		return startByOf(t, server, shop, 41) == "owner" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:project"})
+	})
+	if hasLiveTask(t, server, 41) {
+		t.Errorf("the project started")
 	}
 }
 

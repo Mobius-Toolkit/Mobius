@@ -1310,26 +1310,59 @@ func (e *Engine) publish(change Change) {
 // setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task moved, because the
 // Workstream list and the Tasks board show the state of the task.
 func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
-	moved, err := e.queries.SetTaskState(ctx, params)
-	if err == nil && moved > 0 {
-		if !afterReview(params.State) {
-			cleared, clearErr := e.queries.ClearTaskMergeQueuedAt(ctx, params.ID)
-			if clearErr != nil {
-				return moved, clearErr
+	return e.setTaskStateWithStart(ctx, params, "", 0, false)
+}
+
+// setTaskStateClearStart moves the task like setTaskState and clears any waiting Start of the issue in the same
+// transaction.
+func (e *Engine) setTaskStateClearStart(ctx context.Context, params store.SetTaskStateParams, repository string, number int64) (int64, error) {
+	return e.setTaskStateWithStart(ctx, params, repository, number, true)
+}
+
+func (e *Engine) setTaskStateWithStart(ctx context.Context, params store.SetTaskStateParams, repository string, number int64, clearStart bool) (int64, error) {
+	var moved, clearedQueue int64
+	var task store.Task
+	if clearStart {
+		e.copyWrite.Lock()
+	}
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		moved, err = q.SetTaskState(ctx, params)
+		if err != nil || moved == 0 {
+			return err
+		}
+		if clearStart {
+			if _, err := q.ClearIssueStart(ctx, store.ClearIssueStartParams{Repository: repository, Number: number}); err != nil {
+				return err
 			}
-			if cleared > 0 {
-				task, getErr := e.queries.GetTask(ctx, params.ID)
-				if getErr != nil {
-					return moved, getErr
+		}
+		if !afterReview(params.State) {
+			if clearedQueue, err = q.ClearTaskMergeQueuedAt(ctx, params.ID); err != nil {
+				return err
+			}
+			if clearedQueue > 0 {
+				if task, err = q.GetTask(ctx, params.ID); err != nil {
+					return err
 				}
-				if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
-					return moved, pubErr
-				}
+			}
+		}
+		return nil
+	})
+	if clearStart {
+		e.copyWrite.Unlock()
+	}
+	if err != nil {
+		return 0, err
+	}
+	if moved > 0 {
+		if clearedQueue > 0 {
+			if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
+				return moved, pubErr
 			}
 		}
 		e.publish(Change{Workstreams: true})
 	}
-	return moved, err
+	return moved, nil
 }
 
 // queueTask moves the task like QueueTask. It publishes a Workstream change when the task moved.

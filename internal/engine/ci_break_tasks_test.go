@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -166,8 +165,8 @@ func TestAHardBreakWithoutAMaintenanceWorkstreamStopsTheDispatchAndStartsNoTaskU
 	if hasLiveTask(t, server, 41) || hasLiveTask(t, server, ciIssue) {
 		t.Fatal("a task started")
 	}
-	if labels := fake.Labels(shop, 41); !slices.Contains(labels, "mobius:ready") {
-		t.Errorf("labels = %v", labels)
+	if got := startByOf(t, server, shop, 41); got != "owner" {
+		t.Errorf("start_requested_by = %q", got)
 	}
 
 	addMaintenanceWorkstream(fake, maintenance)
@@ -195,8 +194,8 @@ func TestDuringTheStopReadyAndAutopilotStartNoOtherTaskUntilAPassedRunEndsIt(t *
 	if hasLiveTask(t, server, 41) || hasLiveTask(t, server, 43) {
 		t.Fatal("a task started during the stop")
 	}
-	if labels := fake.Labels(shop, 43); !slices.Contains(labels, "mobius:ready") {
-		t.Errorf("labels = %v", labels)
+	if got := startByOf(t, server, shop, 43); got != "owner" {
+		t.Errorf("start_requested_by = %q", got)
 	}
 
 	passed := failedMainRun(7)

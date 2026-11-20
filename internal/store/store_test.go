@@ -1782,3 +1782,62 @@ func TestTheIssueTriageMigrationSetsTriageFromTheLabelsAndKeepsTheChangeRows(t *
 		}
 	}
 }
+
+func TestTheIssueStartMigrationAddsTheColumnsDropsReadyCursorsAndKeepsTheChangeRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270423000000)
+	for _, statement := range []string{
+		`INSERT INTO issues (id, repository, number, title, body, state, author, metadata) VALUES
+			(1, 'o/a', 41, 'One', '', 'open', 'owner', '{}')`,
+		`INSERT INTO sync_cursors (repository, endpoint, etag) VALUES
+			('o/a', 'ready', '"r1"'),
+			('o/a', 'issues', '"i1"')`,
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 41, 'triage', '{}', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES (9, 'github', '77', 'o/a', 41, 'triage', 'labeled', 'owner', 'done', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO outgoing_changes (id, integration, repository, number, field, status, created_at)
+			VALUES (10, 'github', 'o/a', 41, 'triage', 'sent', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var requestedAt sql.NullString
+	var requestedBy string
+	if err := db.QueryRow(`SELECT start_requested_at, start_requested_by FROM issues WHERE id = 1`).Scan(&requestedAt, &requestedBy); err != nil || requestedAt.Valid || requestedBy != "" {
+		t.Errorf("start = %+v, %q, %v", requestedAt, requestedBy, err)
+	}
+	var cursors string
+	if err := db.QueryRow(`SELECT coalesce(group_concat(endpoint, ','), '') FROM sync_cursors ORDER BY endpoint`).Scan(&cursors); err != nil || cursors != "issues" {
+		t.Errorf("cursors = %q, %v", cursors, err)
+	}
+	for table, id := range map[string]int{"own_writes": 8, "incoming_changes": 9, "outgoing_changes": 10} {
+		var kept int
+		if err := db.QueryRow(`SELECT count(*) FROM `+table+` WHERE id = ? AND field = 'triage'`, id).Scan(&kept); err != nil || kept != 1 {
+			t.Errorf("kept rows of %s = %d, %v", table, kept, err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 41, 'start', '{}', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES ('github', '78', 'o/a', 41, 'start', 'labeled', 'owner', 'pending', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+			VALUES ('github', 'o/a', 41, 'start', 'pending', '2027-03-01T10:00:01Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Errorf("%s: %v", statement, err)
+		}
+	}
+}

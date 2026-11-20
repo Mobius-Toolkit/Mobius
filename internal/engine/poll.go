@@ -359,8 +359,9 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
+		hasReady := hasLabel(issue, readyLabel)
 		var events []*gh.IssueEvent
-		if changing || work || triaging {
+		if changing || work || triaging || hasReady {
 			if events, err = e.issueEvents(ctx, repository, number); err != nil {
 				return err
 			}
@@ -371,7 +372,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 			// The cursor has a precision of one second, so an event in the second of the cursor can be new. An incoming
 			// change keeps the id of each event that the poll read, so a second read does nothing.
-			if !firstPoll && (changing || triaging && isTriageEvent(event)) {
+			if !firstPoll && (changing || triaging && isTriageEvent(event) || hasReady && isStartEvent(event)) {
 				changeEvents = append(changeEvents, changeEvent{number, event})
 			}
 		}
