@@ -248,3 +248,23 @@ func TestTheGHWritesRouteGivesTheWritesToACallerWithGHWrites(t *testing.T) {
 		t.Errorf("get: %d %s", status, text)
 	}
 }
+
+func TestAnOptionalArgumentIsNotRequiredAndACallCanOmitIt(t *testing.T) {
+	server, addr := start(t)
+	optional := echo
+	optional.Optional = []string{"fail"}
+	session := connect(t, URL(addr, server.Open(Caller{Tools: []Tool{optional}})))
+
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := call(t, session, "echo", map[string]any{"text": "Hello."})
+
+	if got := result.Tools[0].InputSchema.(map[string]any)["required"]; !reflect.DeepEqual(got, []any{"text"}) {
+		t.Errorf("required = %v", got)
+	}
+	if called.IsError || called.Content[0].(*sdk.TextContent).Text != "Hello." {
+		t.Errorf("result = %+v", called)
+	}
+}

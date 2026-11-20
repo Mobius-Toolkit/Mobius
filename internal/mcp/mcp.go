@@ -18,8 +18,10 @@ import (
 type Tool struct {
 	Name        string
 	Description string
-	// Properties gives the JSON schema of each argument. Each argument is required.
+	// Properties gives the JSON schema of each argument. Each argument is required, except the arguments in Optional.
 	Properties map[string]any
+	// Optional names the arguments that a call can omit.
+	Optional []string
 	// Run gives the text of the result, or the error that goes back to the agent. The arguments are a JSON object.
 	Run func(ctx context.Context, arguments json.RawMessage) (string, error)
 }
@@ -214,7 +216,7 @@ func (s *Server) server(r *http.Request) *sdk.Server {
 			InputSchema: map[string]any{
 				"type":                 "object",
 				"properties":           tool.Properties,
-				"required":             append([]string{}, slices.Sorted(maps.Keys(tool.Properties))...),
+				"required":             append([]string{}, slices.DeleteFunc(slices.Sorted(maps.Keys(tool.Properties)), func(name string) bool { return slices.Contains(tool.Optional, name) })...),
 				"additionalProperties": false,
 			},
 			Meta: sdk.Meta{"anthropic/alwaysLoad": true},
