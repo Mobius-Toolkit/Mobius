@@ -12,10 +12,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const (
-	wontDo   = "mobius:wont-do"
-	otherRep = "owner/other"
-)
+const otherRep = "owner/other"
 
 var wontDoComment = testkit.Comment{Author: "mobius-test[bot]", Body: `The Workstream #12 closed as "won't do".`}
 
@@ -51,9 +48,6 @@ func unchanged(t *testing.T, fake *testkit.FakeGitHub, repository string, number
 	}
 	if comments := fake.Comments(repository, number); len(comments) != 0 {
 		t.Errorf("comments of %s#%d = %v", repository, number, comments)
-	}
-	if slices.Contains(fake.Labels(repository, number), wontDo) {
-		t.Errorf("labels of %s#%d = %v", repository, number, fake.Labels(repository, number))
 	}
 }
 
@@ -104,11 +98,13 @@ func TestACloseAsWontDoClosesTheOpenItemsAndKeepsTheOthers(t *testing.T) {
 		if comments := fake.Comments(shop, number); !slices.Equal(comments, []testkit.Comment{wontDoComment}) {
 			t.Errorf("comments of #%d = %v", number, comments)
 		}
-		if !slices.Contains(fake.Labels(shop, number), wontDo) {
-			t.Errorf("labels of #%d = %v", number, fake.Labels(shop, number))
+		if number != 12 {
+			if labels := fake.Labels(shop, number); len(labels) != 0 {
+				t.Errorf("labels of #%d = %v", number, labels)
+			}
 		}
 	}
-	if labels := fake.Labels(shop, 12); !slices.Contains(labels, "mobius:workstream") {
+	if labels := fake.Labels(shop, 12); !slices.Equal(labels, []string{"mobius:workstream"}) {
 		t.Errorf("labels of #12 = %v", labels)
 	}
 	unchanged(t, fake, shop, 43, "closed")
@@ -199,8 +195,8 @@ func TestACloseAsWontDoClosesTheOpenPullRequestOfAClosedTaskIssue(t *testing.T) 
 	if comments := fake.Comments(shop, 45); !slices.Equal(comments, []testkit.Comment{wontDoComment}) {
 		t.Errorf("comments of #45 = %v", comments)
 	}
-	if !slices.Contains(fake.Labels(shop, 45), wontDo) {
-		t.Errorf("labels of #45 = %v", fake.Labels(shop, 45))
+	if labels := fake.Labels(shop, 45); len(labels) != 0 {
+		t.Errorf("labels of #45 = %v", labels)
 	}
 	unchanged(t, fake, shop, 41, "closed")
 	unchanged(t, fake, shop, 46, "closed")

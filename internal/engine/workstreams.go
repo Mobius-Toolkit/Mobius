@@ -695,9 +695,6 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		if err := e.postCommentOnce(ctx, source, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
 			return err
 		}
-		if err := source.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
-			return err
-		}
 		switch {
 		case item.PullRequest:
 			err = source.ClosePullRequest(ctx, item.Number)

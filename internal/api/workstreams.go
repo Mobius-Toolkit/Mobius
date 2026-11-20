@@ -243,8 +243,8 @@ type CloseWorkstreamRequest struct {
 }
 
 // CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of
-// WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue
-// last. It returns 409 when the issue is not an open Workstream.
+// WorkstreamClosure, Mobius adds a comment and closes the item. It closes the Workstream issue last. It returns
+// 409 when the issue is not an open Workstream.
 func (h *handlers) CloseWorkstream(ctx context.Context, req CloseWorkstreamRequest) error {
 	err := h.engine.CloseWorkstreamWontDo(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
