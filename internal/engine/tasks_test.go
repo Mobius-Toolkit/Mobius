@@ -618,3 +618,21 @@ func TestTheTasksTabWritesNoHeldWorkWhileTheStartSwitchIsOff(t *testing.T) {
 		t.Errorf("held = %+v", held)
 	}
 }
+
+func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaitingWith(t, fake, "owner_action", "")
+	startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return hasStart(t, server, 41) })
+
+	lines := taskTab(t, server)
+
+	if len(lines) != 1 || lines[0].State != "waits for Owner action" {
+		t.Errorf("lines = %+v", lines)
+	}
+}
