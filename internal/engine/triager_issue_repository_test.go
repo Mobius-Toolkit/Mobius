@@ -60,7 +60,7 @@ func TestTheTriagerOfAnIssueInAnotherRepositoryCreatesTheWorkstreamInTheIssueRep
 	if _, err := fmt.Sscanf(done.Result, "Created the Workstream #%d.", &number); err != nil || done.State != "done" {
 		t.Fatalf("action = %+v", done)
 	}
-	waitForIssue(t, fake, shop, number, "Watering", "Water each plant.", []string{"mobius:workstream"})
+	waitForIssue(t, fake, number, "Watering", "Water each plant.", []string{"mobius:workstream"})
 	link := triagerComment(82, fmt.Sprintf("The triage ends. The Workstream is https://github.com/owner/shop/issues/%d", number))
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(garden, 82), link) })
 	if state, reason := fake.State(garden, 82); state != "closed" || reason != "completed" {

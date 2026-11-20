@@ -565,16 +565,16 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 		t.Errorf("actions = %+v, %+v", leadDone, done)
 	}
 	for _, number := range []int64{13, 14} {
-		waitForIssue(t, fake, shop, number, "Billing", "Bill the plans.", []string{"mobius:workstream"})
+		waitForIssue(t, fake, number, "Billing", "Bill the plans.", []string{"mobius:workstream"})
 	}
 }
 
 // The result "Created the Workstream" comes after the number, and the poll can still send the label and the body then.
-func waitForIssue(t *testing.T, fake *testkit.FakeGitHub, repository string, number int64, title, body string, labels []string) {
+func waitForIssue(t *testing.T, fake *testkit.FakeGitHub, number int64, title, body string, labels []string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		gotTitle, gotBody := fake.Issue(repository, number)
-		return gotTitle == title && gotBody == body && reflect.DeepEqual(fake.Labels(repository, number), labels)
+		gotTitle, gotBody := fake.Issue(shop, number)
+		return gotTitle == title && gotBody == body && reflect.DeepEqual(fake.Labels(shop, number), labels)
 	})
 }
 
@@ -602,7 +602,7 @@ func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	if labels := fake.Labels(shop, 13); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels of #13 = %v", labels)
 	}
-	waitForIssue(t, fake, shop, 14, "Plain", "No extra label.", []string{"mobius:workstream"})
+	waitForIssue(t, fake, 14, "Plain", "No extra label.", []string{"mobius:workstream"})
 }
 
 func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {

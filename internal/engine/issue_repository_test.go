@@ -52,7 +52,7 @@ func TestTheCoordinatorCreatesTheWorkstreamInTheIssueRepository(t *testing.T) {
 	if done.State != "done" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	waitForIssue(t, fake, shop, 13, "Billing", "Bill the plans.", []string{"mobius:workstream"})
+	waitForIssue(t, fake, 13, "Billing", "Bill the plans.", []string{"mobius:workstream"})
 }
 
 func TestTheCoordinatorMovesAnIssueOfAnotherRepositoryBelowAWorkstream(t *testing.T) {

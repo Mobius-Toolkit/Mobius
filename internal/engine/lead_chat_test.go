@@ -707,7 +707,7 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
 	decided(t, server, action.ID, "approve", "")
 
 	waitForChat(t, server, leadChat, "Lead", "Created the Workstream #13.")
-	waitForIssue(t, fake, shop, 13, "Shop API", "The public API of the shop. The context is in #12.", []string{"mobius:workstream"})
+	waitForIssue(t, fake, 13, "Shop API", "The public API of the shop. The context is in #12.", []string{"mobius:workstream"})
 	waitForWorkstreams(t, changes)
 	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 2 })
 	// The Lead of the new Workstream gets the creation event, and it has the tools of each Lead.
