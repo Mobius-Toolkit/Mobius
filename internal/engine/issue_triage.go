@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -11,21 +13,34 @@ import (
 )
 
 // setTriage sets the triage state of the issue number in issues and adds the outgoing change that writes the label
-// mobius:triage. An issue with no row gets a row with no Workstream, so the row is no tree issue. It sends the change at
-// once.
-func (e *Engine) setTriage(ctx context.Context, repository github.Repository, number int64, triage bool) error {
-	_, err := e.queries.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: repository.FullName, Number: number})
+// mobius:triage. An issue with no row gets a row with no Workstream, so the row is no tree issue. A row in no tree gets
+// the text of the issue when the state changes to true, so the Triager reads the text of that time. After the commit,
+// the change to true starts the Triager of an open issue in no Workstream, and the change to false stops it. It sends
+// the change at once, and it tells if the state changed.
+func (e *Engine) setTriage(ctx context.Context, repository github.Repository, number int64, triage bool) (bool, error) {
+	return e.setTriageAt(ctx, repository, number, triage, time.Time{})
+}
+
+// setTriageAt is setTriage with the text of the time at, when at is not zero (issueTextAt). The time of the label event
+// of an incoming change is such a time, so an edit of the author after the label does not change the text.
+func (e *Engine) setTriageAt(ctx context.Context, repository github.Repository, number int64, triage bool, at time.Time) (bool, error) {
+	before, err := e.queries.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: repository.FullName, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	var found *gh.Issue
-	var metadata string
-	if err != nil {
+	var row store.AddTriageIssueParams
+	if err != nil || triage && !before {
 		if found, err = repository.Issue(ctx, number); err != nil || found == nil {
-			return err
+			return false, err
 		}
-		if metadata, err = githubMetadata(found, 0); err != nil {
-			return err
+		if !at.IsZero() {
+			if err = e.issueTextAt(ctx, repository, found, at); err != nil {
+				return false, err
+			}
+		}
+		if row, err = triageIssueParams(repository.FullName, found, triage); err != nil {
+			return false, err
 		}
 	}
 	var id int64
@@ -35,17 +50,7 @@ func (e *Engine) setTriage(ctx context.Context, repository github.Repository, nu
 		if found == nil {
 			err = q.SetIssueTriage(ctx, store.SetIssueTriageParams{Triage: triage, Repository: repository.FullName, Number: number})
 		} else {
-			err = q.AddTriageIssue(ctx, store.AddTriageIssueParams{
-				Repository: repository.FullName,
-				Number:     number,
-				Title:      found.GetTitle(),
-				Body:       found.GetBody(),
-				State:      found.GetState(),
-				Author:     found.GetUser().GetLogin(),
-				Kind:       issueKind(labelNames(found)),
-				Triage:     triage,
-				Github:     metadata,
-			})
+			err = q.AddTriageIssue(ctx, row)
 		}
 		if err != nil {
 			return err
@@ -55,9 +60,79 @@ func (e *Engine) setTriage(ctx context.Context, repository github.Repository, nu
 	})
 	e.copyWrite.Unlock()
 	if err != nil {
+		return false, err
+	}
+	changed := triage != before
+	if changed && !triage {
+		if err := e.stopTriager(ctx, repository, number); err != nil {
+			return true, err
+		}
+	}
+	if changed && triage {
+		triaging, err := e.triaging(ctx, repository, found)
+		if err == nil && triaging {
+			err = e.restartTriager(ctx, repository, number)
+		}
+		if err != nil {
+			return true, err
+		}
+	}
+	return changed, e.sendNow(ctx, repository, id)
+}
+
+// triageIssueParams gives the row of issues for the issue with the triage state.
+func triageIssueParams(repository string, issue *gh.Issue, triage bool) (store.AddTriageIssueParams, error) {
+	metadata, err := githubMetadata(issue, 0)
+	return store.AddTriageIssueParams{
+		Repository: repository,
+		Number:     int64(issue.GetNumber()),
+		Title:      issue.GetTitle(),
+		Body:       issue.GetBody(),
+		State:      issue.GetState(),
+		Author:     issue.GetUser().GetLogin(),
+		Kind:       issueKind(labelNames(issue)),
+		Triage:     triage,
+		Github:     metadata,
+	}, err
+}
+
+// triageRowsEndpoint is the endpoint in the sync_cursors table whose row tells that addTriageRows ran for a repository.
+const triageRowsEndpoint = "triage_rows"
+
+// addTriageRows adds a row with the triage state and no Workstream for each open issue of repository that has the label
+// mobius:triage and no row in issues, with the text of the issue. It adds no outgoing change, because the label is
+// already on GitHub. It runs one time for each repository: a row in sync_cursors keeps that.
+func (e *Engine) addTriageRows(ctx context.Context, repository github.Repository) error {
+	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: triageRowsEndpoint})
+	if err == nil || !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	return e.sendNow(ctx, repository, id)
+	issues, err := repository.OpenIssuesWithLabel(ctx, triageLabel)
+	if err != nil {
+		return err
+	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
+	return e.inTx(ctx, func(q *store.Queries) error {
+		for _, issue := range issues {
+			number := int64(issue.GetNumber())
+			_, err := q.GetIssueTriage(ctx, store.GetIssueTriageParams{Repository: repository.FullName, Number: number})
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			row, err := triageIssueParams(repository.FullName, issue, true)
+			if err != nil {
+				return err
+			}
+			if err := q.AddTriageIssue(ctx, row); err != nil {
+				return err
+			}
+		}
+		return q.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: triageRowsEndpoint})
+	})
 }
 
 // hasTriageState tells if the issue has the label mobius:triage or a row in issues. The poll reads the events of such an
@@ -85,7 +160,49 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	if !e.trustedUser(change.Actor) {
 		return e.writeBack(ctx, repository, change)
 	}
-	return e.setTriage(ctx, repository, change.Number, change.Change == labeledChange)
+	var at time.Time
+	if change.Change == labeledChange {
+		var metadata struct{ At string }
+		if err := json.Unmarshal([]byte(change.Metadata), &metadata); err != nil {
+			return err
+		}
+		if metadata.At != "" {
+			var err error
+			if at, err = time.Parse(time.RFC3339Nano, metadata.At); err != nil {
+				return err
+			}
+		}
+	}
+	_, err := e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
+	return err
+}
+
+// issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before
+// at, and the title is the old name of the first rename after at. The current text stays where no edit or rename shows
+// the change.
+func (e *Engine) issueTextAt(ctx context.Context, repository github.Repository, issue *gh.Issue, at time.Time) error {
+	number := int64(issue.GetNumber())
+	events, err := e.issueEvents(ctx, repository, number)
+	if err != nil {
+		return err
+	}
+	edits, err := repository.IssueBodyEdits(ctx, number)
+	if err != nil {
+		return err
+	}
+	for _, edit := range edits {
+		if !edit.EditedAt.After(at) {
+			issue.Body = new(edit.Diff)
+			break
+		}
+	}
+	for _, event := range events {
+		if event.GetEvent() == renamedChange && event.GetCreatedAt().After(at) {
+			issue.Title = new(event.GetRename().GetFrom())
+			break
+		}
+	}
+	return nil
 }
 
 // sendTriage writes the label mobius:triage to the issue when GitHub differs from issues.triage, and then copies the

@@ -426,6 +426,7 @@ type dbBlockerInfo struct {
 	state           string
 	author          string
 	workstreamValid bool
+	triage          bool
 }
 
 func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repository, workstream int64, forceWalk map[issueRef]bool, eventsOf eventFetcher, markTouched func(string)) error {
@@ -524,6 +525,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 			state:           row.State,
 			author:          row.Author,
 			workstreamValid: row.Workstream.Valid,
+			triage:          row.Triage,
 		}
 	}
 	var leaves copiedTree
@@ -595,7 +597,7 @@ func (e *Engine) checkWorkstreamTree(ctx context.Context, repository github.Repo
 				dbMap := dbBlockers[ref]
 				for bRef, info := range dbMap {
 					if ghIssue, ok := ghMap[bRef]; ok {
-						if !info.workstreamValid && (info.state != ghIssue.GetState() || info.title != ghIssue.GetTitle() || info.author != ghIssue.GetUser().GetLogin()) {
+						if !info.workstreamValid && (info.state != ghIssue.GetState() || info.title != ghIssue.GetTitle() && !info.triage || info.author != ghIssue.GetUser().GetLogin()) {
 							metadata, err := githubMetadata(ghIssue, 0)
 							if err != nil {
 								return err

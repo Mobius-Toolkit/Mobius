@@ -1782,3 +1782,30 @@ func TestTheIssueTriageMigrationSetsTriageFromTheLabelsAndKeepsTheChangeRows(t *
 		}
 	}
 }
+
+func TestTheTriageCursorsMigrationDeletesTheTriageCursorsAndKeepsTheOthers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270424000000)
+	if _, err := db.Exec(`INSERT INTO sync_cursors (repository, endpoint, since) VALUES
+		('o/a', 'triage/41', '2027-03-01T10:00:00Z'),
+		('o/a', 'triage/42', '2027-03-01T10:00:00Z'),
+		('o/b', 'triage/41', '2027-03-01T10:00:00Z'),
+		('o/a', 'issues', '2027-03-01T10:00:00Z'),
+		('o/a', 'ready', NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var got string
+	if err := db.QueryRow(`SELECT group_concat(endpoint, ',') FROM (SELECT endpoint FROM sync_cursors ORDER BY endpoint)`).Scan(&got); err != nil || got != "issues,ready" {
+		t.Errorf("endpoints = %q, %v", got, err)
+	}
+}
