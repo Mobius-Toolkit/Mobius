@@ -9428,6 +9428,60 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 	return items, nil
 }
 
+const listOpenTodoItems = `-- name: ListOpenTodoItems :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions, answer, withdrawn FROM inbox_items WHERE workstream_repository = ? AND workstream = ? AND kind = 'todo' AND dismissed_at IS NULL ORDER BY id
+`
+
+type ListOpenTodoItemsParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+}
+
+func (q *Queries) ListOpenTodoItems(ctx context.Context, arg ListOpenTodoItemsParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenTodoItems, arg.WorkstreamRepository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
+			&i.WorkstreamRepository,
+			&i.Questions,
+			&i.Answer,
+			&i.Withdrawn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenWorkstreamNumbers = `-- name: ListOpenWorkstreamNumbers :many
 SELECT CAST(number AS INTEGER) AS number FROM workstreams WHERE repository = ? AND state = 'open' AND number IS NOT NULL ORDER BY number
 `

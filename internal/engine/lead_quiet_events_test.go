@@ -62,7 +62,7 @@ func TestAQuietEventStartsNoTurnAndComesBeforeTheNextEvent(t *testing.T) {
 	waitForLeadPrompts(t, server, 2)
 
 	prompt := leadPrompts(t, server)[1]
-	if !strings.Contains(prompt, quietSection(payloads[0])+"# Event\n\n") {
+	if !strings.Contains(prompt, quietSection(payloads[0])+noTodos+"# Event\n\n") {
 		t.Errorf("the prompt has no quiet section before the event: %s", prompt)
 	}
 	waitForNoUndeliveredEvents(t, server)
@@ -92,7 +92,7 @@ func TestTwoQuietEventsComeInTheNextPromptInTheOrderOfTheEvents(t *testing.T) {
 	waitForLeadPrompts(t, server, 2)
 
 	prompt := leadPrompts(t, server)[1]
-	if !strings.Contains(prompt, quietSection(payloads...)+"# Event\n\n") {
+	if !strings.Contains(prompt, quietSection(payloads...)+noTodos+"# Event\n\n") {
 		t.Errorf("the prompt has no quiet section before the event: %s", prompt)
 	}
 	inOrder(t, prompt, quietSection(payloads...), payloads[0], payloads[1], "# Event\n\n")

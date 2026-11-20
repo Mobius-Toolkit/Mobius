@@ -689,7 +689,7 @@ func TestSendAgainWhileARetryChatWaitsForItsStartGivesTheTextOneTime(t *testing.
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	var got int
 	for _, prompt := range promptTexts(t, server, sessions[len(sessions)-1].ID) {
-		if prompt == text {
+		if prompt == noTodos+text {
 			got++
 		}
 	}

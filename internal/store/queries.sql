@@ -399,6 +399,9 @@ SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER 
 -- name: ListDismissedQuestionItems :many
 SELECT * FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id;
 
+-- name: ListOpenTodoItems :many
+SELECT * FROM inbox_items WHERE workstream_repository = ? AND workstream = ? AND kind = 'todo' AND dismissed_at IS NULL ORDER BY id;
+
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 
@@ -234,6 +235,7 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 	if err := e.Dismiss(ctx, id); err != nil {
 		return store.InboxItem{}, err
 	}
+	e.addTodosClosedEvent(ctx, item)
 	e.addInboxOwnerMessage(ctx, item, note)
 	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You marked the todo \"%s\" of PR %s as done.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return e.queries.GetInboxItem(ctx, id)
@@ -253,15 +255,74 @@ func (e *Engine) TodoMarks(ctx context.Context, todo store.DeploymentTodo) (mand
 	return needs[i].Mandatory == 1, needs[i].AfterMerge == 1, nil
 }
 
-// todoLine gives the checklist line of the todo with the marks of its need.
-func todoLine(todo store.DeploymentTodo, need store.DeploymentNeed) string {
+func todoMarksText(mandatory, afterMerge bool) string {
 	marks := "optional"
-	if need.Mandatory == 1 {
+	if mandatory {
 		marks = "mandatory"
 	}
-	if need.AfterMerge == 1 {
+	if afterMerge {
 		marks += ", after merge"
 	}
+	return marks
+}
+
+// openTodosSection gives the section "# Open todos" of the Lead prompt: a line for each open todo of the Workstream, or
+// the text "No todo is open." when it has none.
+func (e *Engine) openTodosSection(ctx context.Context, workstreamRepository string, workstream int64) (string, error) {
+	items, err := e.queries.ListOpenTodoItems(ctx, store.ListOpenTodoItemsParams{WorkstreamRepository: workstreamRepository, Workstream: workstream})
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "# Open todos\n\nNo todo is open.\n\n", nil
+	}
+	var b strings.Builder
+	b.WriteString("# Open todos\n\n")
+	for _, item := range items {
+		todo, err := e.queries.GetDeploymentTodoOfItem(ctx, item.ID)
+		if err != nil {
+			return "", err
+		}
+		mandatory, afterMerge, err := e.TodoMarks(ctx, todo)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "- %s (%s), PR %s\n", item.Title, todoMarksText(mandatory, afterMerge), eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest))
+	}
+	b.WriteString("\n")
+	return b.String(), nil
+}
+
+// addTodosClosedEvent adds the Lead event todos_closed to the Workstream of the closed todo Inbox item, when the
+// Workstream has no open todo, is not evergreen, and has all its tasks closed or a report of the Lead that it is finished.
+// The todo is already closed, so the Owner cannot repeat the action: a failure only logs the error.
+func (e *Engine) addTodosClosedEvent(ctx context.Context, item store.InboxItem) {
+	if err := e.tryAddTodosClosedEvent(ctx, item); err != nil {
+		log.Printf("todos_closed event of %s#%d failed: %v", item.WorkstreamRepository, item.Workstream, err)
+	}
+}
+
+func (e *Engine) tryAddTodosClosedEvent(ctx context.Context, item store.InboxItem) error {
+	items, err := e.queries.ListOpenTodoItems(ctx, store.ListOpenTodoItemsParams{WorkstreamRepository: item.WorkstreamRepository, Workstream: item.Workstream})
+	if err != nil || len(items) > 0 {
+		return err
+	}
+	workstreams, err := e.queries.ListCopiedWorkstreams(ctx)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(workstreams, func(w store.ListCopiedWorkstreamsRow) bool {
+		return w.Repository == item.WorkstreamRepository && w.Number == item.Workstream
+	})
+	if i < 0 || workstreams[i].Evergreen || !workstreams[i].AllTasksClosed && !workstreams[i].ReportedFinished {
+		return nil
+	}
+	return e.addLeadEvent(ctx, item.WorkstreamRepository, item.Workstream, "", sql.NullInt64{}, "todos_closed", "The Owner closed the last open todo of the Workstream. All tasks of the Workstream are closed.")
+}
+
+// todoLine gives the checklist line of the todo with the marks of its need.
+func todoLine(todo store.DeploymentTodo, need store.DeploymentNeed) string {
+	marks := todoMarksText(need.Mandatory == 1, need.AfterMerge == 1)
 	switch {
 	case todo.DoneAt.Valid:
 		return fmt.Sprintf("- [x] %s (%s, done)", todo.Name, marks)
@@ -365,6 +426,7 @@ func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
 	if err := e.Dismiss(ctx, item.ID); err != nil {
 		return err
 	}
+	e.addTodosClosedEvent(ctx, item)
 	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed the todo \"%s\" of PR %s.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
 	return nil
 }
