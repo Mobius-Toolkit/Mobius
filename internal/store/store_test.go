@@ -1819,7 +1819,7 @@ func TestTheIssueStartMigrationAddsTheColumnsDropsReadyCursorsAndKeepsTheChangeR
 		t.Errorf("start = %+v, %q, %v", requestedAt, requestedBy, err)
 	}
 	var cursors string
-	if err := db.QueryRow(`SELECT coalesce(group_concat(endpoint, ','), '') FROM sync_cursors ORDER BY endpoint`).Scan(&cursors); err != nil || cursors != "issues" {
+	if err := db.QueryRow(`SELECT coalesce(group_concat(endpoint, ','), '') FROM (SELECT endpoint FROM sync_cursors ORDER BY endpoint)`).Scan(&cursors); err != nil || cursors != "issues,ready_upgrade" {
 		t.Errorf("cursors = %q, %v", cursors, err)
 	}
 	for table, id := range map[string]int{"own_writes": 8, "incoming_changes": 9, "outgoing_changes": 10} {

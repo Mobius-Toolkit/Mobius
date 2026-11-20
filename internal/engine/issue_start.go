@@ -3,12 +3,21 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"strconv"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	gh "github.com/google/go-github/v92/github"
 )
+
+const readyUpgradeEndpoint = "ready_upgrade"
+
+type startMetadata struct {
+	Label   string `json:"label"`
+	Upgrade bool   `json:"upgrade,omitempty"`
+}
 
 // requestStart sets start_requested_at and start_requested_by of the issue number in issues. An issue with no row gets a
 // row with no Workstream.
@@ -72,19 +81,92 @@ func (e *Engine) clearStart(ctx context.Context, repositoryName string, number i
 	return nil
 }
 
+// upgradeReadyStarts reads the open issues with mobius:ready one time after an upgrade and records each add event as
+// an incoming start change so waiting Starts from before the issues cursor are not lost.
+func (e *Engine) upgradeReadyStarts(ctx context.Context, repository github.Repository) error {
+	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: readyUpgradeEndpoint})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	issues, err := repository.OpenIssuesWithLabel(ctx, readyLabel)
+	if err != nil {
+		return err
+	}
+	var events []changeEvent
+	for _, issue := range issues {
+		if issue.IsPullRequest() {
+			continue
+		}
+		number := int64(issue.GetNumber())
+		issueEvents, err := e.issueEvents(ctx, repository, number)
+		if err != nil {
+			return err
+		}
+		ready := lastEvent(issueEvents, labeledChange, readyLabel)
+		if ready == nil || ready.Actor == nil {
+			continue
+		}
+		events = append(events, changeEvent{number: number, event: ready})
+	}
+	metadata, err := json.Marshal(startMetadata{Label: readyLabel, Upgrade: true})
+	if err != nil {
+		return err
+	}
+	return e.inTx(ctx, func(q *store.Queries) error {
+		for _, item := range events {
+			externalID := strconv.FormatInt(item.event.GetID(), 10)
+			known, err := q.HasIncomingChange(ctx, externalID)
+			if err != nil {
+				return err
+			}
+			if known {
+				continue
+			}
+			err = q.AddIncomingChange(ctx, store.AddIncomingChangeParams{
+				ExternalID: externalID,
+				Repository: repository.FullName,
+				Number:     item.number,
+				Field:      startField,
+				Change:     labeledChange,
+				Actor:      item.event.GetActor().GetLogin(),
+				Metadata:   string(metadata),
+				Status:     "pending",
+				CreatedAt:  now(),
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: repository.FullName, Endpoint: readyUpgradeEndpoint})
+	})
+}
+
 func isStartEvent(event *gh.IssueEvent) bool {
 	field, _, ok := eventField(event)
 	return ok && field == startField
 }
 
 // applyStartChange requests a Start for an add of mobius:ready by a trusted user, and adds an outgoing change that
-// removes mobius:ready as an own write. A removal of mobius:ready changes nothing.
+// removes mobius:ready as an own write. Upgrade events from before this change keep the earlier TrustedAuthor check,
+// because mark_ready, move_issue and record issues added mobius:ready as the Mobius App. A removal of mobius:ready
+// changes nothing.
 func (e *Engine) applyStartChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	if change.Change != labeledChange {
 		return nil
 	}
 	repository = e.changeRepository(change.Repository, repository)
-	if e.trustedUser(change.Actor) {
+	var meta startMetadata
+	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+		return err
+	}
+	trusted := e.trustedUser(change.Actor)
+	if meta.Upgrade {
+		trusted = e.TrustedAuthor(repository.AppSlug, change.Actor)
+	}
+	if trusted {
 		if err := e.requestStart(ctx, repository, change.Number, change.Actor); err != nil {
 			return err
 		}

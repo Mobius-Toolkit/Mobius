@@ -1,6 +1,9 @@
 ALTER TABLE issues ADD COLUMN start_requested_at TEXT;
 ALTER TABLE issues ADD COLUMN start_requested_by TEXT NOT NULL DEFAULT '';
 
+INSERT OR IGNORE INTO sync_cursors (repository, endpoint)
+SELECT DISTINCT repository, 'ready_upgrade' FROM sync_cursors WHERE endpoint IN ('issues', 'ready');
+
 DELETE FROM sync_cursors WHERE endpoint = 'ready';
 
 CREATE TABLE incoming_changes_new (

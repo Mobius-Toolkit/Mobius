@@ -50,13 +50,21 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		meta, err := parseMetadata(row.Metadata)
+		if err != nil {
+			return err
+		}
+		structural := slices.Contains(meta.Labels, bucketLabel) || slices.Contains(meta.Labels, workstreamLabel)
 		switch {
 		case live && task.State == "stopped" && task.PullRequest.Valid:
-			issue, err := repository.Issue(ctx, row.Number)
-			if err != nil {
-				return err
+			if row.State != "open" || structural {
+				continue
 			}
-			if issue == nil || issue.GetState() != "open" || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
+			issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+			if err != nil || !ok {
+				if err != nil {
+					return err
+				}
 				continue
 			}
 			if err := e.resume(ctx, repository, issue, task, row.StartRequestedBy); err != nil {
@@ -85,14 +93,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 				continue
 			}
 		}
-		if row.State != "open" || row.Blocked || row.Kind == projectKind || row.Triage {
-			continue
-		}
-		issue, err := repository.Issue(ctx, row.Number)
-		if err != nil {
-			return err
-		}
-		if issue == nil || issue.GetState() != "open" || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
+		if row.State != "open" || row.Blocked || row.Kind == projectKind || row.Triage || structural {
 			continue
 		}
 		if !live {
@@ -101,6 +102,13 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 				return err
 			}
 			if found {
+				issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+				if err != nil || !ok {
+					if err != nil {
+						return err
+					}
+					continue
+				}
 				if err := e.continueEndedTask(ctx, repository, issue, earlier, row.StartRequestedBy); err != nil {
 					return err
 				}
@@ -120,6 +128,13 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if off {
 			continue
 		}
+		issue, ok, err := e.dispatchIssue(ctx, repository, row.Number)
+		if err != nil || !ok {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if live {
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
@@ -132,6 +147,35 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 	}
 	return nil
+}
+
+// dispatchIssue reads the issue number from GitHub when dispatchReady acts on it, refuses pull requests and
+// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call.
+func (e *Engine) dispatchIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, bool, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return nil, false, err
+	}
+	if issue == nil || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
+		return nil, false, nil
+	}
+	if issue.GetState() != "open" {
+		e.copyWrite.Lock()
+		changed, err := e.queries.SetIssueStateByRepoNumber(ctx, store.SetIssueStateByRepoNumberParams{
+			State:      issue.GetState(),
+			Repository: repository.FullName,
+			Number:     number,
+		})
+		e.copyWrite.Unlock()
+		if err != nil {
+			return nil, false, err
+		}
+		if changed > 0 {
+			e.publish(Change{Workstreams: true})
+		}
+		return nil, false, nil
+	}
+	return issue, true, nil
 }
 
 // dispatch adds a task for the issue in the Workstream, clears its Start columns in the same transaction, and adds a
@@ -1018,10 +1062,6 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		if startsTasks(level) {
 			continue
 		}
-		issue, err := repository.Issue(ctx, task.Issue)
-		if err != nil || issue == nil {
-			return err
-		}
 		off, err := e.holdStart(ctx, repository.FullName, task.Issue)
 		if err != nil {
 			return err
@@ -1034,6 +1074,10 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 		}
 		if off {
 			continue
+		}
+		issue, err := repository.Issue(ctx, task.Issue)
+		if err != nil || issue == nil {
+			return err
 		}
 		if err := e.dispatchAnswer(ctx, repository, issue, task); err != nil {
 			return err

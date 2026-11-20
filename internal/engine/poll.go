@@ -157,6 +157,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 			return err
 		}
 	}
+	if err := e.upgradeReadyStarts(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}

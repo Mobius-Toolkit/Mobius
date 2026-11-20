@@ -255,7 +255,10 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := q.DeleteCopiedWorkstreamsOf(ctx, name); err != nil {
 				return err
 			}
-			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: issuesEndpoint})
+			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: issuesEndpoint}); err != nil {
+				return err
+			}
+			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: readyUpgradeEndpoint})
 		})
 		if err != nil {
 			return err

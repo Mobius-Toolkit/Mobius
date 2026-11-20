@@ -259,8 +259,11 @@ func TestAnIssueWithMobiusReadyBelowAnOpenWorkstreamStartsWhenTheCopyOfTheTreeCo
 	fake.FailSubIssues(shop, 12, true)
 	dispatchTask(fake, 41, "Add plan model")
 	waitForPolls(t, fake)
-	if hasIssueRow(t, server, 41) || hasLiveTask(t, server, 41) {
-		t.Fatal("the issue has a row or a task before the copy of the tree")
+	if hasLiveTask(t, server, 41) {
+		t.Fatal("the issue has a task before the copy of the tree")
+	}
+	if row := issueRowOf(t, server, shop, 41); row.Workstream.Valid {
+		t.Fatalf("workstream of #41 = %+v", row.Workstream)
 	}
 
 	fake.FailSubIssues(shop, 12, false)

@@ -1422,7 +1422,7 @@ WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListStartIssues :many
 SELECT i.id, CAST(i.number AS INTEGER) AS number, i.state, i.kind, CAST(i.triage AS BOOLEAN) AS triage,
-       i.workstream, i.start_requested_by, w.repository AS workstream_repository,
+       i.metadata, i.workstream, i.start_requested_by, w.repository AS workstream_repository,
        w.number AS workstream_number, w.state AS workstream_state,
        EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i

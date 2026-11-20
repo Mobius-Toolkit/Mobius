@@ -10424,7 +10424,7 @@ func (q *Queries) ListSkillUsesBetween(ctx context.Context, arg ListSkillUsesBet
 
 const listStartIssues = `-- name: ListStartIssues :many
 SELECT i.id, CAST(i.number AS INTEGER) AS number, i.state, i.kind, CAST(i.triage AS BOOLEAN) AS triage,
-       i.workstream, i.start_requested_by, w.repository AS workstream_repository,
+       i.metadata, i.workstream, i.start_requested_by, w.repository AS workstream_repository,
        w.number AS workstream_number, w.state AS workstream_state,
        EXISTS (SELECT 1 FROM blockers b JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open' WHERE b.issue = i.id) AS blocked
 FROM issues i
@@ -10439,6 +10439,7 @@ type ListStartIssuesRow struct {
 	State                string
 	Kind                 string
 	Triage               bool
+	Metadata             string
 	Workstream           sql.NullInt64
 	StartRequestedBy     string
 	WorkstreamRepository sql.NullString
@@ -10462,6 +10463,7 @@ func (q *Queries) ListStartIssues(ctx context.Context, repository string) ([]Lis
 			&i.State,
 			&i.Kind,
 			&i.Triage,
+			&i.Metadata,
 			&i.Workstream,
 			&i.StartRequestedBy,
 			&i.WorkstreamRepository,
