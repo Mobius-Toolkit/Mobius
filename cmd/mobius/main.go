@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	gork "github.com/gork-labs/gork/pkg/api"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/api"
 	"github.com/Mobius-Toolkit/Mobius/internal/auth"
@@ -46,6 +48,19 @@ Environment:
   IP             The address to listen on: 127.0.0.1 (the default) or 0.0.0.0
   PORT           The port to listen on (default 6363)
 `
+
+const (
+	logMaxSizeMB  = 10
+	logMaxBackups = 14
+)
+
+func newLogFile(dataDir string) *lumberjack.Logger {
+	return &lumberjack.Logger{
+		Filename:   filepath.Join(dataDir, "logs", "mobius.log"),
+		MaxSize:    logMaxSizeMB,
+		MaxBackups: logMaxBackups,
+	}
+}
 
 func main() {
 	switch filepath.Base(os.Args[0]) {
@@ -139,6 +154,7 @@ func serve(configPath string) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
+	log.SetOutput(io.MultiWriter(os.Stderr, newLogFile(cfg.DataDir)))
 
 	ctx := context.Background()
 	dbPath := filepath.Join(cfg.DataDir, "mobius.db")
