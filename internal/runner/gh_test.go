@@ -274,48 +274,40 @@ func TestTheGHSendsTheWritesOfEachSubcommandBeforeItRunsTheRealGH(t *testing.T) 
 	if err := os.WriteFile(file, []byte("from a file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	write := func(issue int, kind, labels, text string) string {
-		return fmt.Sprintf(`{"repository":"owner/shop","issue":%d,"kind":%q,"labels":%s,"text":%q}`, issue, kind, labels, text)
+	write := func(issue int, text string) string {
+		return fmt.Sprintf(`{"repository":"owner/shop","issue":%d,"kind":"commented","text":%q}`, issue, text)
 	}
 	for name, test := range map[string]struct {
 		args  []string
 		stdin string
 		want  []string
 	}{
-		"edit labels of two issues": {
-			args: []string{"issue", "edit", "12", "#13", "-R", "owner/shop", "--add-label", "a,b", "--remove-label=c", "--add-label", "d"},
-			want: []string{
-				write(12, "labeled", `["a"]`, ""), write(12, "labeled", `["b"]`, ""), write(12, "labeled", `["d"]`, ""), write(12, "unlabeled", `["c"]`, ""),
-				write(13, "labeled", `["a"]`, ""), write(13, "labeled", `["b"]`, ""), write(13, "labeled", `["d"]`, ""), write(13, "unlabeled", `["c"]`, ""),
-			},
-		},
-		"edit labels of a pull request URL": {
-			args: []string{"pr", "edit", "https://github.com/owner/shop/pull/7", "--add-label", "a"},
-			want: []string{write(7, "labeled", `["a"]`, "")},
+		"edit labels": {
+			args: []string{"issue", "edit", "12", "#13", "-R", "owner/shop", "--add-label", "a,b", "--remove-label=c"},
 		},
 		"create": {
 			args: []string{"issue", "create", "--repo", "github.com/owner/shop", "-t", "A title", "-l", "a", "--label", "b", "--body", "text"},
 		},
 		"comment": {
 			args: []string{"issue", "comment", "5", "-R", "owner/shop", "--body", "a comment"},
-			want: []string{write(5, "commented", `null`, "a comment")},
+			want: []string{write(5, "a comment")},
 		},
 		"comment of a pull request with an attached value": {
 			args: []string{"pr", "comment", "5", "-R", "owner/shop", "-bshort"},
-			want: []string{write(5, "commented", `null`, "short")},
+			want: []string{write(5, "short")},
 		},
 		"comment with a body file": {
 			args: []string{"issue", "comment", "https://github.com/owner/shop/issues/5", "--body-file", file},
-			want: []string{write(5, "commented", `null`, "from a file")},
+			want: []string{write(5, "from a file")},
 		},
 		"comment with stdin": {
 			args:  []string{"issue", "comment", "5", "-R", "owner/shop", "-F", "-"},
 			stdin: "from stdin",
-			want:  []string{write(5, "commented", `null`, "from stdin")},
+			want:  []string{write(5, "from stdin")},
 		},
 		"close with a comment": {
 			args: []string{"issue", "close", "5", "-R", "owner/shop", "--comment", "done", "--reason", "completed"},
-			want: []string{write(5, "commented", `null`, "done")},
+			want: []string{write(5, "done")},
 		},
 		"no repository": {
 			args: []string{"issue", "comment", "5", "--body", "a comment"},
@@ -475,7 +467,7 @@ func TestTheGHAddsTheMarkToTheBodyOfEachSubcommand(t *testing.T) {
 			if test.repo == "" {
 				test.repo = "owner/shop"
 			}
-			want := fmt.Sprintf(`{"writes":[{"repository":%q,"issue":5,"kind":"commented","labels":null,"text":%q}]}`, test.repo, test.text)
+			want := fmt.Sprintf(`{"writes":[{"repository":%q,"issue":5,"kind":"commented","text":%q}]}`, test.repo, test.text)
 			if got := bodies(); len(got) != 1 || got[0] != want {
 				t.Errorf("requests = %q, want %q", got, want)
 			}

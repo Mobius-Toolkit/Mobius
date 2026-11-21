@@ -122,7 +122,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemOfATaskInReadyForReview(t *test
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := readyToMerge(t, fake, "")
 
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
@@ -171,7 +171,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemWhileAJudgeRunsFromReadyForRevi
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
 	waitForSentStateLabels(t, server)
 
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
@@ -195,7 +195,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemAfterAJudgeFromApprovalFoundNoW
 	waitForItem(t, server, "ready for review")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
 
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })

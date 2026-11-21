@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -134,13 +133,6 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 // has work for an agent: the round that the task queues or runs, or the round that the check starts.
 //   - A task whose issue is gone, or whose issue closed with no pull request, ends.
 //   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius-rust#226).
-//   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
-//     and mobius:working for a task in another live state. A Judge that runs from ready_for_review needs mobius:review,
-//     and a Judge that runs from needs_human needs no label.
-//   - A removal of mobius:needs-human by a trusted user or by the Mobius App continues a task in needs_human
-//     (continueByRemoval).
-//   - The first check waits while an outgoing change of the state labels of the issue is pending, because the issue can
-//     lack the needed label until the send writes it. The send writes the labels of the state (sendStateLabels).
 //   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
 //     task passes on its head, also on a new head (continueNeedsHuman).
@@ -183,19 +175,6 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	if pullRequest == nil && issue.GetState() == "closed" {
 		return Work{}, false, false, e.endTask(ctx, repository, task)
-	}
-	labelsPending, err := e.stateLabelsPending(ctx, repository.FullName, task.Issue)
-	if err != nil {
-		return Work{}, false, false, err
-	}
-	needed := neededLabel(task)
-	if !labelsPending && slices.Contains([]string{workingLabel, reviewLabel}, needed) && !hasLabel(issue, needed) {
-		if stopped, err := e.labelRemoved(ctx, repository, task, needed); err != nil || stopped {
-			return Work{}, false, false, err
-		}
-	}
-	if continued, err := e.continueByRemoval(ctx, repository, task, issue, pullRequest); err != nil || continued {
-		return Work{}, false, false, err
 	}
 	if task.State == "dispatched" {
 		asked, err := e.hasOpenQuestion(ctx, repository.FullName, task.Issue)
@@ -298,62 +277,6 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
 	return work, judged, false, err
-}
-
-// continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
-// pull request, and the actor is a trusted user. A removal of the Mobius App is a write of the send of the state labels,
-// so it never continues the task. A removal of the Mobius App that matches a write of the Lead has a trusted user as its
-// actor, see issueEvents. It reads the label events only when one of the two items lacks the label, and does nothing
-// while a change of the state labels of the issue is pending. A removal counts only when it is newer than the move of
-// the task to needs_human, so a removal from before the stop does not continue the task.
-func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
-	issueHas := hasLabel(issue, needsHumanLabel)
-	pullHas := pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel)
-	if task.State != "needs_human" || issueHas && pullHas {
-		return false, nil
-	}
-	if pending, err := e.stateLabelsPending(ctx, repository.FullName, task.Issue); pending || err != nil {
-		return false, err
-	}
-	var since time.Time
-	if task.NeedsHumanAt.Valid {
-		var err error
-		if since, err = time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String); err != nil {
-			return false, err
-		}
-	}
-	var actors []string
-	if !issueHas {
-		issueEvents, err := e.issueEvents(ctx, repository, task.Issue)
-		if err != nil {
-			return false, err
-		}
-		actors = append(actors, removalActor(issueEvents, since))
-	}
-	if !pullHas {
-		pullEvents, err := e.issueEvents(ctx, repository, task.PullRequest.Int64)
-		if err != nil {
-			return false, err
-		}
-		actors = append(actors, removalActor(pullEvents, since))
-	}
-	for _, actor := range actors {
-		if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) || !e.TrustedAuthor(repository.AppSlug, actor) {
-			continue
-		}
-		return true, e.resumeNeedsHuman(ctx, repository, issue, task, actor)
-	}
-	return false, nil
-}
-
-// removalActor gives the actor of the last removal of mobius:needs-human in events, or "" when events have no removal
-// that is newer than since.
-func removalActor(events []*gh.IssueEvent, since time.Time) string {
-	removed := lastEvent(events, "unlabeled", needsHumanLabel)
-	if removed == nil || !removed.GetCreatedAt().After(since) {
-		return ""
-	}
-	return removed.GetActor().GetLogin()
 }
 
 // neededLabel gives the Mobius state label that the issue of the live task needs: mobius:needs-human for needs_human,
@@ -487,26 +410,6 @@ func (e *Engine) endMergedTask(ctx context.Context, repository github.Repository
 		issue = currentIssue
 	}
 	return e.endPullRequestWith(ctx, repository, task, issue, pullRequest, true)
-}
-
-// labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
-// the branch stay, and the head of the pull request gets a failed Mobius check.
-func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository, task store.Task, label string) (bool, error) {
-	events, err := e.issueEvents(ctx, repository, task.Issue)
-	if err != nil {
-		return false, err
-	}
-	var actor string
-	for _, event := range slices.Backward(events) {
-		if event.GetEvent() == "unlabeled" && event.GetLabel().GetName() == label {
-			actor = event.GetActor().GetLogin()
-			break
-		}
-	}
-	if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) {
-		return false, nil
-	}
-	return true, e.stopTask(ctx, repository, task, "Stopped by a label removal.")
 }
 
 // stopTask stops the task and its Worker, and closes the open question of its issue. The state labels of the issue go

@@ -78,18 +78,14 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 }
 
 // closeInboxItems dismisses each Inbox item of repository whose action of the Owner is done. It reads the issue of the
-// item from GitHub, because an item can be newer than the labels of the local copy.
-//   - A question is done when the issue has no mobius:question and no write of the state labels is pending.
+// item from GitHub.
 //   - A stopped task is done when its task is no longer in needs_human. A Judge that runs from needs_human keeps it open.
 //   - A lost task is done when the issue has a live task.
-//   - Each of these items is done when its issue is closed.
+//   - Each of these items and each question is done when its issue is closed.
 //
-// A ready for review item is not done when its issue is closed: it stays until its task leaves ready_for_review.
-//
-// When a question is done and the task of its issue is still stopped, the newest stopped item of the stop opens again.
+// A ready for review item is not done when its issue is closed: it stays until its task leaves ready_for_review. A
+// question is also done when a trusted user removes mobius:question (applyStateLabelsChange).
 func (e *Engine) closeInboxItems(ctx context.Context, repository github.Repository) error {
-	e.questionMu.Lock()
-	defer e.questionMu.Unlock()
 	items, err := e.Inbox(ctx)
 	if err != nil {
 		return err
@@ -98,26 +94,16 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if item.Repository != repository.FullName || !slices.Contains([]string{questionKind, stoppedKind, lostKind}, item.Kind) {
 			continue
 		}
-		// The check comes before the read of the issue, so a send between the two cannot hide a pending write.
-		writing, err := e.stateLabelsPending(ctx, item.Repository, item.Issue)
-		if err != nil {
-			return err
-		}
 		issue, err := repository.Issue(ctx, item.Issue)
 		if err != nil {
 			return err
 		}
-		done, err := e.actionDone(ctx, issue, item, writing)
+		done, err := e.actionDone(ctx, issue, item)
 		if err != nil {
 			return err
 		}
 		if !done {
 			continue
-		}
-		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" {
-			if err := e.reopenStoppedItem(ctx, item); err != nil {
-				return err
-			}
 		}
 		if err := e.Dismiss(ctx, item.ID); err != nil {
 			return err
@@ -126,16 +112,12 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 	return nil
 }
 
-// actionDone tells if the action of the Owner of the item is done. writing tells that an outgoing change of the state
-// labels of the issue of the item was pending before the read of the issue, so the issue can lack mobius:question
-// until the send writes it.
-func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.InboxItem, writing bool) (bool, error) {
+// actionDone tells if the action of the Owner of the item is done.
+func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.InboxItem) (bool, error) {
 	if issue == nil || issue.GetState() == "closed" {
 		return true, nil
 	}
 	switch item.Kind {
-	case questionKind:
-		return !writing && !hasLabel(issue, questionLabel), nil
 	case stoppedKind:
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 		if errors.Is(err, sql.ErrNoRows) {

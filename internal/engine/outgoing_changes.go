@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -106,10 +105,6 @@ func (e *Engine) addOutgoingChange(ctx context.Context, q *store.Queries, reposi
 		Text:       sql.NullString{String: text, Valid: true},
 		CreatedAt:  now(),
 	})
-}
-
-func isSettingLabel(name string) bool {
-	return slices.Contains(slices.Collect(maps.Values(settingLabels)), name)
 }
 
 // addFieldChange adds a pending outgoing change with no text that writes field of the Workstream number from the row of

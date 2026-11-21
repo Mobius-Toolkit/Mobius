@@ -809,7 +809,6 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	var message store.ChatMessage
 	var change, labels int64
 	var dismissed []store.InboxItem
-	e.questionMu.Lock()
 	err = e.inTx(ctx, func(q *store.Queries) error {
 		for _, item := range replaced {
 			dismissedItem, err := q.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: item.ID})
@@ -841,7 +840,6 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		labels, err = addStateLabelsChange(ctx, q, repository.FullName, input.N)
 		return err
 	})
-	e.questionMu.Unlock()
 	if err != nil {
 		return "", err
 	}

@@ -212,7 +212,7 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	items := len(inbox(t, server))
 
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
-	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 
 	testkit.WaitFor(t, func() bool {
 		runs := fake.CheckRuns(shop)
@@ -221,6 +221,7 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("state = %s", state)
 	}
+	waitForRecords(t, server, leadChat, "@owner stopped #41.")
 	runs := fake.CheckRuns(shop)
 	if len(runs) != 1 || runs[0].HeadSHA != head(t, fake, "mobius/41") || runs[0].Conclusion != "failure" || runs[0].Output.Summary != "Stopped by a label removal." {
 		t.Errorf("check runs = %+v", runs)
@@ -244,7 +245,8 @@ func TestAReadyLabelAfterAStopWithNoPullRequestStartsANewTaskOnANewBranch(t *tes
 		task, err := store.New(server.DB).GetLiveTask(t.Context(), store.GetLiveTaskParams{Repository: shop, Issue: 41})
 		return task, err == nil && task.Branch.Valid
 	})
-	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	waitForSentStateLabels(t, server)
+	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	fake.SetBody(shop, 41, "Plans have a price in cents.")
 
@@ -267,7 +269,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 	server, _ := connectTask(t, fake, leadStarts, finishes, noChange)
 	waitForApproval(t, server, fake)
 	first := head(t, fake, "mobius/41")
-	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	stopped := liveTask(t, server, 41)
 

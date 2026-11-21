@@ -96,10 +96,6 @@ type Engine struct {
 	// the open Workstreams of each organization at its last check.
 	missingWorkstreamsMu sync.Mutex
 	checkedWorkstreams   map[string]string
-	// questionMu makes the store of a new question item with its outgoing change of the state labels in ask, and
-	// closeInboxItems, take turns. Else closeInboxItems can dismiss the new item, because its issue has no
-	// mobius:question yet.
-	questionMu sync.Mutex
 	// outgoingItems holds one mutex for each item with outgoing changes, by "repository#number". It makes the sends of the
 	// item take turns, so a send of the poll and an immediate send cannot both post the same comment. The poll skips an
 	// item that another send holds, so one slow send does not stop the poll of the other items.

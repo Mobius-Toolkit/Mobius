@@ -320,6 +320,10 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	listChanged := false
 	var changeEvents []changeEvent
 	var bodyChanges []store.AddIncomingChangeParams
+	stateIssues, statePulls, err := e.stateLabelItems(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
 		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since, firstPoll)
@@ -332,6 +336,13 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 		if issue.IsPullRequest() {
+			if !firstPoll {
+				pullEvents, err := e.pullStateLabelEvents(ctx, repository, number, since, statePulls[number])
+				if err != nil {
+					return err
+				}
+				changeEvents = append(changeEvents, pullEvents...)
+			}
 			continue
 		}
 		labeled := hasLabel(issue, workstreamLabel)
@@ -359,8 +370,8 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		hasReady := hasLabel(issue, readyLabel)
 		var events []*gh.IssueEvent
-		if changing || work || triaging || !firstPoll && hasReady {
-			if events, err = e.issueEvents(ctx, repository, number); err != nil {
+		if changing || work || triaging || stateIssues[number] || !firstPoll && hasReady {
+			if events, err = repository.IssueEvents(ctx, number); err != nil {
 				return err
 			}
 		}
@@ -370,7 +381,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 			// The cursor has a precision of one second, so an event in the second of the cursor can be new. An incoming
 			// change keeps the id of each event that the poll read, so a second read does nothing.
-			if !firstPoll && (changing || triaging && isTriageEvent(event) || hasReady && isStartEvent(event)) {
+			if !firstPoll && (changing || triaging && isTriageEvent(event) || hasReady && isStartEvent(event) || stateIssues[number] && isStateLabelEvent(event)) {
 				changeEvents = append(changeEvents, changeEvent{number, event})
 			}
 		}

@@ -89,19 +89,6 @@ func valueFlag(arg string) (name, value string, inline bool) {
 	return "", "", false
 }
 
-// labels gives the labels of the repeatable, comma separated flags name.
-func (a ghArgs) labels(name string) []string {
-	var labels []string
-	for _, value := range a.flags[name] {
-		for label := range strings.SplitSeq(value, ",") {
-			if label = strings.TrimSpace(label); label != "" {
-				labels = append(labels, label)
-			}
-		}
-	}
-	return labels
-}
-
 func (a ghArgs) flag(name string) (string, bool) {
 	values := a.flags[name]
 	if len(values) == 0 {
@@ -143,41 +130,28 @@ func (a ghArgs) targets() []mcp.GHWrite {
 // ghWrites gives the writes of the gh call with args, and the stdin for the real gh. It reads stdin one time, only
 // when a body comes from it.
 func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) {
-	if len(args) < 2 || args[0] != "issue" && args[0] != "pr" {
+	if len(args) < 2 || args[0] != "issue" && args[0] != "pr" || args[1] != "comment" && (args[0] != "issue" || args[1] != "close") {
 		return nil, stdin, nil
 	}
 	parsed := parseGHArgs(args[2:])
+	var text string
+	var found bool
+	var err error
+	if args[1] == "close" {
+		text, found = parsed.flag("comment")
+	} else if text, found = parsed.flag("body"); !found {
+		if file, ok := parsed.flag("body-file"); ok {
+			text, stdin, err = readBody(file, stdin)
+			found = err == nil
+		}
+	}
+	if err != nil || !found {
+		return nil, stdin, err
+	}
 	var writes []mcp.GHWrite
-	switch {
-	case args[1] == "edit":
-		for _, target := range parsed.targets() {
-			for _, label := range parsed.labels("add-label") {
-				writes = append(writes, withKind(target, "labeled", []string{label}, ""))
-			}
-			for _, label := range parsed.labels("remove-label") {
-				writes = append(writes, withKind(target, "unlabeled", []string{label}, ""))
-			}
-		}
-	case args[1] == "comment" || args[0] == "issue" && args[1] == "close":
-		var text string
-		var found bool
-		var err error
-		if args[1] == "close" {
-			text, found = parsed.flag("comment")
-		} else if text, found = parsed.flag("body"); !found {
-			if file, ok := parsed.flag("body-file"); ok {
-				text, stdin, err = readBody(file, stdin)
-				found = err == nil
-			}
-		}
-		if err != nil {
-			return nil, stdin, err
-		}
-		if found {
-			for _, target := range parsed.targets() {
-				writes = append(writes, withKind(target, "commented", nil, text))
-			}
-		}
+	for _, target := range parsed.targets() {
+		target.Kind, target.Text = "commented", text
+		writes = append(writes, target)
 	}
 	return writes, stdin, nil
 }
@@ -232,11 +206,6 @@ func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Rea
 		}
 	}
 	return marked, stdin, nil
-}
-
-func withKind(target mcp.GHWrite, kind string, labels []string, text string) mcp.GHWrite {
-	target.Kind, target.Labels, target.Text = kind, labels, text
-	return target
 }
 
 // readBody gives the text of the body file, and the stdin for the real gh. For "-", it reads stdin and gives a reader

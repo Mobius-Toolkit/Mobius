@@ -182,7 +182,7 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 // the change.
 func (e *Engine) issueTextAt(ctx context.Context, repository github.Repository, issue *gh.Issue, at time.Time) error {
 	number := int64(issue.GetNumber())
-	events, err := e.issueEvents(ctx, repository, number)
+	events, err := repository.IssueEvents(ctx, number)
 	if err != nil {
 		return err
 	}

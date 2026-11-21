@@ -895,7 +895,7 @@ func TestAResumeWithNoOpenThreadAndNoCommitStartsTheReviewer(t *testing.T) {
 	server, _ := connectTask(t, fake, noFinding+leadStarts, finishes, noChange)
 	waitForApproval(t, server, fake)
 
-	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

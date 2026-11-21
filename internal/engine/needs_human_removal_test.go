@@ -51,9 +51,8 @@ func TestARemovalOfNeedsHumanFromTheIssueByATrustedUserContinuesTheTaskAndRemove
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
-	}
+	waitForRecords(t, server, leadChat, "@owner resumed #41.")
+	testkit.WaitFor(t, func() bool { return !pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:needs-human") })
 }
 
 func TestAResumeWithATaskThatAResumeContinuedBeforeContinuesNothing(t *testing.T) {
@@ -88,9 +87,8 @@ func TestARemovalOfNeedsHumanFromThePullRequestByATrustedUserContinuesTheTaskAnd
 	fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", "owner")
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
-	}
+	waitForRecords(t, server, leadChat, "@owner resumed #41.")
+	testkit.WaitFor(t, func() bool { return !pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:needs-human") })
 }
 
 func TestARemovalOfNeedsHumanByTheAppHasNoEffectAndARemovalByATrustedUserContinuesTheTask(t *testing.T) {
@@ -125,62 +123,26 @@ func TestARemovalOfNeedsHumanByAnUntrustedUserHasNoEffect(t *testing.T) {
 	hasNoEffect(t, fake, server)
 }
 
-// moveToNeedsHumanLater makes the move of the task to needs_human newer than each label event that the test writes
-// after the call.
-func moveToNeedsHumanLater(t *testing.T, server *testserver.Server) {
-	t.Helper()
-	if _, err := server.DB.Exec("UPDATE tasks SET needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 hour') WHERE id = 1"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestARemovalOfNeedsHumanFromBeforeTheMoveToNeedsHumanHasNoEffect(t *testing.T) {
+func TestARemovalOfNeedsHumanByATrustedUserFromATaskThatIsNotInNeedsHumanHasNoEffect(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.FailAddLabels(shop, 41, true)
-	fake.FailAddLabels(shop, pullRequestNumber, true)
-	server, _ := seedWaiting(t, fake, "needs_human")
-	moveToNeedsHumanLater(t, server)
-	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
-	fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", app)
-	fake.AddLabel(shop, 41, "mobius:needs-human", app)
-	setWorkstreamAutopilot(t, server, "start")
+	server, _ := seedWaiting(t, fake, "approval")
 	waitForPolls(t, fake)
 
-	fake.FailAddLabels(shop, pullRequestNumber, false)
-
-	hasNoEffect(t, fake, server)
-}
-
-func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheTaskHasNoPullRequest(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	server := needsHumanWithLabels(t, fake, false)
-	if _, err := server.DB.Exec("UPDATE tasks SET pull_request = NULL WHERE id = 1"); err != nil {
-		t.Fatal(err)
-	}
-	moveToNeedsHumanLater(t, server)
-	fake.FailAddLabels(shop, 41, true)
+	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 })
 	waitForPolls(t, fake)
-
-	fake.FailAddLabels(shop, 41, false)
-
-	hasNoEffect(t, fake, server)
-}
-
-func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheIssueLacksTheLabelAfterTheMove(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	fake.FailAddLabels(shop, 41, true)
-	fake.FailAddLabels(shop, pullRequestNumber, true)
-	server, _ := seedWaiting(t, fake, "needs_human")
-	moveToNeedsHumanLater(t, server)
-	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
-	fake.AddLabel(shop, 41, "mobius:needs-human", app)
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	waitForPolls(t, fake)
-
-	fake.FailAddLabels(shop, 41, false)
-
-	hasNoEffect(t, fake, server)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+	if rounds := implementerRounds(t, server); rounds != 0 {
+		t.Errorf("Implementers = %d", rounds)
+	}
+	if hasLabel(fake, "mobius:needs-human") || !hasLabel(fake, "mobius:working") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
 }
 
 func TestResumeContinuesTheTaskWithNoOwnerTokenAndTheSendRemovesNeedsHumanFromTheIssueAndFromThePullRequest(t *testing.T) {
@@ -202,9 +164,7 @@ func TestResumeContinuesTheTaskWithNoOwnerTokenAndTheSendRemovesNeedsHumanFromTh
 		if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", app) {
 			t.Errorf("mobius:needs-human on #%d has no removal by the App", number)
 		}
-		if got := stateLabelWrites(t, server, number, "mobius:needs-human", "unlabeled"); got != 1 {
-			t.Errorf("own writes of the removal on #%d = %d, want 1", number, got)
-		}
+		waitForStateLabelWrite(t, server, number, "mobius:needs-human", "unlabeled")
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 }
