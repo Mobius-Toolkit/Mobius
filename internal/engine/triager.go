@@ -364,7 +364,7 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 	if ended.IsZero() {
 		return false, nil
 	}
-	events, err := e.issueEvents(ctx, repository, number)
+	events, err := repository.IssueEvents(ctx, number)
 	if err != nil {
 		return false, err
 	}

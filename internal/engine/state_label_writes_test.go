@@ -8,12 +8,25 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// stateLabelWrites counts the own writes of the send of the state labels for the issue or pull request number, for the
-// label and the change, labeled or unlabeled.
-func stateLabelWrites(t *testing.T, server *testserver.Server, number int64, label, change string) int {
+// stateLabelOwnWrites counts the own writes of the send of the state labels for the issue number, for the label and the
+// change, labeled or unlabeled. The poll deletes an own write when it reads the event of the write, but the first poll
+// of a repository reads no event, so the own write of a send in that poll stays.
+func stateLabelOwnWrites(t *testing.T, server *testserver.Server, number int64, label, change string) int {
 	t.Helper()
 	return countRows(t, server, `SELECT count(*) FROM own_writes WHERE field = 'state_labels' AND repository = ? AND number = ?
 		AND json_extract(metadata, '$.label') = ? AND json_extract(metadata, '$.change') = ?`, shop, number, label, change)
+}
+
+// waitForStateLabelWrite waits until the poll read the event of the write of the send of the state labels for the issue
+// or pull request number, for the label and the change, labeled or unlabeled. The event matches an own write, so its
+// incoming change is done with no handler and the own write is gone.
+func waitForStateLabelWrite(t *testing.T, server *testserver.Server, number int64, label, change string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, `SELECT count(*) FROM incoming_changes WHERE field = 'state_labels' AND status = 'done' AND actor = ?
+			AND repository = ? AND number = ? AND json_extract(metadata, '$.label') = ? AND change = ?`, app, shop, number, label, change) == 1 &&
+			countRows(t, server, "SELECT count(*) FROM own_writes WHERE field = 'state_labels' AND number = ?", number) == 0
+	})
 }
 
 // waitForSentChanges waits until the send has written each outgoing change. A person who removes a label before that
@@ -55,9 +68,7 @@ func TestADispatchGivesTheIssueTheWorkingLabelThroughTheSendAsAnOwnWrite(t *test
 	if got := fake.LabelActor(shop, 41, "mobius:working"); got != app {
 		t.Errorf("actor of mobius:working = %s", got)
 	}
-	if got := stateLabelWrites(t, server, 41, "mobius:working", "labeled"); got != 1 {
-		t.Errorf("own writes of mobius:working = %d, want 1", got)
-	}
+	waitForStateLabelWrite(t, server, 41, "mobius:working", "labeled")
 }
 
 func TestAStopToNeedsHumanGivesTheIssueAndThePullRequestTheLabelAndTheEndOfTheTaskRemovesIt(t *testing.T) {
@@ -71,13 +82,9 @@ func TestAStopToNeedsHumanGivesTheIssueAndThePullRequestTheLabelAndTheEndOfTheTa
 		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake)
 	})
 
-	if hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:review") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
-	}
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review") })
 	for _, number := range []int64{41, pullRequestNumber} {
-		if got := stateLabelWrites(t, server, number, "mobius:needs-human", "labeled"); got != 1 {
-			t.Errorf("own writes of the add on #%d = %d, want 1", number, got)
-		}
+		waitForStateLabelWrite(t, server, number, "mobius:needs-human", "labeled")
 	}
 
 	fake.MergePullRequest(shop, pullRequestNumber)
@@ -88,9 +95,7 @@ func TestAStopToNeedsHumanGivesTheIssueAndThePullRequestTheLabelAndTheEndOfTheTa
 		t.Errorf("labels = %v", labels)
 	}
 	for _, number := range []int64{41, pullRequestNumber} {
-		if got := stateLabelWrites(t, server, number, "mobius:needs-human", "unlabeled"); got != 1 {
-			t.Errorf("own writes of the removal on #%d = %d, want 1", number, got)
-		}
+		waitForStateLabelWrite(t, server, number, "mobius:needs-human", "unlabeled")
 	}
 }
 
@@ -115,16 +120,12 @@ reply = ["Seen"]
 `)
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
-	if got := stateLabelWrites(t, server, 41, "mobius:question", "labeled"); got != 1 {
-		t.Errorf("own writes of the add = %d, want 1", got)
-	}
+	waitForStateLabelWrite(t, server, 41, "mobius:question", "labeled")
 
 	sendChat(t, server, leadChat, "Dollars were chosen")
 
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
-	if got := stateLabelWrites(t, server, 41, "mobius:question", "unlabeled"); got != 1 {
-		t.Errorf("own writes of the removal = %d, want 1", got)
-	}
+	waitForStateLabelWrite(t, server, 41, "mobius:question", "unlabeled")
 	waitForNoItem(t, server, "question")
 }
 
@@ -141,10 +142,10 @@ func TestALostTaskGetsTheNeedsHumanLabelThroughTheSend(t *testing.T) {
 
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working") })
 	waitForItem(t, server, "lost")
-	if got := stateLabelWrites(t, server, 41, "mobius:needs-human", "labeled"); got != 1 {
+	if got := stateLabelOwnWrites(t, server, 41, "mobius:needs-human", "labeled"); got != 1 {
 		t.Errorf("own writes of the add = %d, want 1", got)
 	}
-	if got := stateLabelWrites(t, server, 41, "mobius:working", "unlabeled"); got != 1 {
+	if got := stateLabelOwnWrites(t, server, 41, "mobius:working", "unlabeled"); got != 1 {
 		t.Errorf("own writes of the removal = %d, want 1", got)
 	}
 }

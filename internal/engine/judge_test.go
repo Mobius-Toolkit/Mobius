@@ -412,7 +412,7 @@ func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThan
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
 	waitForSentStateLabels(t, server)
 
-	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool {

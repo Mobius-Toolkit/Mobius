@@ -476,13 +476,13 @@ func TestANewLabelAndARemovedLabelChangeTheLabelsOfTheCopiedIssue(t *testing.T) 
 	server := startWithTasks(t, fake)
 
 	fake.AddLabel(shop, 41, "bug", "owner")
-	fake.AddLabel(shop, 41, "mobius:working", "owner")
+	fake.AddLabel(shop, 41, "enhancement", "owner")
 
-	testkit.WaitFor(t, func() bool { return slices.Equal(copiedLabels(t, server, 41), []string{"bug", "mobius:working"}) })
+	testkit.WaitFor(t, func() bool { return slices.Equal(copiedLabels(t, server, 41), []string{"bug", "enhancement"}) })
 
 	fake.RemoveLabel(shop, 41, "bug", "owner")
 
-	testkit.WaitFor(t, func() bool { return slices.Equal(copiedLabels(t, server, 41), []string{"mobius:working"}) })
+	testkit.WaitFor(t, func() bool { return slices.Equal(copiedLabels(t, server, 41), []string{"enhancement"}) })
 }
 
 func TestAClosedIssueHasTheStateClosedInTheCopy(t *testing.T) {
@@ -1367,10 +1367,10 @@ func TestANewLabelAndANewTitleOfASubIssueOfAnotherRepositoryChangeTheCopy(t *tes
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTaskInAnotherRepository(t, fake)
 
-	fake.AddLabel("other/repo", 77, "mobius:working", "owner")
+	fake.AddLabel("other/repo", 77, "enhancement", "owner")
 	fake.SetTitle("other/repo", 77, "A renamed task")
 
 	testkit.WaitFor(t, func() bool {
-		return copiedTitle(t, server, 77) == "A renamed task" && slices.Equal(copiedLabels(t, server, 77), []string{"mobius:working"})
+		return copiedTitle(t, server, 77) == "A renamed task" && slices.Equal(copiedLabels(t, server, 77), []string{"enhancement"})
 	})
 }

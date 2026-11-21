@@ -66,8 +66,8 @@ func logReviewLabelOnFailure(t *testing.T, fake *testkit.FakeGitHub, server *tes
 	t.Helper()
 	t.Cleanup(func() {
 		if t.Failed() {
-			t.Logf("labels = %q, last actor of mobius:review = %q, added by the App = %v, removed by mallory = %v, task state = %q",
-				fake.Labels(shop, 41), fake.LabelActor(shop, 41, "mobius:review"), fake.LabelAddedBy(shop, 41, "mobius:review", testkit.AppSlug+"[bot]"), fake.LabelRemovedBy(shop, 41, "mobius:review", "mallory"), taskState(t, server))
+			t.Logf("labels = %q, last actor of mobius:review = %q, added by the App = %v, removed by owner = %v, task state = %q",
+				fake.Labels(shop, 41), fake.LabelActor(shop, 41, "mobius:review"), fake.LabelAddedBy(shop, 41, "mobius:review", testkit.AppSlug+"[bot]"), fake.LabelRemovedBy(shop, 41, "mobius:review", "owner"), taskState(t, server))
 		}
 	})
 }
@@ -78,7 +78,7 @@ func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
 	server := approved(t, fake, "", "", noChange)
 	logReviewLabelOnFailure(t, fake, server)
 
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	testkit.WaitFor(t, func() bool {
 		runs := fake.CheckRuns(shop)
@@ -103,7 +103,7 @@ func TestARemovalOfTheReviewLabelStopsATaskWhoseApprovalCameAfterTheStartOfThePo
 	waitForHeld(t, reached)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	release()
 
@@ -130,7 +130,7 @@ func TestAJudgeThatRunsFromReadyForReviewNeedsTheReviewLabel(t *testing.T) {
 		t.Errorf("state = %s, labels = %q", state, fake.Labels(shop, 41))
 	}
 
-	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+	fake.RemoveLabel(shop, 41, "mobius:review", "owner")
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool {

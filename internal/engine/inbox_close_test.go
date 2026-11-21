@@ -106,6 +106,25 @@ func TestAQuestionItemClosesAfterAPersonRemovesTheQuestionLabel(t *testing.T) {
 	fake.RemoveLabel(shop, 41, "mobius:question", "owner")
 
 	waitForNoItem(t, server, "question")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'state_labels' AND status = 'done' AND actor = 'owner' AND change = 'unlabeled'") == 1
+	})
+}
+
+func TestAQuestionItemStaysOpenAndTheSendWritesTheLabelBackAfterAnUntrustedUserRemovesTheQuestionLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askedServer(t, fake)
+
+	fake.RemoveLabel(shop, 41, "mobius:question", "stranger")
+
+	testkit.WaitFor(t, func() bool {
+		return fake.LabelAddedBy(shop, 41, "mobius:question", app) && slices.Contains(fake.Labels(shop, 41), "mobius:question")
+	})
+	waitForPolls(t, fake)
+	if got := itemsOf(t, server, "question"); len(got) != 1 {
+		t.Errorf("question items = %+v", got)
+	}
 }
 
 func TestAQuestionItemClosesAfterTheCloseOfTheIssue(t *testing.T) {

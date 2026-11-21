@@ -478,9 +478,15 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	if err != nil {
 		return err
 	}
+	return e.resumeIssue(ctx, repository, number, "ui", "You resumed")
+}
+
+// resumeIssue is the handler of the resume of the issue number for the actor: the Owner in the UI, or a trusted user
+// who removed mobius:needs-human on GitHub. record is the start of the record in the chat of the Lead.
+func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, number int64, actor, record string) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
+		if err := e.requestStart(ctx, repository, number, actor); err != nil {
 			return err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
@@ -493,7 +499,7 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err := e.sendNow(ctx, repository, change); err != nil {
 			return err
 		}
-		e.addIssueRecord(ctx, repository, number, "You resumed")
+		e.addIssueRecord(ctx, repository, number, record)
 		return nil
 	}
 	if err != nil {
@@ -504,14 +510,14 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err != nil {
 			return err
 		}
-		if err := e.resumeNeedsHuman(ctx, repository, issue, task, "ui"); err != nil {
+		if err := e.resumeNeedsHuman(ctx, repository, issue, task, actor); err != nil {
 			return err
 		}
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
 		return err
 	}
-	e.addIssueRecord(ctx, repository, number, "You resumed")
+	e.addIssueRecord(ctx, repository, number, record)
 	return nil
 }
 
@@ -556,6 +562,19 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 	return task.WorkstreamRepository, task.Workstream, err
 }
 
+// stopLiveTask is the handler of the stop of the live task that is not stopped: it clears the Start of its issue and
+// stops the task with summary. record is the start of the record in the chat of the Lead. The caller holds stopMu.
+func (e *Engine) stopLiveTask(ctx context.Context, repository github.Repository, task store.Task, summary, record string) error {
+	if err := e.clearStart(ctx, task.Repository, task.Issue); err != nil {
+		return err
+	}
+	if err := e.stopTask(ctx, repository, task, summary); err != nil {
+		return err
+	}
+	e.addIssueRecord(ctx, repository, task.Issue, record)
+	return nil
+}
+
 // StopIssue stops the work on the issue number of repositoryName. A live task that is not stopped stops with its
 // Workers and clears any waiting Start. An issue with a waiting Start and no such task clears its Start.
 func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
@@ -573,14 +592,7 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 		return err
 	}
 	if err == nil && task.State != "stopped" {
-		if err := e.clearStart(ctx, repository.FullName, number); err != nil {
-			return err
-		}
-		if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
-			return err
-		}
-		e.addIssueRecord(ctx, repository, number, "You stopped")
-		return nil
+		return e.stopLiveTask(ctx, repository, task, "Stopped by the Owner.", "You stopped")
 	}
 	start, err := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: repository.FullName, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

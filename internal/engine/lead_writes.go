@@ -3,9 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -24,31 +22,26 @@ const (
 	leadWriteAfter  = 10 * time.Minute
 )
 
-// leadItem is an item of the Mobius App on GitHub that can be a write of the Lead.
+// leadItem is a comment of the Mobius App on GitHub that can be a write of the Lead.
 type leadItem struct {
-	// kind is labeled, unlabeled or commented.
-	kind  string
 	id    int64
 	issue int64
-	label string
-	// text is the body of the comment.
-	text string
-	at   time.Time
+	text  string
+	at    time.Time
 }
 
-// recordGHWrites stores the writes that the gh of the Lead is about to make.
+// recordGHWrites stores the comments that the gh of the Lead is about to write.
 func (a *Agent) recordGHWrites(ctx context.Context, writes []mcp.GHWrite) error {
 	for _, write := range writes {
-		labels, err := json.Marshal(append([]string{}, write.Labels...))
-		if err != nil {
-			return err
+		if write.Kind != "commented" {
+			continue
 		}
-		err = a.engine.queries.AddLeadWrite(ctx, store.AddLeadWriteParams{
+		err := a.engine.queries.AddLeadWrite(ctx, store.AddLeadWriteParams{
 			Session:    a.id,
 			Repository: write.Repository,
 			Issue:      write.Issue,
 			Kind:       write.Kind,
-			Labels:     string(labels),
+			Labels:     "[]",
 			Text:       write.Text,
 			CreatedAt:  now(),
 		})
@@ -62,7 +55,7 @@ func (a *Agent) recordGHWrites(ctx context.Context, writes []mcp.GHWrite) error 
 // matchesLeadWrite tells if the item of the repository is the write. A write that already has an item matches only that
 // item.
 func matchesLeadWrite(write store.LeadWrite, repository string, item leadItem) bool {
-	if !strings.EqualFold(write.Repository, repository) || write.Kind != item.kind || write.Issue != item.issue {
+	if !strings.EqualFold(write.Repository, repository) || write.Issue != item.issue {
 		return false
 	}
 	if write.Item.Valid {
@@ -72,11 +65,7 @@ func matchesLeadWrite(write store.LeadWrite, repository string, item leadItem) b
 	if err != nil || item.at.Before(createdAt.Add(-leadWriteBefore)) || item.at.After(createdAt.Add(leadWriteAfter)) {
 		return false
 	}
-	if item.kind == "commented" {
-		return strings.TrimSpace(write.Text) == strings.TrimSpace(item.text)
-	}
-	var labels []string
-	return json.Unmarshal([]byte(write.Labels), &labels) == nil && slices.Contains(labels, item.label)
+	return strings.TrimSpace(write.Text) == strings.TrimSpace(item.text)
 }
 
 // matchLeadWrite tells if the item of the repository is a write of the Lead in writes. At the first match it stores the
@@ -95,44 +84,6 @@ func (e *Engine) matchLeadWrite(ctx context.Context, writes []store.LeadWrite, r
 	return false, nil
 }
 
-// issueEvents gives the events of the issue or the pull request number. A label event of the Mobius App that matches a
-// write of the Lead has the first trusted user as its actor, so each check treats it as the action of a person. A
-// setting label of a Workstream, mobius:workstream, mobius:triage and mobius:ready are no such labels: Mobius
-// writes them from workstreams and from issues, or ignores mobius:ready from the App.
-func (e *Engine) issueEvents(ctx context.Context, repository github.Repository, number int64) ([]*gh.IssueEvent, error) {
-	events, err := repository.IssueEvents(ctx, number)
-	if err != nil {
-		return nil, err
-	}
-	app := appLogin(repository.AppSlug)
-	isApp := func(event *gh.IssueEvent) bool { return strings.EqualFold(event.GetActor().GetLogin(), app) }
-	if len(e.config.TrustedUsers) == 0 || !slices.ContainsFunc(events, isApp) {
-		return events, nil
-	}
-	writes, err := e.queries.ListLeadWrites(ctx, store.ListLeadWritesParams{Repository: repository.FullName, Issue: number})
-	if err != nil || len(writes) == 0 {
-		return events, err
-	}
-	result := slices.Clone(events)
-	for i, event := range events {
-		label := event.GetLabel().GetName()
-		if !isApp(event) || event.GetEvent() != "labeled" && event.GetEvent() != "unlabeled" || isSettingLabel(label) || label == workstreamLabel || label == triageLabel || label == readyLabel {
-			continue
-		}
-		item := leadItem{kind: event.GetEvent(), id: event.GetID(), issue: number, label: event.GetLabel().GetName(), at: event.GetCreatedAt().Time}
-		matched, err := e.matchLeadWrite(ctx, writes, repository.FullName, item)
-		if err != nil {
-			return nil, err
-		}
-		if matched {
-			person := *event
-			person.Actor = &gh.User{Login: new(e.config.TrustedUsers[0])}
-			result[i] = &person
-		}
-	}
-	return result, nil
-}
-
 // leadCommented tells if the comment is a comment of the Mobius App that is a write of the Lead.
 func (e *Engine) leadCommented(ctx context.Context, repository github.Repository, comment *gh.IssueComment) (bool, error) {
 	number, err := strconv.ParseInt(path.Base(comment.GetIssueURL()), 10, 64)
@@ -143,6 +94,6 @@ func (e *Engine) leadCommented(ctx context.Context, repository github.Repository
 	if err != nil {
 		return false, err
 	}
-	item := leadItem{kind: "commented", id: comment.GetID(), issue: number, text: comment.GetBody(), at: comment.GetCreatedAt().Time}
+	item := leadItem{id: comment.GetID(), issue: number, text: comment.GetBody(), at: comment.GetCreatedAt().Time}
 	return e.matchLeadWrite(ctx, writes, repository.FullName, item)
 }

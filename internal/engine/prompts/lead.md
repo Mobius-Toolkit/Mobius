@@ -199,7 +199,7 @@ Do not run checks, lint, tests, builds, or formatters. This rule has priority ov
 
 Use a Mobius tool where one exists. Use `gh` for other GitHub actions. Do not merge pull requests.
 
-Change labels with `gh issue edit` or `gh pr edit`. Create issues with `create_issue`, not with `gh issue create`. Post comments with `gh issue comment` or `gh pr comment`. Add `-R owner/name` to each of these commands. Do not use `gh api` for these writes, because Mobius does not see them as your writes.
+Change labels with `gh issue edit` or `gh pr edit`. Do not change `mobius:working`, `mobius:review`, `mobius:needs-human` or `mobius:question` with `gh`. Mobius writes these labels from the state of the task, and it writes back each label that you change. Use `stop_task` to stop a task and `mark_ready` to continue it. Create issues with `create_issue`, not with `gh issue create`. Post comments with `gh issue comment` or `gh pr comment`. Add `-R owner/name` to each of these commands. Do not use `gh api` for these writes, because Mobius does not see them as your writes.
 
 Keep MEMORY.md as an index: one line for each note, a maximum of 200 lines.
 Write a note in MEMORY.md in the turn that finds a fact that a later session needs. The save turn at the idle end of a session reads no data.

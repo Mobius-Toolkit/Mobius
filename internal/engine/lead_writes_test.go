@@ -64,7 +64,7 @@ func connectLeadWrites(t *testing.T, fake *testkit.FakeGitHub, commands ...strin
 	return server
 }
 
-func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t *testing.T) {
+func TestTheGHOfTheLeadRecordsOnlyTheCommentsWithTheSessionOfTheLead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake,
@@ -94,13 +94,7 @@ func TestTheGHOfTheLeadRecordsTheWritesOfEachSubcommandWithTheSessionOfTheLead(t
 		}
 		got = append(got, fmt.Sprintf("%s#%d %s %s %q", repository, issue, kind, labels, text))
 	}
-	want := []string{
-		`owner/shop#41 labeled ["mobius:ready"] ""`,
-		`owner/shop#41 unlabeled ["mobius:triage"] ""`,
-		`owner/shop#42 labeled ["mobius:ready"] ""`,
-		`owner/shop#42 unlabeled ["mobius:triage"] ""`,
-		fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark)),
-	}
+	want := []string{fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark))}
 	if !slices.Equal(got, want) {
 		t.Errorf("writes = %q", got)
 	}
@@ -137,26 +131,6 @@ func TestTheAddOfMobiusAutopilotThatTheLeadMadeHasNoEffect(t *testing.T) {
 	}
 }
 
-func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchItAndContinuesNothing(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := seedWaitingAdjusted(t, fake, "needs_human", leadWriteScript("gh issue edit 41 -R owner/shop --remove-label mobius:needs-human"), func(cfg *config.Config) { stubGH(t, cfg.DataDir) })
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
-	waitForPolls(t, fake)
-	setFixRounds(t, server, 5)
-	leadWrites(t, server, 1)
-	if _, err := server.DB.Exec("UPDATE lead_writes SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-11 minutes')"); err != nil {
-		t.Fatal(err)
-	}
-
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
-
-	hasNoEffect(t, fake, server)
-	if rounds := liveTask(t, server, 41).FixRounds; rounds != 5 {
-		t.Errorf("fix rounds = %d, want 5", rounds)
-	}
-}
-
 func TestTheAddOfMobiusTriageThatTheAppMadeStartsNoTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -169,35 +143,6 @@ func TestTheAddOfMobiusTriageThatTheAppMadeStartsNoTriagerAlsoAfterAWriteOfTheLe
 	waitForPolls(t, fake)
 	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
 		t.Errorf("sessions = %+v", got)
-	}
-}
-
-func TestTheRemovalOfNeedsHumanThatTheLeadMadeSetsTheRoundCountersBackToZero(t *testing.T) {
-	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server, _ := seedWaitingAdjusted(t, fake, "needs_human", leadWriteScript("gh issue edit 41 -R owner/shop --remove-label mobius:needs-human"), func(cfg *config.Config) { stubGH(t, cfg.DataDir) })
-			testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
-			waitForPolls(t, fake)
-			setFixRounds(t, server, 5)
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-
-			fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
-
-			if !recorded {
-				hasNoEffect(t, fake, server)
-				if rounds := liveTask(t, server, 41).FixRounds; rounds != 5 {
-					t.Errorf("fix rounds = %d, want 5", rounds)
-				}
-				return
-			}
-			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-			testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
-		})
 	}
 }
 
@@ -220,32 +165,6 @@ func TestTheAddOfMobiusReadyThatTheLeadMadeStartsNoTaskAndRemovesTheLabel(t *tes
 	}
 	if rounds := implementerRounds(t, server); rounds != 0 {
 		t.Errorf("Implementers = %d", rounds)
-	}
-}
-
-func TestTheRemovalOfAStateLabelThatTheLeadMadeStopsTheTask(t *testing.T) {
-	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			server, _ := seedWaitingAdjusted(t, fake, "approval", leadWriteScript("gh issue edit 41 -R owner/shop --remove-label mobius:working"), func(cfg *config.Config) { stubGH(t, cfg.DataDir) })
-			waitForPolls(t, fake)
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-
-			fake.RemoveLabel(shop, 41, "mobius:working", app)
-
-			if recorded {
-				testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
-				return
-			}
-			waitForPolls(t, fake)
-			if state := taskState(t, server); state != "approval" {
-				t.Errorf("state = %s", state)
-			}
-		})
 	}
 }
 
@@ -336,21 +255,4 @@ func TestACommentOfTheLeadThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideT
 			}
 		})
 	}
-}
-
-func TestTheSecondLabelOfOneRemoveOfTheLeadHasTheEffectOfTheRemoveOfAPerson(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := seedWaitingAdjusted(t, fake, "needs_human", leadWriteScript("gh issue edit 41 -R owner/shop --remove-label bug,mobius:needs-human"), func(cfg *config.Config) { stubGH(t, cfg.DataDir) })
-	fake.AddLabel(shop, 41, "bug", "owner")
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
-	waitForPolls(t, fake)
-	setFixRounds(t, server, 5)
-	leadWrites(t, server, 1)
-
-	fake.RemoveLabel(shop, 41, "bug", app)
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
-
-	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 }

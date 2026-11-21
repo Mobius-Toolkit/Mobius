@@ -3,8 +3,12 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
+	"time"
+
+	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -44,6 +48,168 @@ func (e *Engine) sendLabelsNow(ctx context.Context, repository string, change in
 func (e *Engine) stateLabelsPending(ctx context.Context, repository string, number int64) (bool, error) {
 	pending, err := e.pendingChanges(ctx, repository, number)
 	return slices.ContainsFunc(pending, func(change store.OutgoingChange) bool { return change.Field == stateLabelsField }), err
+}
+
+// isStateLabelEvent tells if the event is an add or a removal of one of the state labels.
+func isStateLabelEvent(event *gh.IssueEvent) bool {
+	field, _, ok := eventField(event)
+	return ok && field == stateLabelsField
+}
+
+// stateLabelItems gives the numbers of the issues, and of the pull requests, of repository whose events of the state
+// labels the poll reads: each issue with a live task or with an open question or lost Inbox item, and each pull
+// request of a live task.
+func (e *Engine) stateLabelItems(ctx context.Context, repository string) (map[int64]bool, map[int64]bool, error) {
+	tasks, err := e.queries.ListLiveTasks(ctx, repository)
+	if err != nil {
+		return nil, nil, err
+	}
+	issues, pulls := map[int64]bool{}, map[int64]bool{}
+	for _, task := range tasks {
+		issues[task.Issue] = true
+		if task.PullRequest.Valid {
+			pulls[task.PullRequest.Int64] = true
+		}
+	}
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, item := range items {
+		if item.Repository == repository && (item.Kind == questionKind || item.Kind == lostKind) {
+			issues[item.Issue] = true
+		}
+	}
+	return issues, pulls, nil
+}
+
+// pullStateLabelEvents gives the events of the state labels of the pull request number that are not older than since.
+// It reads the events of a pull request of a live task, and of a pull request with an own write that waits for its event.
+func (e *Engine) pullStateLabelEvents(ctx context.Context, repository github.Repository, number int64, since time.Time, live bool) ([]changeEvent, error) {
+	writing, err := e.queries.HasOwnWrite(ctx, store.HasOwnWriteParams{Repository: repository.FullName, Number: number})
+	if err != nil || !live && !writing {
+		return nil, err
+	}
+	events, err := repository.IssueEvents(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	var found []changeEvent
+	for _, event := range events {
+		if event.Actor != nil && !event.GetCreatedAt().Before(since) && isStateLabelEvent(event) {
+			found = append(found, changeEvent{number, event})
+		}
+	}
+	return found, nil
+}
+
+// applyStateLabelsChange applies the incoming change of a state label of an issue, or of the pull request of a live
+// task. A removal by a trusted user acts like the UI, when Mobius needs the label no more than the person says:
+//   - mobius:working or mobius:review of the issue of a live task that needs that label stops the task (StopIssue).
+//   - mobius:needs-human of the issue or of the pull request of a task in needs_human, or of an issue with no live task
+//     and an open lost Inbox item, resumes it (ResumeIssue).
+//   - mobius:question of an issue with an open question Inbox item closes the question.
+//
+// Each other change, also each change of another actor and of the Mobius App, adds and sends the outgoing change that
+// writes the state labels of the issue back from the database. A label of a pull request other than mobius:needs-human
+// is no state label of Mobius.
+func (e *Engine) applyStateLabelsChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
+	repository = e.changeRepository(change.Repository, repository)
+	var meta struct{ Label string }
+	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
+		return err
+	}
+	number := change.Number
+	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{Repository: change.Repository, PullRequest: sql.NullInt64{Int64: number, Valid: true}})
+	onPull := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if onPull {
+		if meta.Label != needsHumanLabel {
+			return nil
+		}
+		number = task.Issue
+	}
+	if e.trustedUser(change.Actor) && change.Change == unlabeledChange {
+		acted, err := e.removeStateLabel(ctx, repository, number, meta.Label, change.Actor)
+		if err != nil || acted {
+			return err
+		}
+	}
+	id, err := addStateLabelsChange(ctx, e.queries, change.Repository, number)
+	if err != nil {
+		return err
+	}
+	return e.sendNow(ctx, repository, id)
+}
+
+// removeStateLabel runs the action of the removal of label from the issue number by the actor, and tells if it ran.
+func (e *Engine) removeStateLabel(ctx context.Context, repository github.Repository, number int64, label, actor string) (bool, error) {
+	switch label {
+	case workingLabel, reviewLabel:
+		return e.stopForLabel(ctx, repository, number, label, actor)
+	case needsHumanLabel:
+		return e.resumeForLabel(ctx, repository, number, actor)
+	case questionLabel:
+		return e.dismissQuestions(ctx, repository.FullName, number)
+	}
+	return false, nil
+}
+
+// stopForLabel stops the live task of the issue number as StopIssue does, when the task needs label.
+func (e *Engine) stopForLabel(ctx context.Context, repository github.Repository, number int64, label, actor string) (bool, error) {
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && neededLabel(task) != label {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, e.stopLiveTask(ctx, repository, task, "Stopped by a label removal.", "@"+actor+" stopped")
+}
+
+// resumeForLabel resumes the issue number as ResumeIssue does, when its live task is in needs_human, or when it has no
+// live task and an open lost Inbox item.
+func (e *Engine) resumeForLabel(ctx context.Context, repository github.Repository, number int64, actor string) (bool, error) {
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && task.State != "needs_human" {
+		return false, nil
+	}
+	if err != nil {
+		lost, err := e.openIssueItems(ctx, repository.FullName, number, lostKind)
+		if err != nil || len(lost) == 0 {
+			return false, err
+		}
+	}
+	err = e.resumeIssue(ctx, repository, number, actor, "@"+actor+" resumed")
+	if Refused(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// dismissQuestions dismisses each open question Inbox item of the issue number, and tells if there was one. A stopped
+// item of the task in needs_human opens again as reopenStoppedItem says.
+func (e *Engine) dismissQuestions(ctx context.Context, repository string, number int64) (bool, error) {
+	items, err := e.openIssueItems(ctx, repository, number, questionKind)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range items {
+		if err := e.reopenStoppedItem(ctx, item); err != nil {
+			return false, err
+		}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return false, err
+		}
+	}
+	return len(items) > 0, nil
 }
 
 type labelWrite struct {

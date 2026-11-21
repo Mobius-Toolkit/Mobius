@@ -107,7 +107,7 @@ func (e *Engine) upgradeReadyStarts(ctx context.Context, repository github.Repos
 			continue
 		}
 		number := int64(issue.GetNumber())
-		issueEvents, err := e.issueEvents(ctx, repository, number)
+		issueEvents, err := repository.IssueEvents(ctx, number)
 		if err != nil {
 			return err
 		}
