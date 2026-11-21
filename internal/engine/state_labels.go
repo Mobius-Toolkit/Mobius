@@ -152,7 +152,11 @@ func (e *Engine) removeStateLabel(ctx context.Context, repository github.Reposit
 	case needsHumanLabel:
 		return e.resumeForLabel(ctx, repository, number, actor)
 	case questionLabel:
-		return e.dismissQuestions(ctx, repository.FullName, number)
+		asked, err := e.hasOpenQuestion(ctx, repository.FullName, number)
+		if err != nil || !asked {
+			return false, err
+		}
+		return true, e.closeQuestionItems(ctx, repository.FullName, number)
 	}
 	return false, nil
 }
@@ -192,24 +196,6 @@ func (e *Engine) resumeForLabel(ctx context.Context, repository github.Repositor
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// dismissQuestions dismisses each open question Inbox item of the issue number, and tells if there was one. A stopped
-// item of the task in needs_human opens again as reopenStoppedItem says.
-func (e *Engine) dismissQuestions(ctx context.Context, repository string, number int64) (bool, error) {
-	items, err := e.openIssueItems(ctx, repository, number, questionKind)
-	if err != nil {
-		return false, err
-	}
-	for _, item := range items {
-		if err := e.reopenStoppedItem(ctx, item); err != nil {
-			return false, err
-		}
-		if err := e.Dismiss(ctx, item.ID); err != nil {
-			return false, err
-		}
-	}
-	return len(items) > 0, nil
 }
 
 type labelWrite struct {

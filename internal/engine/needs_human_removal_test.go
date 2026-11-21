@@ -123,30 +123,26 @@ func TestARemovalOfNeedsHumanByAnUntrustedUserHasNoEffect(t *testing.T) {
 	hasNoEffect(t, fake, server)
 }
 
-// moveToNeedsHumanLater makes the move of the task to needs_human newer than each label event that the test writes
-// after the call.
-func moveToNeedsHumanLater(t *testing.T, server *testserver.Server) {
-	t.Helper()
-	if _, err := server.DB.Exec("UPDATE tasks SET needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 hour') WHERE id = 1"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestARemovalOfNeedsHumanFromBeforeTheMoveToNeedsHumanHasNoEffect(t *testing.T) {
+func TestARemovalOfNeedsHumanByATrustedUserFromATaskThatIsNotInNeedsHumanHasNoEffect(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.FailAddLabels(shop, 41, true)
-	fake.FailAddLabels(shop, pullRequestNumber, true)
-	server, _ := seedWaiting(t, fake, "needs_human")
-	moveToNeedsHumanLater(t, server)
-	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
-	fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", app)
-	fake.AddLabel(shop, 41, "mobius:needs-human", app)
-	setWorkstreamAutopilot(t, server, "start")
+	server, _ := seedWaiting(t, fake, "approval")
 	waitForPolls(t, fake)
 
-	fake.FailAddLabels(shop, pullRequestNumber, false)
+	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
-	hasNoEffect(t, fake, server)
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 })
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+	if rounds := implementerRounds(t, server); rounds != 0 {
+		t.Errorf("Implementers = %d", rounds)
+	}
+	if hasLabel(fake, "mobius:needs-human") || !hasLabel(fake, "mobius:working") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
 }
 
 func TestResumeContinuesTheTaskWithNoOwnerTokenAndTheSendRemovesNeedsHumanFromTheIssueAndFromThePullRequest(t *testing.T) {

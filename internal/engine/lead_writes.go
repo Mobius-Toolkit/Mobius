@@ -33,9 +33,6 @@ type leadItem struct {
 // recordGHWrites stores the comments that the gh of the Lead is about to write.
 func (a *Agent) recordGHWrites(ctx context.Context, writes []mcp.GHWrite) error {
 	for _, write := range writes {
-		if write.Kind != "commented" {
-			continue
-		}
 		err := a.engine.queries.AddLeadWrite(ctx, store.AddLeadWriteParams{
 			Session:    a.id,
 			Repository: write.Repository,

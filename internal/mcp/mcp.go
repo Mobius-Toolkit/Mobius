@@ -30,15 +30,14 @@ type Tool struct {
 	Run func(ctx context.Context, arguments json.RawMessage) (string, error)
 }
 
-// GHWrite is a change that the gh of a session makes on GitHub: a label change, a new issue or a comment.
+// GHWrite is a comment that the gh of a session makes on GitHub.
 type GHWrite struct {
 	Repository string `json:"repository"`
-	// Issue is the number of the issue or the pull request, or 0 for a new issue.
+	// Issue is the number of the issue or the pull request.
 	Issue int64 `json:"issue"`
-	// Kind is labeled, unlabeled, created or commented.
-	Kind   string   `json:"kind"`
-	Labels []string `json:"labels"`
-	// Text is the title of a new issue or the body of a comment.
+	// Kind is commented.
+	Kind string `json:"kind"`
+	// Text is the body of the comment.
 	Text string `json:"text"`
 }
 

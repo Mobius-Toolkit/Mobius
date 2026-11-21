@@ -225,7 +225,7 @@ func TestTheGHWritesRouteGivesTheWritesToACallerWithGHWrites(t *testing.T) {
 	}})
 	failing := server.Open(Caller{GHWrites: func(context.Context, []GHWrite) error { return errors.New("no session") }})
 	other := server.Open(Caller{})
-	body := `{"writes":[{"repository":"owner/shop","issue":12,"kind":"labeled","labels":["mobius:ready"],"text":""}]}`
+	body := `{"writes":[{"repository":"owner/shop","issue":12,"kind":"commented","text":"A comment."}]}`
 
 	for url, want := range map[string]string{
 		GHWritesURL(addr, lead):      "204 ",
@@ -238,7 +238,7 @@ func TestTheGHWritesRouteGivesTheWritesToACallerWithGHWrites(t *testing.T) {
 			t.Errorf("%s: %q, want %q", url, got, want)
 		}
 	}
-	if want := []GHWrite{{Repository: "owner/shop", Issue: 12, Kind: "labeled", Labels: []string{"mobius:ready"}}}; !reflect.DeepEqual(got, want) {
+	if want := []GHWrite{{Repository: "owner/shop", Issue: 12, Kind: "commented", Text: "A comment."}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("writes = %+v", got)
 	}
 	if status, text := send(t, http.MethodPost, GHWritesURL(addr, lead), "", `{`); status != http.StatusBadRequest {
