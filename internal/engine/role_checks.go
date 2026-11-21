@@ -71,6 +71,7 @@ func (e *Engine) setAccess(key accessKey, err error) {
 	e.accessMu.Lock()
 	e.access[key] = state
 	e.accessMu.Unlock()
+	e.pausesChanged.notify()
 	e.workers.changed.notify()
 }
 
@@ -78,6 +79,7 @@ func (e *Engine) removeAccess(key accessKey) {
 	e.accessMu.Lock()
 	delete(e.access, key)
 	e.accessMu.Unlock()
+	e.pausesChanged.notify()
 	e.workers.changed.notify()
 }
 
