@@ -93,27 +93,25 @@ func TestARemovalOfNeedsHumanFromThePullRequestByATrustedUserContinuesTheTaskAnd
 	}
 }
 
-func TestARemovalOfNeedsHumanByTheAppContinuesTheTaskWhenAutopilotIsOn(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	server := needsHumanWithLabels(t, fake, true)
+func TestARemovalOfNeedsHumanByTheAppHasNoEffectAndARemovalByATrustedUserContinuesTheTask(t *testing.T) {
+	for _, autopilot := range []bool{true, false} {
+		t.Run(fmt.Sprintf("autopilot=%t", autopilot), func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			server := needsHumanWithLabels(t, fake, autopilot)
+			fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
+			fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", app)
 
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
+			hasNoEffect(t, fake, server)
 
-	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
-	}
-}
+			fake.AddLabel(shop, 41, "mobius:needs-human", app)
+			fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
+			fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
-func TestARemovalOfNeedsHumanByTheAppContinuesTheTaskWhenAutopilotIsOff(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	server := needsHumanWithLabels(t, fake, false)
-
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
-
-	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+			if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
+				t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+			}
+		})
 	}
 }
 

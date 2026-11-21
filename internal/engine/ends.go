@@ -301,14 +301,19 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 }
 
 // continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
-// pull request, and the actor is a trusted user or the Mobius App. It reads the label events only
-// when one of the two items lacks the label. A removal counts only when it is newer than the move of the task to
-// needs_human, because resume removes the label from both items.
+// pull request, and the actor is a trusted user. A removal of the Mobius App is a write of the send of the state labels,
+// so it never continues the task. A removal of the Mobius App that matches a write of the Lead has a trusted user as its
+// actor, see issueEvents. It reads the label events only when one of the two items lacks the label, and does nothing
+// while a change of the state labels of the issue is pending. A removal counts only when it is newer than the move of
+// the task to needs_human, because resume removes the label from both items.
 func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
 	issueHas := hasLabel(issue, needsHumanLabel)
 	pullHas := pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel)
 	if task.State != "needs_human" || issueHas && pullHas {
 		return false, nil
+	}
+	if pending, err := e.stateLabelsPending(ctx, repository.FullName, task.Issue); pending || err != nil {
+		return false, err
 	}
 	var since time.Time
 	if task.NeedsHumanAt.Valid {
@@ -333,7 +338,7 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 		actors = append(actors, removalActor(pullEvents, since))
 	}
 	for _, actor := range actors {
-		if actor == "" || !e.TrustedAuthor(repository.AppSlug, actor) {
+		if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) || !e.TrustedAuthor(repository.AppSlug, actor) {
 			continue
 		}
 		return true, e.resumeNeedsHuman(ctx, repository, issue, task, actor)
