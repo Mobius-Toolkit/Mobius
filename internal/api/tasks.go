@@ -32,6 +32,10 @@ type TaskLine struct {
 	BlockedBy []Blocker `gork:"blockedBy"`
 	// Implementer is the own Implementer setting of the task, or null when the task has none
 	Implementer *IssueSetting `gork:"implementer"`
+	// Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
+	PausedUntil *time.Time `gork:"pausedUntil"`
 }
 
 // Blocker is an open blocker of a task.
@@ -73,7 +77,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
+		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
 		if line.Implementer != nil {
 			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
 		}
@@ -233,6 +237,10 @@ type BoardTask struct {
 	MergeQueuePlace *int64 `gork:"mergeQueuePlace"`
 	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null
 	MergeQueueSize int64 `gork:"mergeQueueSize"`
+	// Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
+	PausedUntil *time.Time `gork:"pausedUntil"`
 }
 
 // ListBoardTasksRequest is the request of ListBoardTasks.
@@ -252,7 +260,7 @@ func (h *handlers) ListBoardTasks(ctx context.Context, _ ListBoardTasksRequest) 
 	}
 	tasks := make([]BoardTask, 0, len(found))
 	for _, task := range found {
-		row := BoardTask{Repository: task.Repository, Number: task.Number, Title: task.Title, URL: task.URL, WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream, WorkstreamTitle: task.WorkstreamTitle, State: task.State, StateAt: task.StateAt, FixRounds: task.FixRounds, ReviewRounds: task.ReviewRounds, TotalFixRounds: task.TotalFixRounds, TotalReviewRounds: task.TotalReviewRounds, Merging: task.Merging, MergeRefusal: task.MergeRefusal, MergeQueuePlace: task.MergeQueuePlace, MergeQueueSize: task.MergeQueueSize}
+		row := BoardTask{Repository: task.Repository, Number: task.Number, Title: task.Title, URL: task.URL, WorkstreamRepository: task.WorkstreamRepository, Workstream: task.Workstream, WorkstreamTitle: task.WorkstreamTitle, State: task.State, StateAt: task.StateAt, FixRounds: task.FixRounds, ReviewRounds: task.ReviewRounds, TotalFixRounds: task.TotalFixRounds, TotalReviewRounds: task.TotalReviewRounds, Merging: task.Merging, MergeRefusal: task.MergeRefusal, MergeQueuePlace: task.MergeQueuePlace, MergeQueueSize: task.MergeQueueSize, Wait: string(task.Wait), PausedUntil: task.PausedUntil}
 		if task.PullRequest != 0 {
 			row.PullRequest = &task.PullRequest
 			row.PullRequestURL = &task.PullRequestURL

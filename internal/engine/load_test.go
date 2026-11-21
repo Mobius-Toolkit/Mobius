@@ -85,7 +85,7 @@ func TestAHighLoadMakesTheCheckWaitUntilTheLoadIsLow(t *testing.T) {
 
 	testkit.WaitFor(t, func() bool {
 		sessions := roleSessions(t, server, engine.ImplementerRole)
-		return len(sessions) == 1 && sessions[0].QueueReason.String == "waits for a low load"
+		return len(sessions) == 1 && sessions[0].QueueReason.String == "waits for a low load" && sessions[0].QueueWait.String == "low_load"
 	})
 	load.set(0)
 

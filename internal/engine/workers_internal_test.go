@@ -160,8 +160,8 @@ func TestALaterSessionTakesNoSlotOfAFreeingBindingBeforeAnEarlierSessionThatFoll
 	t.Parallel()
 	e := &Engine{workers: newWorkers()}
 	slots := &implementerSlots{choices: []slotChoice{
-		{ImplementerBinding{0, config.RoleBinding{Harness: config.Devin, Max: 1}}, "paused until 2100-01-01 00:00 UTC"},
-		{ImplementerBinding{1, config.RoleBinding{Harness: config.ClaudeCode, Max: 1}}, ""},
+		{ImplementerBinding{0, config.RoleBinding{Harness: config.Devin, Max: 1}}, queueWait{waitPaused, "paused until 2100-01-01 00:00 UTC"}},
+		{ImplementerBinding{1, config.RoleBinding{Harness: config.ClaudeCode, Max: 1}}, queueWait{}},
 	}}
 	full := 1
 	e.workers.bindings[1] = &full
@@ -170,14 +170,14 @@ func TestALaterSessionTakesNoSlotOfAFreeingBindingBeforeAnEarlierSessionThatFoll
 	e.workers.waiting[later] = slotWait{role: ImplementerRole}
 	first := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
 	second := &Agent{spec: Spec{Role: ImplementerRole}, level: LevelRole}
-	if reason, _ := e.slotReason(first, earlier, nil, true, "", false, "", slots); reason == "" {
+	if reason, _ := e.slotReason(first, earlier, nil, true, queueWait{}, false, queueWait{}, slots); reason.none() {
 		t.Fatal("the earlier session took the full binding")
 	}
 	full = 0
 
-	reason, ok := e.slotReason(second, later, nil, true, "", false, "", slots)
+	reason, ok := e.slotReason(second, later, nil, true, queueWait{}, false, queueWait{}, slots)
 
-	if !ok || reason == "" {
-		t.Errorf("reason = %q, %v, want the later session to wait for the earlier session", reason, ok)
+	if !ok || reason.none() {
+		t.Errorf("reason = %+v, %v, want the later session to wait for the earlier session", reason, ok)
 	}
 }

@@ -29,6 +29,8 @@ const task: BoardTask = {
   mergeRefusal: "",
   mergeQueuePlace: null,
   mergeQueueSize: 0,
+  pausedUntil: null,
+  wait: "",
 };
 
 const RouterLink = defineRouterLink(Message.NavigateTo);

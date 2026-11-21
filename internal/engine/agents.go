@@ -274,9 +274,9 @@ type Created struct {
 	Number     int64
 }
 
-const (
-	checkRunsReason = "runs .mobius/check"
-	initRunsReason  = "runs .mobius/init"
+var (
+	checkRunsWait = queueWait{waitLocalCheck, "runs .mobius/check"}
+	initRunsWait  = queueWait{waitInit, "runs .mobius/init"}
 )
 
 func now() string {
@@ -1184,9 +1184,9 @@ func (e *Engine) working(n Node) bool {
 		e.chatsMu.Lock()
 		defer e.chatsMu.Unlock()
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
-		return ok && c.writing && session.QueueReason.String == ""
+		return ok && c.writing && !session.QueueWait.Valid
 	}
-	return slices.Contains([]string{"", checkRunsReason, initRunsReason}, session.QueueReason.String)
+	return !session.QueueWait.Valid || slices.Contains([]Wait{waitLocalCheck, waitInit}, Wait(session.QueueWait.String))
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.

@@ -742,6 +742,7 @@ func TestAPollMovesATaskInApprovalBackToChecksWhenAHumanPushesANewHeadAndSendsTh
 
 func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
 	t.Parallel()
+	waits := map[string]string{"checks": "ci", "approval": "lead", "dispatched": "start_implementer", "owner_action": "owner_action"}
 	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer", "owner_action": "waits for Owner action"} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
@@ -751,7 +752,7 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitFo
 
 			testkit.WaitFor(t, func() bool { return len(taskTab(t, server)) > 0 })
 			lines := taskTab(t, server)
-			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want {
+			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want || string(lines[0].Wait) != waits[state] {
 				t.Errorf("lines = %+v", lines)
 			}
 			calls := rows(t, server, session, "mcp_call")

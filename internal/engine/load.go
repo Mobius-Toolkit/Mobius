@@ -11,7 +11,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-const lowLoadReason = "waits for a low load"
+var lowLoadWait = queueWait{waitLowLoad, "waits for a low load"}
 
 var (
 	// loadAverage gives the 1-minute load average of the machine.
@@ -115,7 +115,7 @@ func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) (err erro
 		delete(e.loadWaits, a.id)
 		e.loadWaitsMu.Unlock()
 	}()
-	if err := a.checkPhase(ctx, lowLoadReason, fmt.Sprintf("The check waits for a low load. The 1-minute load average is %.2f, and the machine has %d cores.", load, cores)); err != nil {
+	if err := a.checkPhase(ctx, lowLoadWait, fmt.Sprintf("The check waits for a low load. The 1-minute load average is %.2f, and the machine has %d cores.", load, cores)); err != nil {
 		return err
 	}
 	began := time.Now()
@@ -130,7 +130,7 @@ func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) (err erro
 			e.checkStartMu.Lock()
 			e.checkStart = time.Now()
 			e.checkStartMu.Unlock()
-			return a.checkPhase(ctx, lowLoadReason, "The Owner started the check at once.")
+			return a.checkPhase(ctx, lowLoadWait, "The Owner started the check at once.")
 		case <-ticker.C:
 		}
 		load, ready, err = e.startCheck(a.id, wait)

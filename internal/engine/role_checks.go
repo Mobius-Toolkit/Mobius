@@ -48,19 +48,19 @@ type accessState struct {
 	at     time.Time
 }
 
-// accessHold gives the queue reason of a session with binding, or "" when the access check of its key passed.
-func (e *Engine) accessHold(binding config.RoleBinding) string {
+// accessHold gives the wait of a session with binding, or the zero queueWait when the access check of its key passed.
+func (e *Engine) accessHold(binding config.RoleBinding) queueWait {
 	key := keyOf(binding)
 	e.accessMu.Lock()
 	state, checked := e.access[key]
 	e.accessMu.Unlock()
 	switch {
 	case !checked:
-		return fmt.Sprintf("waits for the access check of %s %s", key.harness, key.model)
+		return queueWait{waitNoAccess, fmt.Sprintf("waits for the access check of %s %s", key.harness, key.model)}
 	case !state.passed:
-		return "access check failed: " + state.reason
+		return queueWait{waitNoAccess, "access check failed: " + state.reason}
 	}
-	return ""
+	return queueWait{}
 }
 
 func (e *Engine) setAccess(key accessKey, err error) {

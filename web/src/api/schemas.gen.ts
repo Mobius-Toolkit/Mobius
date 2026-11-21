@@ -128,6 +128,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "role": S.String.annotate({ description: 'Role is the Role as the sessions table names it, for example lead_chat' }),
   "startedAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'StartedAt is the start of the session' }),
   "title": S.String.annotate({ description: 'Title tells what the session works on, for example \"chat session\". It can be empty' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init' }),
   "working": S.Boolean.annotate({ description: 'Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream issue as \"owner\/name\". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat' })
@@ -1559,6 +1560,7 @@ export const ListBoardTasksResponse = S.Struct({
   "mergeRefusal": S.String.annotate({ description: 'MergeRefusal is the reason that GitHub gave for the refused merge when the task is in ready_for_review, or an empty string' }),
   "merging": S.Boolean.annotate({ description: 'Merging is true when the task is in ready_for_review and the Owner started its merge' }),
   "number": S.Number.annotate({ description: 'Number is the number of the task issue' }),
+  "pausedUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'PausedUntil is the end of the pause of the Harness when wait is paused, or null' }),
   "pullRequest": S.NullOr(S.Number).annotate({ description: 'PullRequest is the pull request of the task, or null' }),
   "pullRequestUrl": S.NullOr(S.String).annotate({ description: 'PullRequestURL is the GitHub URL of the pull request, or null' }),
   "repository": S.String.annotate({ description: 'Repository is the full name of the repository of the task issue' }),
@@ -1569,6 +1571,7 @@ export const ListBoardTasksResponse = S.Struct({
   "totalFixRounds": S.Number.annotate({ description: 'TotalFixRounds is the number of fix rounds of the task, also the rounds before a reset of fixRounds' }),
   "totalReviewRounds": S.Number.annotate({ description: 'TotalReviewRounds is the number of review rounds of the task, also the rounds before a reset of reviewRounds' }),
   "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the full name of the repository of the Workstream issue' }),
   "workstreamTitle": S.String.annotate({ description: 'WorkstreamTitle is the title of the Workstream' })
@@ -2047,6 +2050,7 @@ export const ListAgentsResponse = S.Struct({
   "role": S.String.annotate({ description: 'Role is the Role as the sessions table names it, for example lead_chat' }),
   "startedAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'StartedAt is the start of the session' }),
   "title": S.String.annotate({ description: 'Title tells what the session works on, for example \"chat session\". It can be empty' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init' }),
   "working": S.Boolean.annotate({ description: 'Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream issue as \"owner\/name\". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat' })
@@ -2372,11 +2376,13 @@ export const ListTasksResponse = S.Struct({
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' }), S.Null]).annotate({ description: 'Implementer is the own Implementer setting of the task, or null when the task has none' }),
   "number": S.Number.annotate({ description: 'Number is the number of the task issue' }),
   "otherRepository": S.Boolean.annotate({ description: 'OtherRepository is true for a task in another repository than the Workstream' }),
+  "pausedUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'PausedUntil is the end of the pause of the Harness when wait is paused, or null' }),
   "repository": S.String.annotate({ description: 'Repository is the full name of the repository of the task issue' }),
   "startWait": S.String.annotate({ description: 'StartWait is the reason that a Start waits when State is \"start waits\", or an empty text' }),
   "state": S.String.annotate({ description: 'State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\". A task whose Lead event is held until the Owner answers shows \"waits for Owner\". A task that waits for start_implementer shows \"waits for start_implementer\". A task that waits for an action of the Owner shows \"waits for Owner action\". A Start that waits shows \"start waits\".' }),
   "title": S.String.annotate({ description: 'Title is the title of the task issue' }),
-  "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' })
+  "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action' })
 }).annotate({ description: 'TaskLine is a task of a Workstream.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 

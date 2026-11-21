@@ -220,9 +220,6 @@ func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T)
 		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
 		CheckHead:      sql.NullString{String: "abc", Valid: true},
 		StateAt:        tasks[1].StateAt,
-
-		TotalFixRounds:    2,
-		TotalReviewRounds: 3,
 	}
 	if tasks[1] != want {
 		t.Errorf("task = %+v, want %+v", tasks[1], want)
@@ -1893,6 +1890,33 @@ func TestTheTotalRoundsMigrationCopiesTheRoundsOfEachTask(t *testing.T) {
 	var got string
 	if err := db.QueryRow(`SELECT group_concat(issue || ':' || total_fix_rounds || ':' || total_review_rounds, ',') FROM (SELECT * FROM tasks ORDER BY issue)`).Scan(&got); err != nil || got != "41:3:5,42:0:0" {
 		t.Errorf("totals = %q, %v", got, err)
+	}
+}
+
+func TestTheQueueWaitMigrationAddsAnEmptyColumnToTheSessionsAndKeepsTheQueueReason(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270501000000)
+	if _, err := db.Exec(`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, started_at, queue_reason)
+		VALUES (1, 'implementer', 'devin', 'swe', 'o', 'o/a', 'o/a', 1, '2027-03-01T10:00:00Z', 'waits for a check slot')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var reason string
+	var wait sql.NullString
+	if err := db.QueryRow(`SELECT queue_reason, queue_wait FROM sessions WHERE id = 1`).Scan(&reason, &wait); err != nil || reason != "waits for a check slot" || wait.Valid {
+		t.Errorf("reason = %q, wait = %+v, %v", reason, wait, err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET queue_wait = 'check_slot' WHERE id = 1`); err != nil {
+		t.Errorf("write the wait: %v", err)
 	}
 }
 

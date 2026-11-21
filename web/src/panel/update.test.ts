@@ -55,6 +55,7 @@ const agent = (overrides: Partial<Agent> = {}): Agent => ({
   role: "implementer",
   startedAt: "2026-05-01T10:00:00Z",
   title: "Task 39",
+  wait: "",
   working: true,
   workstream: 12,
   workstreamRepository: "owner/shop",
@@ -487,6 +488,8 @@ const taskLine = (number: number): TaskLine => ({
   state: "open",
   title: `Task ${number}`,
   url: `https://github.com/owner/shop/issues/${number}`,
+  pausedUntil: null,
+  wait: "",
 });
 
 const defaultSetting = { harness: "devin", model: "swe-1.5", effort: "high", own: false };

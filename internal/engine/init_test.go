@@ -186,7 +186,7 @@ func TestASessionThatRunsTheInitScriptShowsItsOwnQueueReasonAsWorking(t *testing
 
 	testkit.WaitFor(t, func() bool {
 		sessions := roleSessions(t, server, engine.ImplementerRole)
-		return len(sessions) == 1 && sessions[0].QueueReason.String == "runs .mobius/init"
+		return len(sessions) == 1 && sessions[0].QueueReason.String == "runs .mobius/init" && sessions[0].QueueWait.String == "init"
 	})
 	if !isWorking(t, server, roleSessions(t, server, engine.ImplementerRole)[0].ID) {
 		t.Error("the session is not working")

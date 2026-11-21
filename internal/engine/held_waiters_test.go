@@ -61,7 +61,7 @@ func TestASessionWithASettingThatTheAccessCheckHoldsKeepsNoSlotFromALaterSession
 	earlier := startLater(t.Context(), restarted, taskSpec(t, shop, 43))
 	held := testkit.WaitForValue(t, func() (string, bool) {
 		for _, node := range tree(t, restarted) {
-			if node.Session.Role == engine.ImplementerRole && strings.HasPrefix(node.Session.QueueReason.String, "access check failed:") {
+			if node.Session.Role == engine.ImplementerRole && strings.HasPrefix(node.Session.QueueReason.String, "access check failed:") && node.Session.QueueWait.String == "no_access" {
 				return node.Session.QueueReason.String, true
 			}
 		}

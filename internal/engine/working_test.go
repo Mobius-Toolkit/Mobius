@@ -38,13 +38,13 @@ func TestALeadWorksOnlyWhileATurnRuns(t *testing.T) {
 		t.Error("the Lead in a turn does not work")
 	}
 
-	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE id = ?", "paused until 2026-10-04 10:00 UTC", lead.ID); err != nil {
+	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = ?, queue_wait = 'paused' WHERE id = ?", "paused until 2026-10-04 10:00 UTC", lead.ID); err != nil {
 		t.Fatal(err)
 	}
 	if isWorking(t, server, lead.ID) {
 		t.Error("the paused Lead works")
 	}
-	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = NULL WHERE id = ?", lead.ID); err != nil {
+	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = NULL, queue_wait = NULL WHERE id = ?", lead.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -70,18 +70,18 @@ func TestAnImplementerWorksUnlessItWaitsForASlotOrAPause(t *testing.T) {
 		t.Errorf("running = %v, waiting = %v", isWorking(t, server, running.ID()), isWorking(t, server, waitingID))
 	}
 
-	for reason, want := range map[string]bool{
-		"runs .mobius/check":                true,
-		"runs .mobius/init":                 true,
-		"waits for a check slot":            false,
-		"waits for a low load":              false,
-		"paused until 2026-10-04 10:00 UTC": false,
+	for wait, want := range map[string]bool{
+		"local_check": true,
+		"init":        true,
+		"check_slot":  false,
+		"low_load":    false,
+		"paused":      false,
 	} {
-		if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE id = ?", reason, running.ID()); err != nil {
+		if _, err := server.DB.Exec("UPDATE sessions SET queue_wait = ? WHERE id = ?", wait, running.ID()); err != nil {
 			t.Fatal(err)
 		}
 		if got := isWorking(t, server, running.ID()); got != want {
-			t.Errorf("%s: working = %v", reason, got)
+			t.Errorf("%s: working = %v", wait, got)
 		}
 	}
 

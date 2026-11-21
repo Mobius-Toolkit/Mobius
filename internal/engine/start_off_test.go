@@ -51,12 +51,12 @@ func waitForStartHeld(t *testing.T, server *testserver.Server, issue int64) {
 	testkit.WaitFor(t, func() bool { return slices.Contains(heldIssues(t, server), issue) })
 }
 
-// waitForQueueReason waits until an Implementer session of the Workstream #12 shows reason.
+// waitForQueueReason waits until an Implementer session of the Workstream #12 shows reason with the wait kind start_off.
 func waitForQueueReason(t *testing.T, server *testserver.Server, reason string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool {
-			return session.QueueReason.String == reason
+			return session.QueueReason.String == reason && session.QueueWait.String == "start_off"
 		})
 	})
 }

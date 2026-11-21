@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -286,7 +285,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		w.mu.Unlock()
 		w.changed.notify()
 	}()
-	shown := ""
+	var shown queueWait
 	var slots *implementerSlots
 	for {
 		changed := w.changed.wait()
@@ -308,7 +307,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		if err := e.followBinding(ctx, a); err != nil {
 			return err
 		}
-		paused := ""
+		var paused queueWait
 		if worker {
 			if paused, err = e.pausedHarness(ctx, a.binding.Harness); err != nil {
 				return err
@@ -327,33 +326,33 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 		}
 		noAccess := e.accessHold(a.binding)
 		if !worker {
-			if noAccess != "" {
+			if !noAccess.none() {
 				a.setUncounted(true)
 			} else if !a.setUncounted(false) {
-				noAccess = drainReason
+				noAccess = queueWait{waitDrain, drainReason}
 			}
 		}
 		reason, ok := e.slotReason(a, place, queue, worker, paused, startOff, noAccess, slots)
 		if !ok {
 			return ErrLeftQueue
 		}
-		if reason == "" {
+		if reason.none() {
 			a.slot = role
 			a.tracked = a.tracked || worker
 			break
 		}
-		if reason == startOffReason {
+		if reason.kind == waitStartOff {
 			if err := e.holdWork(ctx, "start", a.spec.Repository, a.spec.Issue.Int64); err != nil {
 				return err
 			}
 		}
 		if reason != shown {
-			session, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
+			session, err := e.setQueueWait(ctx, a.id, reason)
 			if err != nil {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(session))})
-			if strings.HasPrefix(reason, pausedPrefix) || strings.HasPrefix(shown, pausedPrefix) {
+			if reason.kind == waitPaused || shown.kind == waitPaused {
 				e.publish(Change{Pauses: true})
 			}
 			shown = reason
@@ -416,10 +415,11 @@ func (e *Engine) useBinding(ctx context.Context, a *Agent, binding config.RoleBi
 	return nil
 }
 
-// slotChoice is a binding of the Implementer with the reason of the pause or of the access check that holds a session on it, or "".
+// slotChoice is a binding of the Implementer with the pause or the access check that holds a session on it, or the
+// zero queueWait.
 type slotChoice struct {
 	ImplementerBinding
-	hold string
+	hold queueWait
 }
 
 // implementerSlots are the bindings of the Implementer that a session can take a slot of.
@@ -442,7 +442,7 @@ func (e *Engine) implementerSlots(ctx context.Context, spec Spec) (*implementerS
 		if err != nil {
 			return nil, err
 		}
-		if hold == "" {
+		if hold.none() {
 			hold = e.accessHold(b.Binding)
 		}
 		slots.choices = append(slots.choices, slotChoice{b, hold})
@@ -461,7 +461,7 @@ func (s *implementerSlots) keptChoice(kept *config.RoleBinding) *slotChoice {
 		return nil
 	}
 	c := &s.choices[index]
-	if c.hold != "" && slices.ContainsFunc(s.choices, func(o slotChoice) bool { return o.hold == "" }) {
+	if !c.hold.none() && slices.ContainsFunc(s.choices, func(o slotChoice) bool { return o.hold.none() }) {
 		return nil
 	}
 	return c
@@ -480,9 +480,9 @@ func (s *implementerSlots) waitsOn(kept *config.RoleBinding) slotChoice {
 // binding has a hold, or each binding has a hold. A session that waits only for a full binding is not held.
 func (s *implementerSlots) held(kept *config.RoleBinding) bool {
 	if c := s.keptChoice(kept); c != nil {
-		return c.hold != ""
+		return !c.hold.none()
 	}
-	return !slices.ContainsFunc(s.choices, func(c slotChoice) bool { return c.hold == "" })
+	return !slices.ContainsFunc(s.choices, func(c slotChoice) bool { return c.hold.none() })
 }
 
 // pick gives the binding that the next session takes. A session with a kept session in the list takes only the binding
@@ -491,12 +491,12 @@ func (s *implementerSlots) held(kept *config.RoleBinding) bool {
 // fewest running sessions in counts, and then the first in the list.
 func (s *implementerSlots) pick(counts map[int64]int, kept *config.RoleBinding) (slotChoice, bool) {
 	if c := s.keptChoice(kept); c != nil {
-		return *c, c.hold == "" && counts[c.ID] < c.Binding.Max
+		return *c, c.hold.none() && counts[c.ID] < c.Binding.Max
 	}
 	var best *slotChoice
 	for i := range s.choices {
 		c := &s.choices[i]
-		if c.hold != "" || counts[c.ID] >= c.Binding.Max {
+		if !c.hold.none() || counts[c.ID] >= c.Binding.Max {
 			continue
 		}
 		if best == nil || counts[c.ID] < counts[best.ID] {
@@ -523,26 +523,28 @@ func (s *implementerSlots) binding(id int64) config.RoleBinding {
 	return s.choices[slices.IndexFunc(s.choices, func(c slotChoice) bool { return c.ID == id })].Binding
 }
 
-// pausedHarness gives the queue reason of the pause of harness, or "" when it has no pause.
-func (e *Engine) pausedHarness(ctx context.Context, harness config.Harness) (string, error) {
+// pausedHarness gives the wait for the pause of harness, or the zero queueWait when it has no pause.
+func (e *Engine) pausedHarness(ctx context.Context, harness config.Harness) (queueWait, error) {
 	pause, err := e.queries.GetHarnessPause(ctx, string(harness))
 	switch {
 	case err == nil:
-		return pausedReason(pause)
+		reason, err := pausedReason(pause)
+		return queueWait{waitPaused, reason}, err
 	case errors.Is(err, sql.ErrNoRows):
-		return "", nil
+		return queueWait{}, nil
 	}
-	return "", err
+	return queueWait{}, err
 }
 
-// slotReason gives the reason why the session of a must wait, or "" when the session took a slot. A Worker that
+// slotReason gives the wait of the session of a, or the zero queueWait when the session took a slot. A Worker that
 // takes a slot also counts in the drain. It gives false when the task of the session is not in queue. paused is
-// the reason of a pause of the Harness of a Worker, or "". startOff tells that the Start switch is off and the
-// session has a task. noAccess is the reason why the access check of the Role binding of the session holds it, or "".
+// the wait for a pause of the Harness of a Worker, or the zero queueWait. startOff tells that the Start switch is off
+// and the session has a task. noAccess is the wait for the access check of the Role binding of the session, or the zero
+// queueWait.
 // slots is nil for each Role but the Implementer. A session of the Implementer that follows the Role takes the binding
 // of slots with the fewest sessions, and a session with a setting takes a slot of the first binding. When no binding
 // can take a session that follows the Role, it shows the reason of the first binding, which is the binding of a.
-func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused string, startOff bool, noAccess string, slots *implementerSlots) (string, bool) {
+func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker bool, paused queueWait, startOff bool, noAccess queueWait, slots *implementerSlots) (queueWait, bool) {
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	w.mu.Lock()
@@ -551,7 +553,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	if task != 0 {
 		index := slices.IndexFunc(queue, func(queued queuedTask) bool { return queued.id == task })
 		if index < 0 {
-			return "", false
+			return queueWait{}, false
 		}
 		own = taskRank(w.work, task, queue[index].queuedAt, queue[index].ci)
 	}
@@ -602,23 +604,23 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		if a.level == LevelRole {
 			if c, ok := slots.pick(counts, slots.kept); ok {
 				chosen = &c
-				paused, noAccess = "", ""
+				paused, noAccess = queueWait{}, queueWait{}
 			} else {
-				paused, noAccess = slots.waitsOn(slots.kept).hold, ""
+				paused, noAccess = slots.waitsOn(slots.kept).hold, queueWait{}
 				waitsForSlot = !slots.held(slots.kept)
 			}
 		}
 	}
-	var reason string
+	var reason queueWait
 	held := true
 	switch {
 	case worker && e.draining():
-		reason = drainReason
+		reason = queueWait{waitDrain, drainReason}
 	case startOff:
-		reason = startOffReason
-	case paused != "":
+		reason = queueWait{waitStartOff, startOffReason}
+	case !paused.none():
 		reason, held = paused, !waitsForSlot
-	case noAccess != "":
+	case !noAccess.none():
 		reason = noAccess
 	case chosen != nil:
 		held = false
@@ -628,17 +630,17 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		if a.level == LevelRole {
 			target = slots.waitsOn(slots.kept)
 		}
-		reason = fullReason(&config.Roles{Implementer: target.Binding}, map[string]int{role: counts[target.ID]}, role)
+		reason = fullWait(fullReason(&config.Roles{Implementer: target.Binding}, map[string]int{role: counts[target.ID]}, role))
 	default:
 		held = false
 		merged := e.mergedRoles()
-		reason = limitReason(&merged, w.running, roles, role)
+		reason = fullWait(limitReason(&merged, w.running, roles, role))
 	}
 	// The drain can start after the check above.
-	if reason == "" && worker && !e.trackWorker() {
-		reason, held = drainReason, true
+	if reason.none() && worker && !e.trackWorker() {
+		reason, held = queueWait{waitDrain, drainReason}, true
 	}
-	if reason != "" {
+	if !reason.none() {
 		if w.setHeld(task, place, held) {
 			w.changed.notify()
 		}
@@ -658,7 +660,15 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	}
 	delete(w.queued, task)
 	delete(w.waiting, place)
-	return "", true
+	return queueWait{}, true
+}
+
+// fullWait gives the wait for a slot with the reason that fullReason or limitReason gave, or the zero queueWait for no reason.
+func fullWait(reason string) queueWait {
+	if reason == "" {
+		return queueWait{}
+	}
+	return queueWait{waitSlot, reason}
 }
 
 // setPin sets the slot claim of the queued session of task, or of place with no task. It tells if the claim changed. The

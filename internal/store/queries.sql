@@ -224,7 +224,7 @@ UPDATE sessions SET continued = 1 WHERE id = ?;
 UPDATE sessions SET context_used = ?, context_size = ? WHERE id = ?;
 
 -- name: EndSession :one
-UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
+UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL, queue_wait = NULL WHERE id = ?
 RETURNING *;
 
 -- name: GetSession :one
@@ -257,15 +257,15 @@ SELECT * FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id;
 SELECT * FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended';
 
 -- name: SetQueueReason :one
-UPDATE sessions SET queue_reason = ? WHERE id = ?
+UPDATE sessions SET queue_reason = ?, queue_wait = ? WHERE id = ?
 RETURNING *;
 
 -- name: ClearQueueReason :one
-UPDATE sessions SET queue_reason = NULL WHERE id = ?
+UPDATE sessions SET queue_reason = NULL, queue_wait = NULL WHERE id = ?
 RETURNING *;
 
 -- name: StartSession :one
-UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
+UPDATE sessions SET started_at = ?, queue_reason = NULL, queue_wait = NULL WHERE id = ?
 RETURNING *;
 
 -- name: SetSessionBinding :one
@@ -341,8 +341,20 @@ SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.work
 FROM sessions s
 LEFT JOIN workstreams w ON w.repository = s.workstream_repository AND w.number = s.workstream AND w.state = 'open'
 LEFT JOIN issues i ON i.workstream = w.id AND i.repository = s.repository AND i.number = s.issue
-WHERE s.ended_at IS NULL AND s.queue_reason LIKE CAST(sqlc.arg(prefix) AS TEXT) || '%'
+WHERE s.ended_at IS NULL AND s.queue_wait = sqlc.arg(queue_wait)
 ORDER BY s.id;
+
+-- name: ListTaskWaits :many
+WITH live AS (
+  SELECT repository, issue, max(id) AS id FROM sessions
+  WHERE ended_at IS NULL AND queue_wait IS NOT NULL
+  GROUP BY repository, issue
+)
+SELECT tasks.repository, tasks.issue, s.harness, CAST(s.queue_wait AS TEXT) AS queue_wait
+FROM tasks
+JOIN live ON live.repository = tasks.repository AND live.issue = tasks.issue
+JOIN sessions s ON s.id = live.id
+WHERE tasks.state IN ('queued', 'working');
 
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;

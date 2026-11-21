@@ -107,19 +107,21 @@ test("the Agents tab of a Workstream shows a kept session with a countdown, and 
 });
 
 // Changes the live Implementer session of #41, and sets the old reason again at the end.
-async function withQueueReason(page: Page, reason: string, run: () => Promise<void>) {
-  const put = (value: string) =>
-    page.request.put(`/e2e/agents/41/queue-reason?reason=${encodeURIComponent(value)}`);
-  expect((await put(reason)).ok()).toBe(true);
+async function withQueueReason(page: Page, reason: string, wait: string, run: () => Promise<void>) {
+  const put = (value: string, kind: string) =>
+    page.request.put(
+      `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(value)}&wait=${kind}`,
+    );
+  expect((await put(reason, wait)).ok()).toBe(true);
   try {
     await run();
   } finally {
-    expect((await put("")).ok()).toBe(true);
+    expect((await put("", "")).ok()).toBe(true);
   }
 }
 
 test("the Agents page shows the state of a session that waits for a low load", async ({ page }) => {
-  await withQueueReason(page, "waits for a low load", async () => {
+  await withQueueReason(page, "waits for a low load", "low_load", async () => {
     await page.goto("/agents");
     const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
     await expect(entry.getByText("waits for a low load")).toBeVisible();
@@ -129,7 +131,7 @@ test("the Agents page shows the state of a session that waits for a low load", a
 });
 
 test("the Agents page shows the state of a session that runs .mobius/init", async ({ page }) => {
-  await withQueueReason(page, "runs .mobius/init", async () => {
+  await withQueueReason(page, "runs .mobius/init", "init", async () => {
     await page.goto("/agents");
     const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
     await expect(entry.getByText("runs .mobius/init")).toBeVisible();
@@ -142,7 +144,7 @@ test("the Agents tab of a Workstream shows the state of a session that waits for
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await withQueueReason(page, "waits for a low load", async () => {
+  await withQueueReason(page, "waits for a low load", "low_load", async () => {
     await page.goto("/workstreams/owner/shop/12");
     await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
     const entry = page
@@ -569,7 +571,7 @@ test("the Transcript of a session that waits for a low load has a button that st
     requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     return route.fulfill(answer);
   });
-  await withQueueReason(page, "waits for a low load", async () => {
+  await withQueueReason(page, "waits for a low load", "low_load", async () => {
     await page.goto("/agents");
     await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
     const start = main.getByRole("button", { name: "Start the check now" });
@@ -703,7 +705,7 @@ test.describe("the back button on a desktop", () => {
   test("of the transcript in the side panel shows the start button under the title row and a long title", async ({
     page,
   }) => {
-    await withQueueReason(page, "waits for a low load", async () => {
+    await withQueueReason(page, "waits for a low load", "low_load", async () => {
       const panel = await openPanelTranscript(page, /waits for a low load/);
       const title = panel.locator(".line-clamp-2");
       await expect(title).toContainText("implementer");
