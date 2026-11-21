@@ -1566,6 +1566,8 @@ export const ListBoardTasksResponse = S.Struct({
   "state": S.Literals(['dispatched', 'queued', 'working', 'reviewed', 'needs_human', 'ready_for_review', 'stopped', 'ended', 'checks', 'approval', 'asked', 'answered', 'owner_action']).annotate({ description: 'State is the state of the task' }),
   "stateAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'StateAt is the time of the last state change' }),
   "title": S.String.annotate({ description: 'Title is the title of the task issue' }),
+  "totalFixRounds": S.Number.annotate({ description: 'TotalFixRounds is the number of fix rounds of the task, also the rounds before a reset of fixRounds' }),
+  "totalReviewRounds": S.Number.annotate({ description: 'TotalReviewRounds is the number of review rounds of the task, also the rounds before a reset of reviewRounds' }),
   "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the full name of the repository of the Workstream issue' }),

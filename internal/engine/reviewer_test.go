@@ -972,3 +972,35 @@ func TestAFixRoundWithAFindingThatHasFinishTheIssueStopsTheTaskWithNoChange(t *t
 		t.Errorf("reviewers = %d, want 1", len(reviewers))
 	}
 }
+
+func TestTheTotalRoundsOfTheBoardStayAfterAResetOfTheCounters(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) { cfg.MaxFixRounds = 2 })
+	boardTask := func(want func(engine.BoardTask) bool) engine.BoardTask {
+		return testkit.WaitForValue(t, func() (engine.BoardTask, bool) {
+			tasks, err := server.Engine.BoardTasks(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tasks) != 1 {
+				return engine.BoardTask{}, false
+			}
+			return tasks[0], want(tasks[0])
+		})
+	}
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	task := boardTask(func(task engine.BoardTask) bool { return task.State == "needs_human" })
+	if task.FixRounds != 1 || task.ReviewRounds != 2 || task.TotalFixRounds != 1 || task.TotalReviewRounds != 2 {
+		t.Fatalf("task = %+v", task)
+	}
+
+	fake.AddComment(shop, 42, "owner", "Store the unit in the name.")
+
+	task = boardTask(func(task engine.BoardTask) bool { return task.TotalFixRounds == 2 })
+	if task.FixRounds != 1 || task.ReviewRounds != 0 || task.TotalReviewRounds != 2 {
+		t.Errorf("task = %+v", task)
+	}
+}

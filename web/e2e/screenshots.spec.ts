@@ -405,7 +405,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain, { organizations: true }),
     main.getByRole("region", { name: "Queued" }).getByText("Add a retry to the order sync"),
     main.getByRole("link", { name: "PR #44" }),
-    main.getByText("fix 1 · review 2"),
+    main.getByText("fix 5 · review 4"),
     main.getByRole("region", { name: "Working" }),
   ]);
   await page.unroute(tasksRoute);

@@ -270,6 +270,10 @@ export interface BoardTask {
   stateAt: string;
   /** Title is the title of the task issue */
   title: string;
+  /** TotalFixRounds is the number of fix rounds of the task, also the rounds before a reset of fixRounds */
+  totalFixRounds: number;
+  /** TotalReviewRounds is the number of review rounds of the task, also the rounds before a reset of reviewRounds */
+  totalReviewRounds: number;
   /** URL is the GitHub URL of the task issue */
   url: string;
   /** Workstream is the number of the Workstream issue */

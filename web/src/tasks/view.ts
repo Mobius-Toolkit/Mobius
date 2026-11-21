@@ -14,8 +14,8 @@ const RouterLink = defineRouterLink(Message.NavigateTo);
 
 function renderCard(h: H, task: BoardTask, now: number): Html {
   const rounds = [
-    task.fixRounds > 0 && `fix ${task.fixRounds}`,
-    task.reviewRounds > 0 && `review ${task.reviewRounds}`,
+    task.totalFixRounds > 0 && `fix ${task.totalFixRounds}`,
+    task.totalReviewRounds > 0 && `review ${task.totalReviewRounds}`,
   ].filter(Boolean);
   const path = `/workstreams/${task.workstreamRepository}/${task.workstream}`;
   return h.keyed("li")(

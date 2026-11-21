@@ -220,6 +220,9 @@ func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T)
 		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
 		CheckHead:      sql.NullString{String: "abc", Valid: true},
 		StateAt:        tasks[1].StateAt,
+
+		TotalFixRounds:    2,
+		TotalReviewRounds: 3,
 	}
 	if tasks[1] != want {
 		t.Errorf("task = %+v, want %+v", tasks[1], want)
@@ -1866,5 +1869,29 @@ func TestTheTriageCursorsMigrationDeletesTheTriageCursorsAndKeepsTheOthers(t *te
 	var got string
 	if err := db.QueryRow(`SELECT group_concat(endpoint, ',') FROM (SELECT endpoint FROM sync_cursors ORDER BY endpoint)`).Scan(&got); err != nil || got != "issues,ready" {
 		t.Errorf("endpoints = %q, %v", got, err)
+	}
+}
+
+func TestTheTotalRoundsMigrationCopiesTheRoundsOfEachTask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270430000000)
+	if _, err := db.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, fix_rounds, review_rounds) VALUES
+		('o/a', 41, 1, 'working', '2027-03-01T10:00:00Z', 3, 5),
+		('o/a', 42, 1, 'ended', '2027-03-01T10:00:00Z', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var got string
+	if err := db.QueryRow(`SELECT group_concat(issue || ':' || total_fix_rounds || ':' || total_review_rounds, ',') FROM (SELECT * FROM tasks ORDER BY issue)`).Scan(&got); err != nil || got != "41:3:5,42:0:0" {
+		t.Errorf("totals = %q, %v", got, err)
 	}
 }
