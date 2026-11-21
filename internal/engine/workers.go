@@ -120,8 +120,9 @@ type workers struct {
 }
 
 // slotPin tells which binding of the Implementer a queued session can take: the first binding only (a session with a
-// setting of its task or Workstream), the kept binding only (a round with a kept session of the level Role), or each
-// binding.
+// setting of its task or Workstream), the kept binding (a round with a kept session of the level Role), or each
+// binding. A session with a kept binding takes another binding when the kept binding has a hold and another binding has
+// none.
 type slotPin struct {
 	first   bool
 	hasKept bool
