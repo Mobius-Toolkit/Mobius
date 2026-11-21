@@ -1760,6 +1760,44 @@ describe("chat update story tests", () => {
       );
     });
 
+    it("shows nothing after the back tap of a todo panel when the row has no todo left", () => {
+      const openTodo = createInboxItem({
+        id: 101,
+        kind: "todo",
+        repository: "owner/shop",
+        issue: 10,
+        pullRequest: 44,
+        title: "Rotate webhook secret",
+        todo: {
+          name: "Rotate webhook secret",
+          kind: "action",
+          reason: "Webhook secret changed.",
+          path: "config.toml",
+          line: 12,
+          mandatory: true,
+          afterMerge: false,
+          dismissable: false,
+          note: "",
+        },
+      });
+
+      story(
+        update,
+        given(
+          createTestModel({
+            trayItems: [],
+            todoList: { repository: "owner/shop", pullRequest: 44 },
+            activePanel: { type: "answer", item: openTodo },
+          }),
+        ),
+        message(Message.ClosePanel()),
+        model((m) => {
+          expect(m.activePanel).toBeNull();
+          expect(m.todoList).toBeNull();
+        }),
+      );
+    });
+
     it("dismisses an optional todo from its panel, shows refusal errors in the panel, and returns to the list on success", () => {
       const todo1 = createInboxItem({
         id: 201,

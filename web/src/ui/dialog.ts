@@ -5,6 +5,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { trackKeyboardHeight } from "@/lib/keyboard";
 import { buttonClass } from "./button";
 import { xIcon } from "./icons";
+import { renderBackButton } from "./page";
 
 const focusable =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -93,7 +94,8 @@ const sheetClass =
 
 // A dialog that slides up from the bottom on a phone. mount is the OnMount attribute of the Mount of
 // defineDialogMount, and close is the Message of the overlay and of the close button. The layout "center" is a dialog
-// in the middle of the screen, also on a phone. className goes after the classes of the layout.
+// in the middle of the screen, also on a phone. back is the Message of a back button at the start of the header of a
+// sheet. className goes after the classes of the layout.
 export function renderDialog<M>(
   h: HtmlBuilder<M>,
   options: {
@@ -102,6 +104,7 @@ export function renderDialog<M>(
     title: string;
     description: string;
     close: M;
+    back?: M;
     body?: Html;
     footer: Html;
     layout?: "sheet" | "center";
@@ -109,6 +112,19 @@ export function renderDialog<M>(
   },
 ): Html {
   const center = options.layout === "center";
+  const heading = [
+    h.h2(
+      [
+        h.Id(options.titleId),
+        h.DataAttribute("slot", "dialog-title"),
+        h.Class("font-heading text-base leading-none font-medium wrap-anywhere"),
+      ],
+      [options.title],
+    ),
+    options.description
+      ? h.p([h.Class("text-sm text-muted-foreground")], [options.description])
+      : h.empty,
+  ];
   return h.div(
     [h.DataAttribute("slot", "dialog-portal"), options.mount],
     [
@@ -134,21 +150,20 @@ export function renderDialog<M>(
           h.div(
             [
               h.DataAttribute("slot", "dialog-header"),
-              h.Class(center ? "flex flex-col gap-2" : "flex flex-col gap-1 p-4 pr-10"),
-            ],
-            [
-              h.h2(
-                [
-                  h.Id(options.titleId),
-                  h.DataAttribute("slot", "dialog-title"),
-                  h.Class("font-heading text-base leading-none font-medium wrap-anywhere"),
-                ],
-                [options.title],
+              h.Class(
+                center
+                  ? "flex flex-col gap-2"
+                  : options.back === undefined
+                    ? "flex flex-col gap-1 p-4 pr-10"
+                    : "flex items-start gap-2 p-2 pr-10",
               ),
-              options.description
-                ? h.p([h.Class("text-sm text-muted-foreground")], [options.description])
-                : h.empty,
             ],
+            options.back === undefined
+              ? heading
+              : [
+                  renderBackButton(h, options.back),
+                  h.div([h.Class("grid min-w-0 gap-1 pt-2")], heading),
+                ],
           ),
           options.body ?? h.empty,
           options.footer,
