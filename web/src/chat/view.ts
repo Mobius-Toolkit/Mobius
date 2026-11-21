@@ -1368,6 +1368,8 @@ export function renderAnswerDialog(h: H, model: Model): Html {
     return h.empty;
   }
   const title = item.title || item.reason;
+  const fromTodoList =
+    input && todoRowOf(model.trayItems, model.todoList)?.todos.some(({ id }) => id === item.id);
 
   const body = action
     ? h.div(
@@ -1462,6 +1464,7 @@ export function renderAnswerDialog(h: H, model: Model): Html {
     description:
       item.title && !action && !todo && item.kind !== InboxItemKind.owner_action ? item.reason : "",
     close: Message.ClosePanel(),
+    back: fromTodoList ? Message.ClosePanel() : undefined,
     body,
     footer: input ? renderPanelComposer(h, model, item) : h.empty,
   });

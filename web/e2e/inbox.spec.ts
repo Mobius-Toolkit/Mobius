@@ -821,6 +821,50 @@ test("a pull request shows Complete todos, opens its list on tap, and returns af
   await expect(dialog).toHaveCount(0);
 });
 
+test("the todo panel shows Back only when the todo list opened it", async ({ page }) => {
+  await routeInbox(page, [blockedReadyItem, todo, optionalTodo]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  const dialog = page.getByRole("dialog");
+  const back = dialog.getByRole("button", { name: "Back" });
+
+  await row.getByRole("button", { name: "Details" }).click();
+  await expect(dialog.getByRole("heading", { name: "Name the plan tiers" })).toBeVisible();
+  await expect(back).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await row.getByRole("button", { name: "Complete todos (2)" }).click();
+  await expect(dialog.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
+  await expect(back).toHaveCount(0);
+  await dialog.getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
+  await expect(dialog.getByRole("heading", { name: "MOBIUS_SMTP_HOST" })).toBeVisible();
+  await expect(back).toBeVisible();
+  await back.click();
+  await expect(dialog.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "MOBIUS_SMTP_HOST" })).toBeVisible();
+  await expect(back).toHaveCount(0);
+});
+
+test("the todo panel of the tray shows Back on a phone and returns to the list", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await routeInbox(page, [blockedReadyItem, todo, optionalTodo]);
+  await page.goto("/workstreams/owner/shop/12");
+  const list = page.getByRole("main").getByRole("list", { name: "Pending actions" });
+  const sheet = page.getByRole("dialog");
+  const back = sheet.getByRole("button", { name: "Back" });
+
+  await list.getByRole("button", { name: "Complete todos (2)" }).click();
+  await sheet.getByRole("button", { name: "MOBIUS_SMTP_TIMEOUT" }).click();
+  await expect(sheet.getByRole("heading", { name: "MOBIUS_SMTP_TIMEOUT" })).toBeVisible();
+  await expect(back).toBeVisible();
+  expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await back.click();
+  await expect(sheet.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
+});
+
 test("Dismiss on an optional todo panel returns to the list without the todo", async ({
   page,
   context,

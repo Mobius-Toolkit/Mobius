@@ -1456,6 +1456,21 @@ test("screenshots", async ({ page }) => {
       await showChatEnd(page);
     },
   );
+  await screenshot(
+    page,
+    "chat-todo-back",
+    "/workstreams/owner/shop/12",
+    () => [
+      page.getByRole("dialog").getByRole("heading", { name: "MOBIUS_SMTP_HOST" }),
+      page.getByRole("dialog").getByRole("button", { name: "Back" }),
+      page.getByRole("dialog").getByText("Mandatory env var"),
+    ],
+    async () => {
+      await expect(main.getByRole("button", { name: "Complete todos (2)" })).toBeVisible();
+      await main.getByRole("button", { name: "Complete todos (2)" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
+    },
+  );
   await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
@@ -2724,6 +2739,23 @@ test("screenshots", async ({ page }) => {
         await expect(locator).toBeVisible();
       }
       await todoRow.getByRole("button", { name: "Complete todos (4)" }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "inbox-todo-back",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByRole("heading", { name: "MOBIUS_SMTP_HOST" }),
+      page.getByRole("dialog").getByRole("button", { name: "Back" }),
+      page.getByRole("dialog").getByText("Mandatory env var"),
+    ],
+    async (device) => {
+      for (const locator of inboxReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await todoRow.getByRole("button", { name: "Complete todos (4)" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "MOBIUS_SMTP_HOST" }).click();
     },
   );
   moreTodos = false;
