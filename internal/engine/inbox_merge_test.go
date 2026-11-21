@@ -29,6 +29,7 @@ func readyToMergeWith(t *testing.T, fake *testkit.FakeGitHub, lead, implementer 
 	sendChat(t, server, leadChat, "Approve #41")
 	item := waitForItem(t, server, "ready for review")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	waitForSentStateLabels(t, server)
 	return server, item
 }
 

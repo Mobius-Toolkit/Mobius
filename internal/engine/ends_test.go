@@ -26,6 +26,7 @@ func waitForApproval(t *testing.T, server *testserver.Server, fake *testkit.Fake
 	t.Helper()
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	waitForSentStateLabels(t, server)
 }
 
 // noTaskLabels waits until #41 has no mobius:working, no mobius:review and no mobius:needs-human. Mobius removes the

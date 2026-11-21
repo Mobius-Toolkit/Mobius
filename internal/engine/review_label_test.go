@@ -23,6 +23,7 @@ func approved(t *testing.T, fake *testkit.FakeGitHub, lead, implementer string, 
 	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	waitForSentStateLabels(t, server)
 	return server
 }
 

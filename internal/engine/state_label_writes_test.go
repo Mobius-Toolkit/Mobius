@@ -35,6 +35,15 @@ func moveToNeedsHuman(t *testing.T, fake *testkit.FakeGitHub, server *testserver
 	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
 }
 
+// waitForSentStateLabels waits until no change of the state labels is pending, so that the labels of the issue show the
+// state of the task. A person who removes a label before that point races with the send that writes the label again.
+func waitForSentStateLabels(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'state_labels' AND status = 'pending'") == 0
+	})
+}
+
 func TestADispatchGivesTheIssueTheWorkingLabelThroughTheSendAsAnOwnWrite(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
