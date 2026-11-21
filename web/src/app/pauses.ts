@@ -7,7 +7,7 @@ import { renderErrorBadge } from "@/ui/page";
 import { Message } from "./message";
 import type { Model, Pause } from "./model";
 
-type PauseUser = Pause["users"][number];
+export type PauseUser = Pause["users"][number];
 
 const isGlobal = (user: PauseUser) =>
   user.kind === "role" || (user.kind === "session" && user.workstream === 0);
@@ -19,6 +19,22 @@ const ownerOf = (repository: string) => repository.split("/")[0] ?? "";
 
 const userOrganization = (user: PauseUser) =>
   ownerOf(user.workstream !== 0 ? user.workstreamRepository : user.repository);
+
+export function usersOfOrganization(
+  users: readonly PauseUser[],
+  organization: string,
+  workstream?: { repository: string; number: number },
+): PauseUser[] {
+  if (workstream) {
+    const inChat = users.filter(
+      (user) => isGlobal(user) || inWorkstream(user, workstream.repository, workstream.number),
+    );
+    if (inChat.length > 0) {
+      return inChat;
+    }
+  }
+  return users.filter((user) => isGlobal(user) || userOrganization(user) === organization);
+}
 
 const roleTitle = (role: string) => {
   const words = role.replaceAll("_", " ");
@@ -83,12 +99,7 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
     if (!isShown) {
       return [];
     }
-    const filteredUsers = workstream
-      ? pause.users.filter(
-          (user) => isGlobal(user) || inWorkstream(user, workstream.repository, workstream.number),
-        )
-      : pause.users;
-    const users = workstream && filteredUsers.length > 0 ? filteredUsers : pause.users;
+    const users = usersOfOrganization(pause.users, model.organization, workstream);
     const isBusy = Option.isSome(model.pauseBusy) && model.pauseBusy.value === pause.harness;
     const error = Option.getOrElse(model.pauseError, () => "");
     const isExpanded = model.pausesExpanded.includes(pause.harness);
