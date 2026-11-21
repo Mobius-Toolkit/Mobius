@@ -169,6 +169,7 @@ func TestARemovalOfTheReviewLabelDismissesTheItemWhileAJudgeRunsFromReadyForRevi
 	waitForItem(t, server, "ready for review")
 	fake.AddComment(shop, 42, "owner", "Why cents?")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	waitForSentStateLabels(t, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
 
