@@ -2,9 +2,12 @@ package engine_test
 
 import (
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -138,5 +141,47 @@ func TestAfterTheOwnerDismissesAnItemACheckAddsNoNewItemOfThatKindAlsoAfterTheWo
 	}
 	if got := itemsOf(t, server, "missing skills"); len(got) != 1 {
 		t.Errorf("skills items = %+v", got)
+	}
+}
+
+func TestTheSendOfTheCreateOfTheSkillsWorkstreamDismissesTheMissingSkillsItemBeforeTheNextPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(shop)
+	fake.AddIssue(shop, 7, "Fix the footer")
+	addOpenWorkstream(fake, shop)
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+approvalSeen+callCreateWorkstream("Create.", "Skills", "Keep the skills.", "mobius:skills")+seenScript)
+	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret) VALUES (?, ?, ?, ?, ?)",
+		testkit.AppID, testkit.AppSlug, testkit.AppPrivateKey, testkit.AppClientID, testkit.AppClientSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testserver.Config(t, dataDir)
+	cfg.PollInterval = time.Hour
+	server := testserver.StartKeepingMissingItems(t, cfg, fake.URL)
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, server.Engine.AccessChecked)
+	waitForCopiedWorkstream(t, server, shop)
+	testkit.WaitFor(t, server.Engine.PollEnded)
+	waitForItem(t, server, "missing maintenance")
+	waitForItem(t, server, "missing skills")
+	run(t, server, coordinatorSpec(t), "Create.")
+
+	done := decided(t, server, waitForActions(t, server, 1)[0].ID, "approve", "")
+
+	if done.State != "done" || done.Result != "Created the Workstream #14." {
+		t.Errorf("action = %+v", done)
+	}
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "missing skills")) == 0 })
+	if got := itemsOf(t, server, "missing maintenance"); len(got) != 1 {
+		t.Errorf("maintenance items = %+v", got)
 	}
 }
