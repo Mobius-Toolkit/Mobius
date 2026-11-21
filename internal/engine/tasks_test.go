@@ -623,7 +623,7 @@ func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testin
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaitingWith(t, fake, "owner_action", "")
-	fake.RemoveLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:working") })
 	waitForPolls(t, fake)
 	startDrain(t, server)
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
