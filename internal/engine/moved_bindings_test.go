@@ -180,6 +180,7 @@ func TestAnImplementerWithASettingOfItsTaskWaitsForItsPauseAlsoWhenAnotherBindin
 	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
 	addCopiedTask(t, server, fake, 41)
 	setBinding(t, server, engine.ImplementerRole, 41, config.Devin, "opus", "low")
+	testkit.WaitFor(t, server.Engine.AccessChecked)
 	agent := start(t, server, taskSpec(t, shop, 41))
 	defer end(t, agent, "done")
 	requireSession(t, server, agent, "devin opus")
