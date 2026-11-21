@@ -2,6 +2,7 @@ import { Option, Schema } from "effect";
 import { GetTaskResponse, ListTasksResponse } from "@/api/schemas.gen";
 import * as Composer from "@/composer";
 import { chatDraftKey } from "@/lib/draft";
+import { displayState } from "@/lib/state";
 import * as Setting from "@/setting/model";
 import { NextSetting } from "@/setting/schemas";
 import { Model as TextSelection } from "@/ui/selection";
@@ -94,7 +95,7 @@ export function initialModel(options: {
   };
 }
 
-export const rowKey = (line: TaskLine) => `${line.url} ${line.state}`;
+export const rowKey = (line: TaskLine) => `${line.url} ${line.state} ${line.wait}`;
 
 export const rowOf = (model: Model, key: string): Row =>
   model.rows.find((row) => row.key === key) ?? {
@@ -112,8 +113,8 @@ export const withRow = (model: Model, key: string, change: Partial<Row>): Model 
 export const resumes = (line: TaskLine) => line.state === "needs-human";
 
 export const stops = (line: TaskLine) =>
-  ["ready", "start waits", "working", "review", "queued", "question"].includes(line.state) ||
-  line.state.startsWith("waits for ");
+  line.wait !== "" ||
+  ["ready", "start waits", "working", "review", "question"].includes(line.state);
 
 export const reference = (line: TaskLine) =>
   `${line.otherRepository ? line.repository : ""}#${line.number}`;
@@ -122,7 +123,7 @@ export const taskItem = (line: TaskLine) => ({
   id: line.url,
   reference: reference(line),
   title: line.title,
-  reason: line.state,
+  reason: displayState(line).text,
   link: line.url,
 });
 

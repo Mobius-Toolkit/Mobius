@@ -48,6 +48,7 @@ import {
   mergeQueueThirdTask,
   mergingTask,
   ownerActionTask,
+  pausedTask,
   refusedTask,
   routeTasks,
   tasksRoute,
@@ -206,7 +207,7 @@ const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
   "waits for a low load",
-  /· paused until Sep 28, 12:00\sPM/,
+  /^paused until Sep 28, 12:00\sPM$/,
   "no free Implementer slot (2/2)",
 ];
 
@@ -434,6 +435,23 @@ test("screenshots", async ({ page }) => {
       const needsYou = main.getByRole("region", { name: "Needs you" });
       await expect(needsYou.getByText("owner_action", { exact: true })).toBeAttached();
       await needsYou.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
+  await page.unroute(tasksRoute);
+  await routeTasks(page, [...boardTasks, pausedTask]);
+  await screenshot(
+    page,
+    "tasks-paused",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Working" }).getByText(/^paused until Sep 28, 12:00\sPM$/),
+    ],
+    async () => {
+      const working = main.getByRole("region", { name: "Working" });
+      await expect(working.getByText(/^paused until Sep 28, 12:00\sPM$/)).toBeAttached();
+      await working.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
     },
   );
   await page.unroute(tasksRoute);
@@ -1547,6 +1565,7 @@ test("screenshots", async ({ page }) => {
       page.getByText("#45 Pick the plan limits", { exact: true }).filter({ visible: true }),
       page.getByText("waits for CI").filter({ visible: true }),
       page.getByText("waits for Lead").filter({ visible: true }),
+      page.getByText(/^paused until Sep 28, 12:00\sPM$/).filter({ visible: true }),
       page.getByRole("button", { name: "Chat about #45" }).filter({ visible: true }),
     ],
     async (device) => {

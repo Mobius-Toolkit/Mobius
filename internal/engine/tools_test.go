@@ -241,13 +241,13 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 		t.Fatal(err)
 	}
 	billing := "Billing"
-	queued := line(41, "Add plan model", "queued", 0)
+	queued := line(41, "Add plan model", "working", 0)
 	queued.BlockedBy = []taskBlocker{{Number: 40}, {Number: 88, WorkstreamTitle: &billing}}
 	waitForTasks(t, server, []taskLine{line(40, "Plan table", "open", 0), queued})
 
 	_, text := leadReply(t, server)
 
-	want := "owner/shop#40 Plan table: open\nowner/shop#41 Add plan model: queued, blocked by owner/shop#40, owner/shop#88 (Workstream \"Billing\")\n"
+	want := "owner/shop#40 Plan table: open\nowner/shop#41 Add plan model: working (wait: slot), blocked by owner/shop#40, owner/shop#88 (Workstream \"Billing\")\n"
 	if text != want {
 		t.Errorf("reply = %q", text)
 	}

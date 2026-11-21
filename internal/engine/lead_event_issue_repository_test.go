@@ -73,13 +73,13 @@ func TestAHeldEventOfATaskGivesTheWaitStateOnlyToThatTaskAndNotToATaskOfAnotherR
 	}
 
 	testkit.WaitFor(t, func() bool {
-		states := map[string]string{}
+		waits := map[string]string{}
 		for _, line := range taskTab(t, server) {
 			if line.Number == 7 {
-				states[line.Repository] = line.State
+				waits[line.Repository] = string(line.Wait)
 			}
 		}
-		return states[shop] == "waits for Owner" && states[garden] == "waits for Lead"
+		return waits[shop] == "owner" && waits[garden] == "lead"
 	})
 }
 

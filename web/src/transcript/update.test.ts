@@ -9,7 +9,6 @@ import {
   model,
   story,
 } from "foldkit/story";
-import { lowLoadReason } from "@/lib/agents";
 import { FetchLog, FetchOlder, StartCheck } from "./commands";
 import { Message, OutMessage } from "./message";
 import { initialModel, type Model } from "./model";
@@ -303,7 +302,7 @@ describe("the view of the log", () => {
 describe("the check of an agent that waits for a low load", () => {
   it("is startable only for the low load reason", () => {
     expect(createModel().startable).toBe(false);
-    expect(initialModel({ ...agent, queueReason: lowLoadReason }).startable).toBe(true);
+    expect(initialModel({ ...agent, wait: "low_load" }).startable).toBe(true);
   });
 
   it("starts the check, and ends the wait after the 204", () => {

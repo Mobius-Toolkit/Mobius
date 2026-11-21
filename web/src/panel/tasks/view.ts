@@ -6,7 +6,7 @@ import { defineView } from "foldkit/submodel";
 import * as Composer from "@/composer";
 import { bindingText } from "@/lib/harness";
 import * as Setting from "@/setting/view";
-import { renderBadge } from "@/ui/badge";
+import { renderBadge, renderStateBadge } from "@/ui/badge";
 import { buttonClass, renderIconButton } from "@/ui/button";
 import {
   arrowLeftIcon,
@@ -101,7 +101,7 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
                   ],
                 ),
               ),
-              renderBadge(h, line.state === "open" ? "outline" : "secondary", line.state),
+              renderStateBadge(h, line),
             ],
           ),
           renderIconButton(h, {
@@ -123,8 +123,7 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
           h.div(
             [h.Class(cn("flex shrink-0 justify-end", line.state !== "closed" && "size-8"))],
             [
-              line.state === "open" ||
-              line.state === "triage" ||
+              (line.wait === "" && (line.state === "open" || line.state === "triage")) ||
               (resumes(line) && line.blockedBy.length === 0)
                 ? renderIconButton(h, {
                     label,
@@ -182,7 +181,7 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
       h.div(
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
         [
-          renderBadge(h, line.state === "open" ? "outline" : "secondary", line.state),
+          renderStateBadge(h, line),
           line.startWait
             ? h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [line.startWait])
             : h.empty,

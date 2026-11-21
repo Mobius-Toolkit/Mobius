@@ -1,7 +1,7 @@
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { elapsed } from "@/lib/time";
-import { renderBadge } from "@/ui/badge";
+import { renderBadge, renderStateBadge } from "@/ui/badge";
 import { defineRouterLink } from "@/ui/link";
 import { linkClass, renderErrorBadge, renderPageHeader } from "@/ui/page";
 import { Message } from "./message";
@@ -41,7 +41,7 @@ function renderCard(h: H, task: BoardTask, now: number): Html {
       h.span(
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
         [
-          renderBadge(h, "secondary", task.merging ? "approved" : task.state),
+          renderStateBadge(h, task, "h-auto max-w-full whitespace-normal"),
           task.mergeQueuePlace !== null
             ? renderBadge(
                 h,

@@ -1,7 +1,6 @@
 import { Option } from "effect";
 import { Command } from "foldkit";
 import * as Update from "foldkit/update";
-import { lowLoadReason } from "@/lib/agents";
 import { FetchLog } from "@/transcript/commands";
 import { OutMessage as TranscriptOutMessage } from "@/transcript/message";
 import { initialModel as initialTranscript } from "@/transcript/model";
@@ -50,7 +49,7 @@ function followList(model: Model): UpdateReturn {
   const live = model.agents.value.groups
     .flatMap((group) => group.agents)
     .find((row) => row.agent.id === id);
-  return foldStartable(model, live?.agent.queueReason === lowLoadReason);
+  return foldStartable(model, live?.agent.wait === "low_load");
 }
 
 export function update(model: Model, message: Message): UpdateReturn {

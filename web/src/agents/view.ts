@@ -1,10 +1,11 @@
 import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { queueState, queueText } from "@/lib/agents";
+import { queueDetail } from "@/lib/agents";
+import { waitDot } from "@/lib/state";
 import { dayClock } from "@/lib/time";
 import * as Transcript from "@/transcript/view";
-import { renderBadge } from "@/ui/badge";
+import { renderStateBadge } from "@/ui/badge";
 import { chevronRightIcon } from "@/ui/icons";
 import { inset, renderErrorBadge, renderPageHeader } from "@/ui/page";
 import { Message } from "./message";
@@ -20,13 +21,12 @@ const numbered = (number: number, title?: string | null) =>
 
 function renderRow(h: H, row: ActiveAgent): Html {
   const agent = row.agent;
-  const state = queueState(agent.queueReason);
   const details = [
     agent.role,
     agent.organization,
     (agent.workstream !== 0 || agent.issue != null) && agent.repository,
     dayClock(agent.startedAt),
-    queueText(agent),
+    queueDetail(agent),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -41,7 +41,7 @@ function renderRow(h: H, row: ActiveAgent): Html {
           h.OnClick(Message.OpenedAgent({ agent })),
         ],
         [
-          h.span([h.Class(`size-2 shrink-0 rounded-full ${state.dot}`)], []),
+          h.span([h.Class(`size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)], []),
           h.span(
             [h.Class("grid min-w-0 grow gap-0.5")],
             [
@@ -67,7 +67,7 @@ function renderRow(h: H, row: ActiveAgent): Html {
                 : h.empty,
             ],
           ),
-          state.badge ? renderBadge(h, "outline", state.badge) : h.empty,
+          renderStateBadge(h, { ...agent, state: "" }),
           chevronRightIcon(h, "size-4 shrink-0"),
         ],
       ),

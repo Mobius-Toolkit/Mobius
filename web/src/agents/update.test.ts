@@ -1,7 +1,6 @@
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
-import { lowLoadReason } from "@/lib/agents";
 import * as TranscriptFixture from "@/transcript/fixtures";
 import type { Agent } from "@/transcript/schemas";
 import { FetchLog } from "@/transcript/commands";
@@ -191,7 +190,7 @@ describe("the Transcript of an agent", () => {
   });
 
   it("shows the start control while the open agent waits for a low load, and hides it after", () => {
-    const waiting = agent({ queueReason: lowLoadReason });
+    const waiting = agent({ wait: "low_load" });
 
     story(
       update,

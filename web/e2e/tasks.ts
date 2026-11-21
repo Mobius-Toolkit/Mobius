@@ -111,6 +111,14 @@ export const ownerActionTask = task(
   pull(53, { reviewRounds: 1, totalReviewRounds: 1 }),
 );
 
+export const pausedTask = task(
+  67,
+  "working",
+  "2026-10-15T11:05:00Z",
+  "Show the plan limit in the mail",
+  { wait: "paused", pausedUntil: "2026-09-28T12:00:00Z" },
+);
+
 export const mergeQueueTask = task(
   64,
   "ready_for_review",

@@ -2,11 +2,12 @@ import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineView } from "foldkit/submodel";
-import { queueState, queueText } from "@/lib/agents";
+import { queueDetail } from "@/lib/agents";
 import { bindingText } from "@/lib/harness";
+import { waitDot } from "@/lib/state";
 import { clock, dayClock, minutesUntil } from "@/lib/time";
 import * as Transcript from "@/transcript/view";
-import { renderBadge } from "@/ui/badge";
+import { renderBadge, renderStateBadge } from "@/ui/badge";
 import { renderSwitch } from "@/ui/switch";
 import { Message } from "./message";
 import { shownAgents, type Model } from "./model";
@@ -14,10 +15,17 @@ import type { Agent } from "@/transcript/schemas";
 
 type H = HtmlBuilder<Message>;
 
+const endedState = (agent: Agent) => {
+  if (!agent.endedAt) {
+    return "";
+  }
+  return agent.keptUntil ? "kept" : "stopped";
+};
+
 function renderEntry(h: H, model: Model, agent: Agent): Html {
-  const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
-  const queued = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
+  const reason = queueDetail(agent);
+  const queued = reason ? `${started} · ${reason}` : started;
   const detail = agent.keptUntil
     ? `${queued} · closes in ${minutesUntil(agent.keptUntil, model.now)} min`
     : queued;
@@ -54,7 +62,7 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
           h.Class(
             cn(
               "size-2 shrink-0 rounded-full",
-              agent.endedAt ? "border border-muted-foreground" : state.dot,
+              agent.endedAt ? "border border-muted-foreground" : waitDot(agent.wait),
             ),
           ),
         ],
@@ -90,8 +98,7 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
           h.span([h.Class("text-sm text-muted-foreground")], [`${bindingText(agent)} · ${detail}`]),
         ],
       ),
-      agent.endedAt ? renderBadge(h, "secondary", agent.keptUntil ? "kept" : "stopped") : h.empty,
-      state.badge ? renderBadge(h, "outline", state.badge) : h.empty,
+      renderStateBadge(h, { ...agent, state: endedState(agent) }),
     ],
   );
 }

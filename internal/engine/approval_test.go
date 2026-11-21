@@ -740,10 +740,10 @@ func TestAPollMovesATaskInApprovalBackToChecksWhenAHumanPushesANewHeadAndSendsTh
 	}
 }
 
-func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
+func TestTheTasksTabAndListTasksShowTheLabelStateAndTheWaitOfALiveTask(t *testing.T) {
 	t.Parallel()
-	waits := map[string]string{"checks": "ci", "approval": "lead", "dispatched": "start_implementer", "owner_action": "owner_action"}
-	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer", "owner_action": "waits for Owner action"} {
+	type shown struct{ state, wait string }
+	for state, want := range map[string]shown{"checks": {"working", "ci"}, "approval": {"working", "lead"}, "dispatched": {"working", "start_implementer"}, "owner_action": {"open", "owner_action"}} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := seedWaitingWith(t, fake, state, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
@@ -752,11 +752,11 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitFo
 
 			testkit.WaitFor(t, func() bool { return len(taskTab(t, server)) > 0 })
 			lines := taskTab(t, server)
-			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want || string(lines[0].Wait) != waits[state] {
+			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want.state || string(lines[0].Wait) != want.wait {
 				t.Errorf("lines = %+v", lines)
 			}
 			calls := rows(t, server, session, "mcp_call")
-			if len(calls) != 1 || calls[0]["result"] != "owner/shop#41 Add plan model: "+want+"\n" {
+			if len(calls) != 1 || calls[0]["result"] != "owner/shop#41 Add plan model: "+want.state+" (wait: "+want.wait+")\n" {
 				t.Errorf("calls = %+v", calls)
 			}
 		})

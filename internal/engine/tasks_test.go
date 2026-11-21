@@ -204,7 +204,7 @@ func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {
 	billing := "Billing"
 	api := line(41, "Plan API", "open", 0)
 	api.BlockedBy = []taskBlocker{{Number: 40}, {Number: 88, WorkstreamTitle: &billing}}
-	waitForTasks(t, server, []taskLine{line(40, "Add plan model", "queued", 0), api})
+	waitForTasks(t, server, []taskLine{line(40, "Add plan model", "working", 0), api})
 }
 
 func TestTheNeedsHumanListHasTheOpenIssuesThatAreStoppedOrAskedInTheTrees(t *testing.T) {
@@ -574,7 +574,7 @@ func TestStopStopsADispatchedTask(t *testing.T) {
 	server, _ := connect(t, fake, "")
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool {
-		return taskState(t, server) == "dispatched" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) && stateOfTask(t, server) == "waits for start_implementer"
+		return taskState(t, server) == "dispatched" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) && waitOfTask(t, server) == "start_implementer"
 	})
 	authorize(t, server)
 
@@ -667,7 +667,7 @@ func TestTheTasksTabKeepsTheWaitForTheOwnerActionOfALiveTaskWithAStart(t *testin
 
 	lines := taskTab(t, server)
 
-	if len(lines) != 1 || lines[0].State != "waits for Owner action" {
+	if len(lines) != 1 || lines[0].State != "open" || lines[0].Wait != "owner_action" {
 		t.Errorf("lines = %+v", lines)
 	}
 }
