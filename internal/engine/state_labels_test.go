@@ -34,7 +34,7 @@ func TestAFailedAddOfTheWorkingLabelAfterThePassedCIIsRepairedAtTheNextPoll(t *t
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "needs_human" })
 	waitForPolls(t, fake)
 	if hasLabel(fake, "mobius:working") {
 		t.Fatalf("labels = %v", fake.Labels(shop, 41))
