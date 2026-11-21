@@ -204,6 +204,9 @@ func TestACommentOfAnOutgoingChangeThatComesAfterTheAnswerOfAPersonIsNoQuestion(
 	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream_repository, workstream, issue, text, link, time) VALUES ('question', 'owner/shop', 'owner/shop', 12, 41, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	fake.AddCommentAfterList(shop, 41, testkit.AppSlug+"[bot]", "The task waits for CI.\n\n<!-- mobius:write 9 -->")
 
 	fake.AddComment(shop, 41, "owner", "Cents.")
