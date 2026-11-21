@@ -647,6 +647,14 @@ func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 				return err
 			}
 			if free {
+				if !a.setUncounted(false) {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-changed:
+						continue
+					}
+				}
 				return errMoved
 			}
 		}

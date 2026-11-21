@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -69,9 +70,22 @@ func TestAnImplementerThatHitsTheUsageLimitMovesAndTheNextSessionOfTheTaskRunsOn
 	}
 }
 
-func TestAnImplementerThatWaitsForAPauseWhileTheOtherBindingHasAnAccessHoldMovesWhenTheAccessHoldEnds(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
+// waitForBindingItem waits until the Inbox has, or has not, the item of the failed access check of the second binding.
+func waitForBindingItem(t *testing.T, server *testserver.Server, open bool) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		found := slices.ContainsFunc(accessItems(t, server), func(item inboxItem) bool {
+			return item.Title == "Access check failed: claude-code sonnet high"
+		})
+		return found == open
+	})
+}
+
+// waitsWhileTheOtherBindingHasAnAccessHold gives a server with an Implementer session on Devin that waits for a pause
+// of Devin. The access check of the second binding, on Claude Code, failed. It gives the data directory, the session and the result
+// of the prompt of the session.
+func waitsWhileTheOtherBindingHasAnAccessHold(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, *engine.Agent, <-chan error) {
+	t.Helper()
 	server, dataDir := connectWith(t, fake, longUsageLimit, firstSlots(1))
 	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
 	server.Stop()
@@ -82,18 +96,52 @@ func TestAnImplementerThatWaitsForAPauseWhileTheOtherBindingHasAnAccessHoldMoves
 	restarted.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, restarted.Engine.AccessChecked)
 	agent := start(t, restarted, implementerSpec(t, restarted, fake, 41))
-	defer end(t, agent, "done")
 	requireSession(t, restarted, agent, "devin swe-1.5")
 	prompted := make(chan error, 1)
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool {
 		return strings.HasPrefix(session(t, restarted, agent.ID()).QueueReason.String, "paused until ")
 	})
+	waitForBindingItem(t, restarted, true)
 	requireNoReturn(t, fake, prompted)
+	return restarted, dataDir, agent, prompted
+}
 
+// passAccessOfTheOtherBinding makes the access check of Claude Code pass, and waits until the Inbox item of the failed
+// check is gone.
+func passAccessOfTheOtherBinding(t *testing.T, server *testserver.Server, dataDir string) {
+	t.Helper()
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options)
-	restarted.Engine.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(time.Hour) })
+	waitForBindingItem(t, server, false)
+}
 
+func TestAnImplementerThatWaitsForAPauseWhileTheOtherBindingHasAnAccessHoldMovesWhenTheAccessHoldEnds(t *testing.T) {
+	t.Parallel()
+	server, dataDir, agent, prompted := waitsWhileTheOtherBindingHasAnAccessHold(t, testkit.NewFakeGitHub(t))
+	defer end(t, agent, "done")
+
+	passAccessOfTheOtherBinding(t, server, dataDir)
+
+	requireMoved(t, prompted)
+}
+
+func TestAnImplementerThatWaitsForAPauseInASealedDrainDoesNotMoveWhenTheOtherBindingBecomesFreeUntilTheSealIsAborted(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir, agent, prompted := waitsWhileTheOtherBindingHasAnAccessHold(t, fake)
+	defer end(t, agent, "done")
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	if got := server.Engine.Seal(); got != engine.Drained {
+		t.Fatalf("seal = %s", got)
+	}
+
+	passAccessOfTheOtherBinding(t, server, dataDir)
+
+	requireNoReturn(t, fake, prompted)
+	server.Engine.AbortDrain()
 	requireMoved(t, prompted)
 }
 
