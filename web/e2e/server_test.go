@@ -1763,15 +1763,27 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 	}
 }
 
-// setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
-// the task stays. continueByRemoval resumes the task for each removal of the label that is newer than needs_human_at.
-// The fake GitHub dates its events from its own clock, which runs ahead of the wall clock, and a poll of the task
-// before the move can still write a removal. Thus needs_human_at is one hour after the clock of the fake GitHub.
+// setNeedsHuman moves the task to needs_human, gives its issue mobius:needs-human and removes mobius:working, because the
+// SQL move adds no change of the state labels. The Tasks panel shows mobius:working before mobius:needs-human when
+// the issue has both. The Worker of the task stays. The poll resumes the task for a comment of a trusted user, and for
+// a removal of the label by a trusted user, that is newer than needs_human_at. The fake GitHub dates its events from its
+// own clock, which runs ahead of the wall clock. Thus needs_human_at is one hour after the clock of the fake GitHub, and
+// no event of the fixture resumes the task.
 func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, task int64) {
 	t.Helper()
 	since := github.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = ? WHERE id = ?", since, task); err != nil {
 		t.Fatal(err)
+	}
+	var issue int64
+	if err := server.DB.QueryRow("SELECT issue FROM tasks WHERE id = ?", task).Scan(&issue); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(github.Labels("owner/shop", issue), "mobius:needs-human") {
+		github.AddLabel("owner/shop", issue, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	}
+	if slices.Contains(github.Labels("owner/shop", issue), "mobius:working") {
+		github.RemoveLabel("owner/shop", issue, "mobius:working", testkit.AppSlug+"[bot]")
 	}
 }
 

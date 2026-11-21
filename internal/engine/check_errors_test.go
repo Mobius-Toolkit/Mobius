@@ -19,8 +19,10 @@ func connectDispatched(t *testing.T) (*testserver.Server, *testkit.FakeGitHub) {
 }
 
 // failPolls makes the check of #41 fail on the next count polls, and waits until the poll after them resets the count.
+// It waits first for the send of the state labels, because that send also reads #41 and would use the failed reads.
 func failPolls(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, count int) {
 	t.Helper()
+	waitForSentStateLabels(t, server)
 	fake.FailIssueReads(shop, 41, count)
 	testkit.WaitFor(t, func() bool {
 		var errors int

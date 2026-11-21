@@ -359,28 +359,21 @@ func TestTheNeedsHumanListHasTheReasonWithNoPrefixOfTheStopEventsAndKeepsTheText
 	})
 }
 
-func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
+func TestResumeRemovesMobiusNeedsHumanAsTheAppAndRequestsAStartWithNoOwnerToken(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
-	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	server := startCopied(t, fake)
-
-	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusConflict {
-		t.Errorf("status = %d: %s", status, body)
-	}
-	authorize(t, server)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question"}) {
+	if got := fake.Labels(shop, 41); len(got) != 0 {
 		t.Errorf("labels = %v", got)
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:needs-human"); got != "owner" {
+	if got := fake.LabelActor(shop, 41, "mobius:needs-human"); got != testkit.AppSlug+"[bot]" {
 		t.Errorf("actor of mobius:needs-human = %s", got)
 	}
 	if got := startByOf(t, server, shop, 41); got != "ui" {

@@ -327,6 +327,9 @@ func TestARemovalOfNeedsHumanAfterAStopWhoseLabelCallFailedResumesTheTask(t *tes
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	fake.FailAddLabels(shop, 42, false)
+	testkit.WaitFor(t, func() bool { return pullRequestHasNeedsHuman(fake) })
+	waitForSentChanges(t, server)
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
@@ -445,7 +448,13 @@ func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script s
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
-	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	stateLabel, labeled := map[string]string{"needs_human": "mobius:needs-human", "ready_for_review": "mobius:review", "owner_action": ""}[state]
+	if !labeled {
+		stateLabel = "mobius:working"
+	}
+	if stateLabel != "" {
+		fake.AddLabel(shop, 41, stateLabel, testkit.AppSlug+"[bot]")
+	}
 	testkit.InstallFakeAgent(t, dataDir, options+script)
 	seed(t, dataDir,
 		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
@@ -460,6 +469,9 @@ func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script s
 	}
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
+	}
+	if state == "needs_human" {
+		fake.AddLabel(shop, 42, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	}
 	server.WaitForFirstPoll(t, shop)
 	return server, head(t, fake, "mobius/41")

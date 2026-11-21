@@ -410,6 +410,7 @@ func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThan
 	server := connectJudge(t, fake, "hang = true\n", "", noChange)
 	fake.AddComment(shop, 42, "owner", "Why cents?")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	waitForSentStateLabels(t, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
 

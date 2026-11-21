@@ -34,7 +34,7 @@ func TestAFailedAddOfTheWorkingLabelAfterThePassedCIIsRepairedAtTheNextPoll(t *t
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "needs_human" })
 	waitForPolls(t, fake)
 	if hasLabel(fake, "mobius:working") {
 		t.Fatalf("labels = %v", fake.Labels(shop, 41))
@@ -42,53 +42,16 @@ func TestAFailedAddOfTheWorkingLabelAfterThePassedCIIsRepairedAtTheNextPoll(t *t
 
 	fake.FailAddLabels(shop, 41, false)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
-	if labels := fake.Labels(shop, 41); !slices.Equal(labels, []string{"mobius:working"}) {
-		t.Errorf("labels = %v", labels)
-	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
 }
 
-func TestAPollRemovesAStaleNeedsHumanLabelFromTheIssueOfATaskInChecks(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := seedWaiting(t, fake, "checks")
-
-	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
-
-	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:needs-human") })
-	if labels := fake.Labels(shop, 41); !slices.Equal(labels, []string{"mobius:working"}) {
-		t.Errorf("labels = %v", labels)
-	}
-	if state := taskState(t, server); state != "checks" {
-		t.Errorf("state = %s", state)
-	}
-}
-
-func TestAPollRemovesTheStateLabelsOfAnIssueWithAnEndedTask(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	startEnded(t, fake)
-
-	for _, label := range []string{"mobius:working", "mobius:review", "mobius:question", "mobius:needs-human"} {
-		fake.AddLabel(shop, 41, label, testkit.AppSlug+"[bot]")
-	}
-
-	testkit.WaitFor(t, func() bool { return len(fake.Labels(shop, 41)) == 0 })
-}
-
-func TestAPollKeepsTheNeedsHumanLabelOfAnIssueWithAnOpenLostItem(t *testing.T) {
+func TestAnIssueWithAnEndedTaskAndTheWorkingLabelGetsAnOpenLostItemAndOnlyTheNeedsHumanLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startEnded(t, fake, "mobius:working")
-	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 && hasLabel(fake, "mobius:needs-human") })
 
-	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:needs-human"}) })
 
-	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:question") })
-	waitForPolls(t, fake)
-	if labels := fake.Labels(shop, 41); !slices.Equal(labels, []string{"mobius:needs-human"}) {
-		t.Errorf("labels = %v", labels)
-	}
 	if items := inbox(t, server); len(items) != 1 || items[0].Kind != "lost" {
 		t.Errorf("inbox = %+v", items)
 	}

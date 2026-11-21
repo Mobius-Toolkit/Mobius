@@ -279,9 +279,8 @@ func TestARefusedReadOfTheCITaskIssueDoesNotStopThePoll(t *testing.T) {
 		 VALUES ('owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
 	server.WaitForFirstPoll(t, shop)
 
-	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	waitForPolls(t, fake)
 
-	testkit.WaitFor(t, func() bool { return len(fake.Labels(shop, 41)) == 0 })
 	if count := tasksOf(t, server, ciIssue); count != 0 {
 		t.Errorf("tasks = %d", count)
 	}

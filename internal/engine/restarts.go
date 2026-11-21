@@ -134,10 +134,10 @@ func tail(text string, count int) string {
 	return text
 }
 
-// handToHuman moves the task from working, queued or checks to needs_human, and stores the stop notice of the move in
-// the same transaction. Then it moves the issue of the task from mobius:working or mobius:review to mobius:needs-human,
-// with the pull request of the task. A caller sends the notice with sendStopNotices after its other steps. When a GitHub
-// call fails, the poll sends the notice. leadText is the text of the stop event. It gives false when the task is not
+// handToHuman moves the task from working, queued or checks to needs_human, and stores the stop notice of the move and
+// the outgoing change of the state labels in the same transaction. Then it sends that change, so the issue of the task
+// and its pull request get mobius:needs-human. A caller sends the notice with sendStopNotices after its other steps.
+// When a GitHub call fails, the poll sends the change and the notice. leadText is the text of the stop event. It gives false when the task is not
 // working, queued or checks, for example after a decline. A notice with no text gives the Lead an event only.
 // failedHead is the head that the CI failed on, or empty for another stop. The move stores it in the same transaction,
 // so that continueNeedsHuman sees a CI stop also when a later call fails.
@@ -148,6 +148,7 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadTe
 // handFromStates does handToHuman for a task in one of the states.
 func (e *Engine) handFromStates(ctx context.Context, states []string, task store.Task, title, leadText, failedHead string, notice stopNotice) (bool, error) {
 	from := ""
+	var change int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		for _, state := range states {
 			moved, err := q.HandTaskToHuman(ctx, store.HandTaskToHumanParams{ID: task.ID, FromState: state})
@@ -157,6 +158,9 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 			if moved > 0 {
 				from = state
 				if err := q.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: sql.NullString{String: failedHead, Valid: failedHead != ""}, ID: task.ID}); err != nil {
+					return err
+				}
+				if change, err = addStateLabelsChange(ctx, q, task.Repository, task.Issue); err != nil {
 					return err
 				}
 				return q.AddStopNotice(ctx, storeStopNotice(task, title, leadText, notice))
@@ -174,47 +178,5 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 	e.closeKept(task.ID)
 	e.publish(Change{Workstreams: true})
 	dismissErr := e.dismissReadyForReview(ctx, task, from)
-	repository, err := e.repository(task.Repository)
-	if err != nil {
-		return false, errors.Join(err, dismissErr, pubErr)
-	}
-	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
-	if err != nil {
-		return false, errors.Join(err, dismissErr, pubErr)
-	}
-	return true, errors.Join(setStopLabels(ctx, repository, current), dismissErr, pubErr)
-}
-
-// setStopLabels moves the issue of the task from mobius:working or mobius:review to mobius:needs-human, with the pull
-// request of the task.
-func setStopLabels(ctx context.Context, repository github.Repository, task store.Task) error {
-	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
-		return err
-	}
-	return addNeedsHuman(ctx, repository, task)
-}
-
-// addNeedsHuman adds mobius:needs-human to the issue of the task, and to its pull request when it has one.
-func addNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
-	if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
-		return err
-	}
-	if !task.PullRequest.Valid {
-		return nil
-	}
-	return repository.AddLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
-}
-
-// removeNeedsHuman removes mobius:needs-human from the issue of the task, and from its pull request when it has one.
-func removeNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
-	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
-		return err
-	}
-	if !task.PullRequest.Valid {
-		return nil
-	}
-	return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
+	return true, errors.Join(e.sendLabelsNow(ctx, task.Repository, change), dismissErr, pubErr)
 }

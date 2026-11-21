@@ -214,11 +214,7 @@ func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T
 	fake.AddLabel(shop, 45, "mobius:ready", "owner")
 	waitForState(t, server, 45, "queued")
 	fake.AddReviewComment(shop, pullRequest, 0, "mobius-test[bot]", "Store the unit.")
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
-		t.Fatal(err)
-	}
-
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	moveToNeedsHuman(t, fake, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 

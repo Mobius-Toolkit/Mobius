@@ -108,9 +108,9 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "open")
+	checkTasks(t, server, "waits for start_implementer")
 	events := leadEvents(t, server)
-	if len(events) != 1 || events[0].Kind != "dispatch" || !strings.Contains(events[0].Payload, ` "Add plan model" by @owner:`) {
+	if len(events) != 1 || events[0].Kind != "dispatch" || !strings.Contains(events[0].Payload, ` "Add plan model" by @ui:`) {
 		t.Errorf("events = %+v", events)
 	}
 	waitForWorkstreams(t, changes)
@@ -146,21 +146,20 @@ func TestStartChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 	waitForWorkstreams(t, changes)
 }
 
-func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
+func TestAFailedLabelWriteOfResumeKeepsTheCopyAndTheWriteWaitsForThePoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, changes := startLabeled(t, fake, true, taskInNeedsHuman)
+	server, _ := startLabeled(t, fake, true, taskInNeedsHuman)
 	fake.FailRemoveLabels(shop, 41, true)
 
-	if status, _ := postIssue(t, server, "resume"); status == http.StatusNoContent {
-		t.Fatal("status = 204")
+	if status, body := postIssue(t, server, "resume"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if rows := needsHumanRows(t, server); rows != 1 {
-		t.Errorf("rows = %d", rows)
-	}
 	checkTasks(t, server, "needs-human")
-	noWorkstreams(t, changes)
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'state_labels' AND status = 'pending'"); got != 1 {
+		t.Errorf("pending changes of the state labels = %d, want 1", got)
+	}
 }
 
 func TestTheTasksPanelListsAStoppedTaskWhenTheCopyHasNoStateLabel(t *testing.T) {

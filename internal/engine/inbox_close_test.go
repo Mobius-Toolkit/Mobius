@@ -71,6 +71,8 @@ func askedServer(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 				return strings.Contains(comment.Body, "Cents or dollars?")
 			})
 	})
+	waitForTask(t, server, 41, "asked")
+	waitForSentChanges(t, server)
 	return server
 }
 

@@ -90,12 +90,13 @@ func TestAnAskCommentThatGitHubRefusesAtOnceIsPostedOnceByALaterPollAndAnAnswerA
 	if got := appComments(fake, 41); len(got) != 0 {
 		t.Fatalf("comments = %q", got)
 	}
-	if got := commentWrites(t, server); got != 1 {
-		t.Fatalf("pending outgoing changes = %d", got)
+	if got := commentChanges(t, server, "pending"); got != 1 {
+		t.Fatalf("pending comment changes = %d", got)
 	}
 	fake.FailAddComment(shop, 41, false)
 
-	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return commentChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	waitForPolls(t, fake)
 	if got := fake.Comments(shop, 41); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: marked(askedText, leadMark)}}) {
 		t.Errorf("comments = %v", got)
@@ -112,41 +113,30 @@ func TestAnAskCommentThatGitHubRefusesAtOnceIsPostedOnceByALaterPollAndAnAnswerA
 	}
 }
 
-func TestACloseQuestionCommentThatGitHubRefusesAtOnceIsInTheDispatchEventAndPostedOnceAfterARunAgain(t *testing.T) {
+func TestACloseQuestionCommentThatGitHubRefusesAtOnceIsInTheDispatchEventAndPostedOnceLater(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
-[[prompts]]
-when = "Dollars again"
-call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
-
 [[prompts]]
 when = "Dollars were chosen"
 call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 `+askScript)
 	dispatchTask(fake, 41, "Add plan model")
-	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 2 })
+	testkit.WaitFor(t, func() bool { return commentChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	waitForSentChanges(t, server)
 	fake.FailAddComment(shop, 41, true)
-	fake.FailAddLabels(shop, 41, true)
 
 	sendChat(t, server, leadChat, "Dollars were chosen")
 
 	testkit.WaitFor(t, func() bool {
 		calls := leadCalls(t, server)
-		return len(calls) == 2 && calls[1]["error"] != nil
+		return len(calls) == 2 && calls[1]["result"] == "Closed the question on #41."
 	})
 	text := marked(closingAnswer, leadMark)
 	if got := commentRows(t, server, 41, text); got != 1 {
-		t.Fatalf("rows after the first call = %d", got)
+		t.Fatalf("rows after the call = %d", got)
 	}
-	fake.FailAddLabels(shop, 41, false)
-
-	sendChat(t, server, leadChat, "Dollars again")
-
-	testkit.WaitFor(t, func() bool {
-		calls := leadCalls(t, server)
-		return len(calls) == 3 && calls[2]["result"] == "Closed the question on #41."
-	})
 	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
 	if got := strings.Count(prompt, closingAnswer); got != 1 {
 		t.Errorf("answers in the dispatch event = %d", got)
@@ -156,7 +146,7 @@ call = { tool = "close_question", arguments = { repository = "owner/shop", n = 4
 	}
 	fake.FailAddComment(shop, 41, false)
 
-	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 2 })
+	testkit.WaitFor(t, func() bool { return commentChanges(t, server, "sent") == 2 })
 	waitForPolls(t, fake)
 	if got := commentRows(t, server, 41, text); got != 1 {
 		t.Errorf("rows = %d", got)
@@ -184,11 +174,12 @@ func TestACommentOfAPersonBeforeAnAskIsNoAnswerWhileTheQuestionCommentWaitsForIt
 	fake.AddCommentCreatedAt(shop, 41, "owner", "Maybe dollars.", time.Now().Add(-time.Minute))
 
 	waitForPolls(t, fake)
-	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") || taskStateOf(t, server, 41) != "asked" {
-		t.Errorf("labels = %v, state = %s", fake.Labels(shop, 41), taskStateOf(t, server, 41))
+	if taskStateOf(t, server, 41) != "asked" {
+		t.Errorf("state = %s", taskStateOf(t, server, 41))
 	}
 	fake.FailAddComment(shop, 41, false)
-	testkit.WaitFor(t, func() bool { return outgoingChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return commentChanges(t, server, "sent") == 1 })
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	waitForPolls(t, fake)
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") || taskStateOf(t, server, 41) != "asked" {
 		t.Errorf("labels = %v, state = %s", fake.Labels(shop, 41), taskStateOf(t, server, 41))
@@ -202,4 +193,10 @@ func TestACommentOfAPersonBeforeAnAskIsNoAnswerWhileTheQuestionCommentWaitsForIt
 		t.Errorf("dispatch event = %s", event)
 	}
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+}
+
+// commentChanges gives the number of outgoing changes of comments with the status.
+func commentChanges(t *testing.T, server *testserver.Server, status string) int {
+	t.Helper()
+	return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'comment' AND status = ?", status)
 }

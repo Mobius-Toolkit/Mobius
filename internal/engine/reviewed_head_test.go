@@ -240,8 +240,8 @@ func TestAnApprovalAgainAfterAnApprovalOfMobiusUsesTheReportOfMobius(t *testing.
 	checkNoLeadTurnForTheHead(t, server)
 }
 
-// TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment checks that a 5xx answer after the comment of an approval
-// of Mobius returns, and that the next poll does the missing writes with no second comment.
+// TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment checks that a 5xx answer of a label write does not hold
+// the approval of Mobius, and that the send writes the label later with no second comment.
 func TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -256,11 +256,14 @@ func TestAFailedLabelWriteOfAnApprovalOfMobiusGivesOneComment(t *testing.T) {
 			return comment.Body != autoApprovedReport(approved)
 		}))
 	}
-	testkit.WaitFor(t, func() bool { return approvalComments() == 1 && taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { return approvalComments() == 1 && taskState(t, server) == "ready_for_review" })
+	if hasLabel(fake, "mobius:review") {
+		t.Fatalf("labels = %v", fake.Labels(shop, 41))
+	}
 	fake.FailAddLabels(shop, 41, false)
 
 	autoApprovedEvent(t, server)
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:review") })
 	waitForPolls(t, fake)
 	if got := approvalComments(); got != 1 {
 		t.Errorf("approval comments = %d, want 1", got)

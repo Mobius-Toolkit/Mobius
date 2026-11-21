@@ -1868,3 +1868,48 @@ func TestTheTriageCursorsMigrationDeletesTheTriageCursorsAndKeepsTheOthers(t *te
 		t.Errorf("endpoints = %q, %v", got, err)
 	}
 }
+
+func TestTheStateLabelsMigrationKeepsTheChangeRowsAndAcceptsTheNewField(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270429000000)
+	for _, statement := range []string{
+		`INSERT INTO own_writes (id, integration, repository, number, field, metadata, created_at)
+			VALUES (8, 'github', 'o/a', 41, 'start', '{}', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO incoming_changes (id, integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES (9, 'github', '77', 'o/a', 41, 'start', 'labeled', 'owner', 'done', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO outgoing_changes (id, integration, repository, number, field, status, created_at)
+			VALUES (10, 'github', 'o/a', 41, 'start', 'sent', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for table, id := range map[string]int{"own_writes": 8, "incoming_changes": 9, "outgoing_changes": 10} {
+		var kept int
+		if err := db.QueryRow(`SELECT count(*) FROM `+table+` WHERE id = ? AND field = 'start'`, id).Scan(&kept); err != nil || kept != 1 {
+			t.Errorf("kept rows of %s = %d, %v", table, kept, err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO own_writes (integration, repository, number, field, metadata, created_at)
+			VALUES ('github', 'o/a', 41, 'state_labels', '{}', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO incoming_changes (integration, external_id, repository, number, field, change, actor, status, created_at)
+			VALUES ('github', '78', 'o/a', 41, 'state_labels', 'unlabeled', 'owner', 'pending', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+			VALUES ('github', 'o/a', 41, 'state_labels', 'pending', '2027-03-01T10:00:01Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Errorf("%s: %v", statement, err)
+		}
+	}
+}
