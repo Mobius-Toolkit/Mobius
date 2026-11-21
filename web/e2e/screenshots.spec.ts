@@ -5066,8 +5066,10 @@ test("screenshots", async ({ page }) => {
     pause(harness).getByRole("button", { name: new RegExp(`^${harness} paused until`) });
   const noDSH: Wait = () => expect(page.getByText(/dsh paused until/)).toHaveCount(0);
   const settingOfOwner = pause("antigravity").getByText(
-    "Implementer setting of owner/shop#39 Send the plan receipts",
+    "Implementer setting of owner/shop#30 Name the plan tiers",
   );
+  const settingOfOwnerTask = "/e2e/tasks/owner/shop/30/antigravity";
+  expect((await page.request.put(settingOfOwnerTask)).ok()).toBe(true);
   await page.evaluate(() => localStorage.setItem("organization", "plants"));
   await screenshot(
     page,
@@ -5125,6 +5127,7 @@ test("screenshots", async ({ page }) => {
       await pause("antigravity").scrollIntoViewIfNeeded();
     },
   );
+  expect((await page.request.delete(settingOfOwnerTask)).ok()).toBe(true);
   await screenshot(
     page,
     "pause-users-global-roles",

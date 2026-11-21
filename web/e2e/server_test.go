@@ -264,7 +264,9 @@ const question = "What is the state of the plans? The full report is at " +
 // of the Checkup page have fixed paths and versions, and tar gives no
 // version.
 //
-// The Implementer setting of the task owner/shop#39 uses antigravity too, so its line shows only in owner.
+// PUT and DELETE /e2e/tasks/owner/shop/30/antigravity give and take away an Implementer setting that uses antigravity.
+// The task owner/shop#30 then shows in the pause list of antigravity in owner. The task panel of owner/shop#12 shows
+// the setting of each task, so only the steps of the pause lists set it.
 //
 // The table of the pauses also has a row of dsh. Only the Implementer settings of the Workstream plants/garden#20 and
 // of its tasks #21 and #22 use dsh.
@@ -556,6 +558,17 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
 		if err := server.Engine.ClearIssueBinding(r.Context(), "implementer", "owner/shop", 12); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("PUT /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := server.DB.Exec(`INSERT OR REPLACE INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
+			VALUES ('owner/shop', 30, 'implementer', 'antigravity', 'antigravity-model', '', '2026-09-28T09:30:00Z')`); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+	server.Mux.HandleFunc("DELETE /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := server.DB.Exec("DELETE FROM issue_bindings WHERE repository = 'owner/shop' AND issue = 30 AND role = 'implementer'"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -1042,10 +1055,6 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	pauseDSHForSettings(ctx, t, server)
-	if _, err := server.DB.Exec(`INSERT INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
-		VALUES ('owner/shop', 39, 'implementer', 'antigravity', 'antigravity-model', '', '2026-09-28T09:30:00Z')`); err != nil {
-		t.Fatal(err)
-	}
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
 	addSkillUses(t, server)
