@@ -30,6 +30,7 @@ const agent = (overrides: Partial<Agent> = {}): Agent => ({
   role: "implementer",
   startedAt: "2026-05-01T10:00:00Z",
   title: "Task 39",
+  wait: "",
   working: true,
   workstream: 12,
   workstreamRepository: "owner/shop",

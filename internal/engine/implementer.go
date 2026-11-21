@@ -1387,7 +1387,7 @@ func (e *Engine) initWorktree(ctx context.Context, a *Agent, j *job) (string, er
 	if _, err := os.Stat(filepath.Join(a.spec.Dir, ".mobius", "init")); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	if err := a.checkPhase(ctx, initRunsReason, ".mobius/init started."); err != nil {
+	if err := a.checkPhase(ctx, initRunsWait, ".mobius/init started."); err != nil {
 		return "", err
 	}
 	started := time.Now()
@@ -1413,7 +1413,7 @@ func (e *Engine) initWorktree(ctx context.Context, a *Agent, j *job) (string, er
 	if err := a.addStep(ctx, "init", startedAt, endedAt, sql.NullInt64{}, result); err != nil {
 		log.Printf("add the init step of the session %d: %v", a.id, err)
 	}
-	if err := a.checkPhase(ctx, "", text); err != nil {
+	if err := a.checkPhase(ctx, queueWait{}, text); err != nil {
 		return "", err
 	}
 	if passed {
@@ -1611,7 +1611,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		case e.checks <- struct{}{}:
 		default:
 			slotWaitedAt := now()
-			err := a.checkPhase(ctx, "waits for a check slot", "The session waits for a check slot.")
+			err := a.checkPhase(ctx, queueWait{waitCheckSlot, "waits for a check slot"}, "The session waits for a check slot.")
 			if err == nil {
 				select {
 				case e.checks <- struct{}{}:
@@ -1627,7 +1627,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		err := e.waitForLowLoad(ctx, a, j)
 		started := time.Now()
 		if err == nil {
-			err = a.checkPhase(ctx, checkRunsReason, ".mobius/check started.")
+			err = a.checkPhase(ctx, checkRunsWait, ".mobius/check started.")
 		}
 		var output string
 		var passed bool
@@ -1659,7 +1659,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		if err := a.addStep(ctx, "check", startedAt, endedAt, attempt, result); err != nil {
 			log.Printf("add the check run of the session %d: %v", a.id, err)
 		}
-		if err := a.checkPhase(ctx, "", text); err != nil {
+		if err := a.checkPhase(ctx, queueWait{}, text); err != nil {
 			return "", false, false, err
 		}
 		if passed || !strings.Contains(output, diskFull) {
@@ -1676,17 +1676,11 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 	}
 }
 
-// checkPhase shows the phase of the check of the session in its queue reason, or no queue reason for an empty phase,
-// and adds a check row with text to its Transcript.
-func (a *Agent) checkPhase(ctx context.Context, phase, text string) error {
+// checkPhase shows the phase of the check of the session in its queue reason and its wait kind, or no wait for the
+// zero phase, and adds a check row with text to its Transcript.
+func (a *Agent) checkPhase(ctx context.Context, phase queueWait, text string) error {
 	e := a.engine
-	var session store.Session
-	var err error
-	if phase == "" {
-		session, err = e.queries.ClearQueueReason(ctx, a.id)
-	} else {
-		session, err = e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: phase, Valid: true}, ID: a.id})
-	}
+	session, err := e.setQueueWait(ctx, a.id, phase)
 	if err != nil {
 		return err
 	}

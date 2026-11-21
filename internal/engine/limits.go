@@ -403,7 +403,7 @@ func (e *Engine) Pauses(ctx context.Context) ([]PauseState, error) {
 	if err != nil {
 		return nil, err
 	}
-	waiting, err := e.queries.ListWaitingSessions(ctx, pausedPrefix)
+	waiting, err := e.queries.ListWaitingSessions(ctx, sql.NullString{String: string(waitPaused), Valid: true})
 	if err != nil {
 		return nil, err
 	}
@@ -535,14 +535,7 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 
 // PausedUntil gives the end of the pause that session waits for, or nil when the session does not wait for a pause.
 func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.Time, error) {
-	if !strings.HasPrefix(session.QueueReason.String, pausedPrefix) {
-		return nil, nil
-	}
-	pause, err := e.harnessPause(ctx, config.Harness(session.Harness))
-	if err != nil || pause == nil {
-		return nil, err
-	}
-	return pauseEnd(*pause)
+	return e.pausedUntil(ctx, session.Harness, Wait(session.QueueWait.String))
 }
 
 // waitsForPause tells if the open session id has the queue reason of a wait for a pause.
@@ -551,7 +544,7 @@ func (e *Engine) waitsForPause(ctx context.Context, id int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return strings.HasPrefix(session.QueueReason.String, pausedPrefix), nil
+	return Wait(session.QueueWait.String) == waitPaused, nil
 }
 
 func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
@@ -663,7 +656,7 @@ func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 			if err != nil {
 				return err
 			}
-			queued, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
+			queued, err := e.setQueueWait(ctx, a.id, queueWait{waitPaused, reason})
 			if err != nil {
 				return err
 			}
@@ -707,7 +700,7 @@ func (e *Engine) hasFreeImplementerBinding(ctx context.Context, harness config.H
 		if err != nil {
 			return false, err
 		}
-		if paused == "" && e.accessHold(b.Binding) == "" {
+		if paused.none() && e.accessHold(b.Binding).none() {
 			return true, nil
 		}
 	}

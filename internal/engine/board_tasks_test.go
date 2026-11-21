@@ -38,7 +38,7 @@ func TestTheBoardHasALiveTaskWithItsTitlesPullRequestAndRounds(t *testing.T) {
 		Repository: shop, Number: 41, Title: "Add plan model", URL: "https://github.com/owner/shop/issues/41",
 		WorkstreamRepository: shop, Workstream: 12, WorkstreamTitle: "Integrate loyalty plans",
 		State: "approval", StateAt: task.StateAt, PullRequest: 42, PullRequestURL: "https://github.com/owner/shop/pull/42",
-		FixRounds: 0, ReviewRounds: 1, TotalFixRounds: 0, TotalReviewRounds: 1,
+		FixRounds: 0, ReviewRounds: 1, TotalFixRounds: 0, TotalReviewRounds: 1, Wait: "lead",
 	}
 	if task != want {
 		t.Errorf("task = %+v, want %+v", task, want)

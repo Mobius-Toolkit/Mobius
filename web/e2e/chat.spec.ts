@@ -1539,6 +1539,8 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
       url: "https://github.com/plants/garden/issues/73",
       blockedBy: [{ number: 70, repository: null, workstreamTitle: "" }],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -1592,6 +1594,8 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -1643,6 +1647,8 @@ async function routeStopTasks(page: Page) {
           url: `https://github.com/plants/garden/issues/${80 + index}`,
           blockedBy: index === 5 ? [{ number: 70, repository: null, workstreamTitle: "" }] : [],
           startWait: "",
+          pausedUntil: null,
+          wait: "",
         })),
       },
     }),
@@ -3891,6 +3897,8 @@ test.describe("the detail view of a task", () => {
       otherRepository: false,
       blockedBy: [],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
       implementer: null,
     }));
 

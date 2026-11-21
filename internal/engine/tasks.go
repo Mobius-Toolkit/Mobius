@@ -71,6 +71,10 @@ type TaskLine struct {
 	// StartWait is the reason that a Start waits when State is "start waits", or "". An open blocker gives no reason,
 	// because BlockedBy shows it.
 	StartWait string
+	// Wait is the wait of the live task of the issue, or "".
+	Wait Wait
+	// PausedUntil is the end of the pause of the Harness when Wait is "paused", or nil.
+	PausedUntil *time.Time
 }
 
 // startWaits holds the state that Tasks reads one time to give the reason of each waiting Start. ciStops has the
@@ -182,6 +186,10 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	if err != nil {
 		return nil, err
 	}
+	sessions, err := e.sessionWaits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	lines := []TaskLine{}
 	// depths holds the depth of the sub-issues of each issue by its id. The id 0 is the Workstream issue.
 	depths := map[int64]int64{}
@@ -222,10 +230,14 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 						if err != nil {
 							return nil, err
 						}
+						if line.Wait, line.PausedUntil, err = e.taskWait(ctx, task.State, heldEvent, sessions[issueRef{issueRepositoryName, row.Number}]); err != nil {
+							return nil, err
+						}
 						line.State = waitState(task.State, line.State, heldEvent)
 					case line.State == "open" && task.State == "needs_human":
 						line.State = "ready"
 					case line.State == "open" && task.State == "owner_action":
+						line.Wait = waitOf(task.State, false, "")
 						line.State = waitState(task.State, line.State, false)
 					case row.StartRequested && (!live || task.State == "stopped" && !task.PullRequest.Valid):
 						line.State = "start waits"
@@ -411,6 +423,10 @@ type BoardTask struct {
 	MergeQueuePlace *int64
 	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when MergeQueuePlace is nil.
 	MergeQueueSize int64
+	// Wait is the wait of the task, or "".
+	Wait Wait
+	// PausedUntil is the end of the pause of the Harness when Wait is "paused", or nil.
+	PausedUntil *time.Time
 }
 
 // BoardTasks gives the tasks that the Tasks board shows, newest state change first: each task that has not ended, and
@@ -428,6 +444,10 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 	for _, q := range queued {
 		repoQueue[q.Repository] = append(repoQueue[q.Repository], q.ID)
 	}
+	sessions, err := e.sessionWaits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	since := e.timeNow().Add(-24 * time.Hour)
 	tasks := []BoardTask{}
 	for _, row := range rows {
@@ -439,6 +459,16 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 			continue
 		}
 		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: issueLink(row.Repository, row.Issue), WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds, TotalFixRounds: row.TotalFixRounds, TotalReviewRounds: row.TotalReviewRounds}
+		heldEvent := false
+		if row.State == "approval" {
+			heldEvent, err = e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{WorkstreamRepository: row.WorkstreamRepository, Repository: row.Repository, Issue: sql.NullInt64{Int64: row.Issue, Valid: true}})
+			if err != nil {
+				return nil, err
+			}
+		}
+		if task.Wait, task.PausedUntil, err = e.taskWait(ctx, row.State, heldEvent, sessions[issueRef{row.Repository, row.Issue}]); err != nil {
+			return nil, err
+		}
 		if row.MergeQueuedAt.Valid {
 			queue := repoQueue[row.Repository]
 			idx := slices.Index(queue, row.ID)

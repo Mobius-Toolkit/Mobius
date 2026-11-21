@@ -47,6 +47,30 @@ export interface ActionSender {
 }
 
 /**
+ * Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init
+ */
+export type AgentWait = typeof AgentWait[keyof typeof AgentWait];
+
+
+export const AgentWait = {
+  '': '',
+  paused: 'paused',
+  start_off: 'start_off',
+  drain: 'drain',
+  no_access: 'no_access',
+  slot: 'slot',
+  check_slot: 'check_slot',
+  low_load: 'low_load',
+  local_check: 'local_check',
+  init: 'init',
+  ci: 'ci',
+  lead: 'lead',
+  owner: 'owner',
+  start_implementer: 'start_implementer',
+  owner_action: 'owner_action',
+} as const;
+
+/**
  * Agent is the session of an agent.
  */
 export interface Agent {
@@ -104,6 +128,8 @@ export interface Agent {
   startedAt: string;
   /** Title tells what the session works on, for example "chat session". It can be empty */
   title: string;
+  /** Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init */
+  wait: AgentWait;
   /** Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit */
   working: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
@@ -232,6 +258,30 @@ export const BoardTaskState = {
 } as const;
 
 /**
+ * Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
+ */
+export type BoardTaskWait = typeof BoardTaskWait[keyof typeof BoardTaskWait];
+
+
+export const BoardTaskWait = {
+  '': '',
+  paused: 'paused',
+  start_off: 'start_off',
+  drain: 'drain',
+  no_access: 'no_access',
+  slot: 'slot',
+  check_slot: 'check_slot',
+  low_load: 'low_load',
+  local_check: 'local_check',
+  init: 'init',
+  ci: 'ci',
+  lead: 'lead',
+  owner: 'owner',
+  start_implementer: 'start_implementer',
+  owner_action: 'owner_action',
+} as const;
+
+/**
  * BoardTask is a task on the Tasks board.
  */
 export interface BoardTask {
@@ -250,6 +300,11 @@ export interface BoardTask {
   merging: boolean;
   /** Number is the number of the task issue */
   number: number;
+  /**
+     * PausedUntil is the end of the pause of the Harness when wait is paused, or null
+     * @nullable
+     */
+  pausedUntil: string | null;
   /**
      * PullRequest is the pull request of the task, or null
      * @nullable
@@ -276,6 +331,8 @@ export interface BoardTask {
   totalReviewRounds: number;
   /** URL is the GitHub URL of the task issue */
   url: string;
+  /** Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action */
+  wait: BoardTaskWait;
   /** Workstream is the number of the Workstream issue */
   workstream: number;
   /** WorkstreamRepository is the full name of the repository of the Workstream issue */
@@ -1281,6 +1338,30 @@ export interface IssueSetting {
 }
 
 /**
+ * Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
+ */
+export type TaskLineWait = typeof TaskLineWait[keyof typeof TaskLineWait];
+
+
+export const TaskLineWait = {
+  '': '',
+  paused: 'paused',
+  start_off: 'start_off',
+  drain: 'drain',
+  no_access: 'no_access',
+  slot: 'slot',
+  check_slot: 'check_slot',
+  low_load: 'low_load',
+  local_check: 'local_check',
+  init: 'init',
+  ci: 'ci',
+  lead: 'lead',
+  owner: 'owner',
+  start_implementer: 'start_implementer',
+  owner_action: 'owner_action',
+} as const;
+
+/**
  * TaskLine is a task of a Workstream.
  */
 export interface TaskLine {
@@ -1294,6 +1375,11 @@ export interface TaskLine {
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
   otherRepository: boolean;
+  /**
+     * PausedUntil is the end of the pause of the Harness when wait is paused, or null
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** Repository is the full name of the repository of the task issue */
   repository: string;
   /** StartWait is the reason that a Start waits when State is "start waits", or an empty text */
@@ -1304,6 +1390,8 @@ export interface TaskLine {
   title: string;
   /** URL is the GitHub URL of the task issue */
   url: string;
+  /** Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action */
+  wait: TaskLineWait;
 }
 
 /**

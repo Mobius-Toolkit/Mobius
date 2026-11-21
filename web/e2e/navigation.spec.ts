@@ -678,7 +678,7 @@ test("the agents screen shows a status that changed while the page was hidden", 
 
   await setVisibility("hidden");
   const res = await page.request.put(
-    "/e2e/agents/41/queue-reason?reason=waits%20for%20the%20Owner",
+    "/e2e/agents/41/queue-reason?reason=waits%20for%20the%20Owner&wait=slot",
   );
   expect(res.ok()).toBe(true);
   await setVisibility("visible");

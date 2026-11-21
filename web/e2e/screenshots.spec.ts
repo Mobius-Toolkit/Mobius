@@ -185,10 +185,10 @@ const showChatEnd = (page: Page) =>
     )
     .toBe(true);
 
-// Sets the queue reason of the live Implementer session of #41.
-const setQueueReason = async (page: Page, reason: string) => {
+// Sets the queue reason and the wait kind of the live Implementer session of #41.
+const setQueueReason = async (page: Page, reason: string, wait: string) => {
   const response = await page.request.put(
-    `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`,
+    `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}&wait=${wait}`,
   );
   expect(response.ok()).toBe(true);
 };
@@ -1483,7 +1483,7 @@ test("screenshots", async ({ page }) => {
   );
   await page.evaluate(() => localStorage.removeItem("tray"));
   await page.unroute(inboxRoute);
-  await setQueueReason(page, "waits for a low load");
+  await setQueueReason(page, "waits for a low load", "low_load");
   await screenshot(
     page,
     "chat-agents",
@@ -2345,6 +2345,8 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -2386,6 +2388,8 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/garden/issues/74",
       blockedBy: [],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -2427,6 +2431,8 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/garden/issues/75",
       blockedBy: [],
       startWait: "",
+      pausedUntil: null,
+      wait: "",
     });
     await route.fulfill({ response, json: body });
   });
@@ -3022,7 +3028,7 @@ test("screenshots", async ({ page }) => {
       `${wide("main pre")} && ${wide("main table")} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true);
-  await setQueueReason(page, "");
+  await setQueueReason(page, "", "");
   await screenshot(
     page,
     "transcript-panel",
@@ -3047,7 +3053,7 @@ test("screenshots", async ({ page }) => {
       await logConnected(page);
     },
   );
-  await setQueueReason(page, "waits for a low load");
+  await setQueueReason(page, "waits for a low load", "low_load");
   await screenshot(
     page,
     "transcript-panel-start-check",
@@ -3093,12 +3099,12 @@ test("screenshots", async ({ page }) => {
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
     ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
-  await setQueueReason(page, "Autopilot paused: no task starts");
+  await setQueueReason(page, "Autopilot paused: no task starts", "start_off");
   await screenshot(page, "agents-start-paused", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/· Autopilot paused: no task starts/),
   ]);
-  await setQueueReason(page, "");
+  await setQueueReason(page, "", "");
   await screenshot(
     page,
     "transcript",
@@ -3110,7 +3116,7 @@ test("screenshots", async ({ page }) => {
     },
   );
 
-  await setQueueReason(page, "waits for a low load");
+  await setQueueReason(page, "waits for a low load", "low_load");
   await screenshot(
     page,
     "transcript-start-check",
@@ -3124,7 +3130,7 @@ test("screenshots", async ({ page }) => {
       await logConnected(page);
     },
   );
-  await setQueueReason(page, "");
+  await setQueueReason(page, "", "");
 
   await page.route("**/api/agents/*/transcript/events", () => {});
   await screenshot(

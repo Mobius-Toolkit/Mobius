@@ -54,6 +54,8 @@ const line = (number: number, overrides: Partial<TaskLine> = {}): TaskLine => ({
   state: "open",
   title: `Task ${number}`,
   url: `https://github.com/owner/shop/issues/${number}`,
+  pausedUntil: null,
+  wait: "",
   ...overrides,
 });
 

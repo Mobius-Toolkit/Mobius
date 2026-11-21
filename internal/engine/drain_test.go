@@ -131,7 +131,7 @@ func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem
 	end(t, implementer, "stopped")
 	waitForDrain(t, states, drainState{true, 1})
 	// The free slot does not go to the held Worker.
-	if got := session(t, server, waiting.ID); got.QueueReason.String != drainReason || got.AcpSessionID.Valid {
+	if got := session(t, server, waiting.ID); got.QueueReason.String != drainReason || got.QueueWait.String != "drain" || got.AcpSessionID.Valid {
 		t.Errorf("held Worker = %+v", got)
 	}
 	end(t, lead, "idle")

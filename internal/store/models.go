@@ -395,6 +395,7 @@ type Session struct {
 	Continued            int64
 	ContextUsed          sql.NullInt64
 	ContextSize          sql.NullInt64
+	QueueWait            sql.NullString
 }
 
 type SessionSkill struct {

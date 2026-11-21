@@ -573,7 +573,8 @@ func TestServer(t *testing.T) {
 		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
-		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
+		query := r.URL.Query()
+		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ?, queue_wait = nullif(?, '') WHERE issue = ? AND ended_at IS NULL", query.Get("reason"), query.Get("wait"), r.PathValue("issue"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -1045,15 +1046,16 @@ func TestServer(t *testing.T) {
 		number  int64
 		harness string
 		reason  string
+		wait    string
 	}{
-		{38, "claude-code", "runs .mobius/check"},
-		{39, "claude-code", "waits for a check slot"},
-		{45, "antigravity", "paused until 2026-09-28 12:00 UTC"},
-		{42, "claude-code", "no free Implementer slot (2/2)"},
+		{38, "claude-code", "runs .mobius/check", "local_check"},
+		{39, "claude-code", "waits for a check slot", "check_slot"},
+		{45, "antigravity", "paused until 2026-09-28 12:00 UTC", "paused"},
+		{42, "claude-code", "no free Implementer slot (2/2)", "slot"},
 	} {
-		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at, queue_reason)
-			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, ?, ?, ?)`,
-			engine.ImplementerRole, session.harness, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at, queue_reason, queue_wait)
+			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, ?, ?, ?, ?)`,
+			engine.ImplementerRole, session.harness, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason, session.wait); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1085,7 +1087,7 @@ func TestServer(t *testing.T) {
 	held := implementerSpec(t, server, 35)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
 	testkit.WaitFor(t, func() bool {
-		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_wait = 'drain'", "2026-09-28T09:30:00Z")
 		if err != nil {
 			t.Fatal(err)
 		}

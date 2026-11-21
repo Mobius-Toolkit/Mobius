@@ -260,7 +260,10 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 		t.Errorf("inbox = %+v", got)
 	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
-	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
+	testkit.WaitFor(t, func() bool {
+		waiting := session(t, server, agent.ID())
+		return waiting.QueueReason.String == reason && waiting.QueueWait.String == "paused"
+	})
 	requireDevinUsers(t, server,
 		apiPauseUser{Kind: "role", Role: "implementer"},
 		apiPauseUser{

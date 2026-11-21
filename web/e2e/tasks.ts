@@ -29,6 +29,8 @@ function task(
     mergeRefusal: "",
     mergeQueuePlace: null,
     mergeQueueSize: 0,
+    pausedUntil: null,
+    wait: "",
     ...extra,
   };
 }

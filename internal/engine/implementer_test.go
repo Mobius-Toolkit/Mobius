@@ -711,8 +711,8 @@ func TestWithOneImplementerSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstE
 		}
 		return store.Session{}, false
 	})
-	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
-		t.Errorf("queue reason = %s", waiting.QueueReason.String)
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" || waiting.QueueWait.String != "slot" {
+		t.Errorf("queue reason = %s, queue wait = %s", waiting.QueueReason.String, waiting.QueueWait.String)
 	}
 	// The first task takes its slot before it writes the state working.
 	testkit.WaitFor(t, func() bool {
@@ -789,13 +789,13 @@ func TestASessionShowsEachPhaseOfItsCheck(t *testing.T) {
 	phases := func() []string {
 		var reasons []string
 		for _, session := range roleSessions(t, server, engine.ImplementerRole) {
-			reasons = append(reasons, session.QueueReason.String)
+			reasons = append(reasons, session.QueueWait.String+": "+session.QueueReason.String)
 		}
 		slices.Sort(reasons)
 		return reasons
 	}
 	testkit.WaitFor(t, func() bool {
-		return slices.Equal(phases(), []string{"runs .mobius/check", "waits for a check slot"})
+		return slices.Equal(phases(), []string{"check_slot: waits for a check slot", "local_check: runs .mobius/check"})
 	})
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
 		t.Fatal(err)
