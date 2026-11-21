@@ -375,7 +375,7 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 		g.reviewComment(key, 0, caller.login, comment)
 	}
 	found.submittedReviews = append(found.submittedReviews, review)
-	writeJSON(w, http.StatusOK, map[string]any{"id": len(found.submittedReviews)})
+	writeJSON(w, http.StatusOK, map[string]any{"id": len(found.submittedReviews), "node_id": fmt.Sprintf("RV_%d", g.lastReviewID)})
 }
 
 type graphqlThread struct {

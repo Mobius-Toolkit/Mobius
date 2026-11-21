@@ -454,7 +454,7 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 		return store.InboxItem{}, refuse("Pull request #%d is already merged or closed.", item.PullRequest)
 	}
 	ctx = context.WithoutCancel(ctx)
-	if err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
+	if _, err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
 		return store.InboxItem{}, err
 	}
 	item, err = e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 1, ID: id})

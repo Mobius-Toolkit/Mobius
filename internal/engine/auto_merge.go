@@ -158,8 +158,12 @@ func (e *Engine) approveAsOwner(ctx context.Context, repository github.Repositor
 	if err := e.queries.SetTaskAutoMerge(ctx, store.SetTaskAutoMergeParams{AutoMerge: 1, ID: task.ID}); err != nil {
 		return err
 	}
-	if err := asOwner.Approve(ctx, int64(pullRequest.GetNumber()), pullRequest.GetHead().GetSHA()); err != nil {
+	review, err := asOwner.Approve(ctx, int64(pullRequest.GetNumber()), pullRequest.GetHead().GetSHA())
+	if err != nil {
 		return errors.Join(err, e.queries.SetTaskAutoMerge(ctx, store.SetTaskAutoMergeParams{ID: task.ID}))
+	}
+	if err := e.queries.SetTaskApprovedReview(ctx, store.SetTaskApprovedReviewParams{ApprovedReview: sql.NullString{String: review, Valid: true}, ID: task.ID}); err != nil {
+		return err
 	}
 	if err := e.setMergeItems(ctx, task, 1, ""); err != nil {
 		return err
