@@ -400,14 +400,24 @@ test("screenshots", async ({ page }) => {
   ]);
   await page.unroute(levelsRoute);
   await routeTasks(page, boardTasks);
-  await screenshot(page, "tasks", "/tasks", (device) => [
-    chatCount,
-    ...frame(device, drain, { organizations: true }),
-    main.getByRole("region", { name: "Queued" }).getByText("Add a retry to the order sync"),
-    main.getByRole("link", { name: "PR #44" }),
-    main.getByText("fix 5 · review 4"),
-    main.getByRole("region", { name: "Working" }),
-  ]);
+  await screenshot(
+    page,
+    "tasks",
+    "/tasks",
+    (device) => [
+      chatCount,
+      ...frame(device, drain, { organizations: true }),
+      main.getByRole("region", { name: "Queued" }).getByText("Add a retry to the order sync"),
+      main.getByRole("link", { name: "PR #44" }),
+      main.getByText("fix 5 · review 4"),
+      main.getByRole("region", { name: "Working" }),
+    ],
+    async () => {
+      const working = main.getByRole("region", { name: "Working" });
+      await expect(working.getByText("fix 5 · review 4")).toBeAttached();
+      await working.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "start" }));
+    },
+  );
   await page.unroute(tasksRoute);
   await routeTasks(page, [...boardTasks, ownerActionTask]);
   await screenshot(
