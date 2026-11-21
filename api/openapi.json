@@ -7996,6 +7996,14 @@
             "type": "string",
             "description": "Title is the title of the task issue"
           },
+          "totalFixRounds": {
+            "type": "integer",
+            "description": "TotalFixRounds is the number of fix rounds of the task, also the rounds before a reset of fixRounds"
+          },
+          "totalReviewRounds": {
+            "type": "integer",
+            "description": "TotalReviewRounds is the number of review rounds of the task, also the rounds before a reset of reviewRounds"
+          },
           "url": {
             "type": "string",
             "description": "URL is the GitHub URL of the task issue"
@@ -8027,6 +8035,8 @@
           "pullRequestUrl",
           "fixRounds",
           "reviewRounds",
+          "totalFixRounds",
+          "totalReviewRounds",
           "merging",
           "mergeRefusal",
           "mergeQueuePlace",

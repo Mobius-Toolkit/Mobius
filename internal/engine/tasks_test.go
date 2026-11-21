@@ -482,6 +482,33 @@ func TestStopStopsARunningTaskAndItsWorkerAndTheTasksTabShowsOpenAtOnce(t *testi
 	}
 }
 
+func TestStopSendsTheOlderPendingChangeOfTheStateLabelsOfTheIssueBeforeItAnswers(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.FailAddLabels(shop, 41, true)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	t.Cleanup(release)
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
+			return request.Status == 0 && strings.HasSuffix(request.Path, "/issues")
+		})
+	})
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'state_labels' AND status = 'pending'"); got == 0 {
+		t.Fatal("no pending change of the state labels before the Stop")
+	}
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/stop", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'state_labels' AND status = 'pending'"); got != 0 {
+		t.Errorf("pending changes of the state labels = %d", got)
+	}
+}
+
 func TestStopOfARunningTaskWithAWaitingStartClearsTheStartAndTheNextPollsDoNotContinueTheTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

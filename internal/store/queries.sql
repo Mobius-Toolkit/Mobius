@@ -293,7 +293,7 @@ WHERE w.repository = sqlc.arg(workstream_repository) AND w.number = CAST(sqlc.ar
 
 -- name: ListBoardTasks :many
 SELECT tasks.id, tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
-       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.merge_queued_at,
+       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds, tasks.total_fix_rounds, tasks.total_review_rounds, tasks.merge_queued_at,
        i.title AS issue_title, w.title AS workstream_title,
        coalesce(m.merging, 0) AS merging, coalesce(m.merge_refusal, '') AS merge_refusal
 FROM tasks
@@ -732,7 +732,7 @@ UPDATE tasks SET pull_request = ? WHERE id = ?;
 UPDATE tasks SET report = ? WHERE id = ?;
 
 -- name: AddFixRound :execrows
-UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
+UPDATE tasks SET fix_rounds = fix_rounds + 1, total_fix_rounds = total_fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
 
 -- name: KeepLeadFindings :execrows
 UPDATE tasks SET lead_findings = lead_findings || sqlc.arg(findings) WHERE id = sqlc.arg(id) AND state IN ('working', 'reviewed');
@@ -772,7 +772,7 @@ UPDATE tasks SET conflict_head = ? WHERE id = ?;
 UPDATE tasks SET ci_failed_head = ? WHERE id = ?;
 
 -- name: AddReviewRound :exec
-UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?;
+UPDATE tasks SET review_rounds = review_rounds + 1, total_review_rounds = total_review_rounds + 1 WHERE id = ?;
 
 -- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?;
