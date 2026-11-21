@@ -17,7 +17,7 @@ func TestLogLineGoesToFile(t *testing.T) {
 
 	log.New(file, "", 0).Print("poll failed")
 
-	got, err := os.ReadFile(filepath.Join(dataDir, "logs", "mobius.log"))
+	got, err := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "logs", "mobius.log")))
 	if err != nil {
 		t.Fatal(err)
 	}
