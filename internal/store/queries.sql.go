@@ -4612,7 +4612,7 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 }
 
 const getNewestTask = `-- name: GetNewestTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at, total_fix_rounds, total_review_rounds FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1
 `
 
 type GetNewestTaskParams struct {
@@ -4667,6 +4667,8 @@ func (q *Queries) GetNewestTask(ctx context.Context, arg GetNewestTaskParams) (T
 		&i.ReviewedHead,
 		&i.ApprovedAgainChange,
 		&i.MergeHeadAt,
+		&i.TotalFixRounds,
+		&i.TotalReviewRounds,
 	)
 	return i, err
 }
