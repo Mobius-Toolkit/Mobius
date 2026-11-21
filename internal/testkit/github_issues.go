@@ -1017,6 +1017,9 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 			message(w, http.StatusUnprocessableEntity, err.Error())
 			return
 		}
+		if refusedOldSince(w, parsed) {
+			return
+		}
 		since = parsed.Unix()
 	}
 	state := query.Get("state")
@@ -1555,6 +1558,9 @@ func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
 // repositoryIssueComments lists the comments of all issues and pull requests of the repository that changed at or
 // after `since`.
 func (g *FakeGitHub) repositoryIssueComments(w http.ResponseWriter, r *http.Request) {
+	if refusedOldSinceOf(w, r) {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.repositoryCommentReads++
@@ -1566,6 +1572,21 @@ func (g *FakeGitHub) repositoryIssueComments(w http.ResponseWriter, r *http.Requ
 	}
 	comments = changedComments(r, comments, func(comment commentJSON) (int64, string) { return comment.ID, comment.UpdatedAt })
 	writeJSON(w, http.StatusOK, page(w, r, comments))
+}
+
+// refusedOldSinceOf answers 422 and gives true when the query of r has a `since` of a year before 1970 that parses.
+func refusedOldSinceOf(w http.ResponseWriter, r *http.Request) bool {
+	parsed, err := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	return err == nil && refusedOldSince(w, parsed)
+}
+
+// refusedOldSince answers 422 with the message of GitHub and gives true when since is before 1970, as the zero time is.
+func refusedOldSince(w http.ResponseWriter, since time.Time) bool {
+	if since.Year() >= 1970 {
+		return false
+	}
+	message(w, http.StatusUnprocessableEntity, "The since parameter needs to be in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ")
+	return true
 }
 
 // changedComments keeps the comments with an update time at or after `since`, and sorts them by `sort` and `direction`.

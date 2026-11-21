@@ -269,3 +269,36 @@ func TestACommentOnASubIssueOfAClosedWorkstreamGivesNoEvent(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 }
+
+func TestARepositoryWithNoIssueCompletesItsPollsAndThenReadsANewIssueAndANewComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	var since sql.NullString
+	testkit.WaitFor(t, func() bool {
+		return server.DB.QueryRow("SELECT since FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", shop).Scan(&since) == nil
+	})
+	waitForPolls(t, fake)
+	if since.Valid {
+		t.Fatalf("since of the cursor of the issues = %q", since.String)
+	}
+	_, before := fake.CommentReads()
+
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool {
+		_, repositories := fake.CommentReads()
+		return repositories >= before+2
+	})
+	fake.AddComment(shop, 12, "owner", "Add the tiers too.")
+
+	testkit.WaitFor(t, func() bool { return len(commentEvents(t, server)) == 1 })
+	waitForPolls(t, fake)
+	if err := server.DB.QueryRow("SELECT since FROM sync_cursors WHERE repository = ? AND endpoint = 'issues'", shop).Scan(&since); err != nil || !since.Valid {
+		t.Errorf("cursor of the issues: since = %+v, err = %v", since, err)
+	}
+}

@@ -256,6 +256,9 @@ func (g *FakeGitHub) reviewComments(w http.ResponseWriter, r *http.Request) {
 // repositoryReviewComments lists the review comments of all pull requests of the repository that changed at or after
 // `since`.
 func (g *FakeGitHub) repositoryReviewComments(w http.ResponseWriter, r *http.Request) {
+	if refusedOldSinceOf(w, r) {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.repositoryCommentReads++

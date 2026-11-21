@@ -639,3 +639,33 @@ func TestWorkflowStateGivesTheStateOfTheWorkflowOrEmptyFor404(t *testing.T) {
 		t.Errorf("state = %q, err = %v", state, err)
 	}
 }
+
+func TestCommentListsOfARepositorySendNoSinceForAZeroTime(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddComment(shop, 41, "owner", "Use price_cents.")
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
+	fake.AddReviewComment(shop, number, 0, "owner", "Rename plan to tier.")
+
+	comments, err := repository.CommentsSince(t.Context(), time.Time{})
+	if err != nil || len(comments) != 1 || comments[0].GetBody() != "Use price_cents." {
+		t.Errorf("comments = %v, err = %v", comments, err)
+	}
+
+	reviewComments, err := repository.ReviewCommentsSince(t.Context(), time.Time{})
+	if err != nil || len(reviewComments) != 1 || reviewComments[0].GetBody() != "Rename plan to tier." {
+		t.Errorf("review comments = %v, err = %v", reviewComments, err)
+	}
+
+	since := time.Now().Add(-time.Hour)
+	if comments, err = repository.CommentsSince(t.Context(), since); err != nil || len(comments) != 1 {
+		t.Errorf("comments since an hour ago = %v, err = %v", comments, err)
+	}
+	if reviewComments, err = repository.ReviewCommentsSince(t.Context(), since); err != nil || len(reviewComments) != 1 {
+		t.Errorf("review comments since an hour ago = %v, err = %v", reviewComments, err)
+	}
+}
