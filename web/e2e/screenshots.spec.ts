@@ -5065,6 +5065,9 @@ test("screenshots", async ({ page }) => {
   const pauseToggle = (harness: string) =>
     pause(harness).getByRole("button", { name: new RegExp(`^${harness} paused until`) });
   const noDSH: Wait = () => expect(page.getByText(/dsh paused until/)).toHaveCount(0);
+  const settingOfOwner = pause("antigravity").getByText(
+    "Implementer setting of owner/shop#39 Send the plan receipts",
+  );
   await page.evaluate(() => localStorage.setItem("organization", "plants"));
   await screenshot(
     page,
@@ -5092,6 +5095,7 @@ test("screenshots", async ({ page }) => {
       pause("antigravity").getByText("Curator role"),
       pause("dsh").getByText("Implementer setting of plants/garden#20 Plant tulips"),
       pause("dsh").getByText("Implementer setting of plants/garden#22 Buy tulip bulbs"),
+      () => expect(settingOfOwner).toHaveCount(0),
       () => expect(pause("antigravity")).toBeInViewport(),
       () => expect(pause("dsh")).toBeInViewport(),
     ],
@@ -5105,6 +5109,22 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.evaluate(() => localStorage.setItem("organization", "owner"));
+  await screenshot(
+    page,
+    "pause-lines-open-owner",
+    "/workstreams",
+    () => [
+      pause("antigravity").getByText("Researcher role"),
+      settingOfOwner,
+      noDSH,
+      () => expect(pause("antigravity")).toBeInViewport(),
+    ],
+    async () => {
+      await pauseToggle("antigravity").click();
+      await expect(settingOfOwner).toBeVisible();
+      await pause("antigravity").scrollIntoViewIfNeeded();
+    },
+  );
   await screenshot(
     page,
     "pause-users-global-roles",
