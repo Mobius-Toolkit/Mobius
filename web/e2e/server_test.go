@@ -561,13 +561,13 @@ func TestServer(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
-	server.Mux.HandleFunc("PUT /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, r *http.Request) {
+	server.Mux.HandleFunc("PUT /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := server.DB.Exec(`INSERT OR REPLACE INTO issue_bindings (repository, issue, role, harness, model, effort, updated_at)
 			VALUES ('owner/shop', 30, 'implementer', 'antigravity', 'antigravity-model', '', '2026-09-28T09:30:00Z')`); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
-	server.Mux.HandleFunc("DELETE /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, r *http.Request) {
+	server.Mux.HandleFunc("DELETE /e2e/tasks/owner/shop/30/antigravity", func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := server.DB.Exec("DELETE FROM issue_bindings WHERE repository = 'owner/shop' AND issue = 30 AND role = 'implementer'"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
