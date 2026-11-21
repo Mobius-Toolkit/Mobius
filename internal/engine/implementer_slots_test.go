@@ -314,3 +314,74 @@ func TestAConflictRoundOfATaskWithAKeptSessionOnAFullBindingTakesTheFreeBinding(
 		t.Errorf("conflict round = %+v, want a new process", rounds[1])
 	}
 }
+
+// pauseHarness pauses harness until the time until.
+func pauseHarness(t *testing.T, server *testserver.Server, harness config.Harness, until string) {
+	t.Helper()
+	if _, err := server.DB.Exec(`INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)`, string(harness), until); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARoundWithAKeptSessionOnAPausedBindingTakesTheFreeBindingAndClosesTheKeptSession(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
+	firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+	pauseHarness(t, server, config.Devin, "2099-01-01T00:00:00Z")
+
+	startFixRound(t, server)
+
+	testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		rounds := roleSessions(t, server, engine.ImplementerRole)
+		return rounds, len(rounds) == 2 && rounds[1].Harness == "claude-code"
+	})
+	testkit.WaitFor(t, func() bool { return !kept.Alive() })
+}
+
+func TestARoundWithAKeptSessionWaitsOnTheKeptBindingWithItsPauseWhenEachBindingHasAPause(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, func(cfg *config.Config) {
+		cfg.Roles.Implementer = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 1}
+	})
+	holder, _ := keptOnTheSecondBinding(t, server, fake)
+	defer end(t, holder, "done")
+	kept := keptOf(t, server)
+	pauseHarness(t, server, config.Devin, "2099-01-01T00:00:00Z")
+	pauseHarness(t, server, config.Antigravity, "2099-02-02T00:00:00Z")
+
+	startFixRound(t, server)
+
+	waiting := queued(t, server, engine.ImplementerRole)
+	if waiting.QueueReason.String != "paused until 2099-01-01 00:00 UTC" {
+		t.Errorf("waiting session = %+v, want the pause of the kept binding", waiting)
+	}
+	if !kept.Alive() {
+		t.Error("the kept session is closed, want it open")
+	}
+}
+
+func TestARoundOfATaskWithASettingWaitsForThePauseOfItsBindingAlsoWhenAnotherBindingIsFree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := keptServer(t, fake, commits, noChange)
+	addBinding(t, server, config.ClaudeCode, "sonnet", "high", 1)
+	waitForCopy(t, server, shop, 41)
+	setBinding(t, server, "implementer", 41, config.Devin, "opus", "low")
+	firstRound(t, server, fake)
+	kept := waitForKept(t, server, 41)
+	pauseHarness(t, server, config.Devin, "2099-01-01T00:00:00Z")
+
+	startFixRound(t, server)
+
+	waiting := queued(t, server, engine.ImplementerRole)
+	if !strings.HasPrefix(waiting.QueueReason.String, "paused until ") || waiting.Harness != "devin" {
+		t.Errorf("waiting session = %+v, want the pause of its binding", waiting)
+	}
+	if !kept.Alive() {
+		t.Error("the kept session is closed, want it open")
+	}
+}
