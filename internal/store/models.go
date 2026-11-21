@@ -499,6 +499,8 @@ type Task struct {
 	ReviewedHead         sql.NullString
 	ApprovedAgainChange  sql.NullInt64
 	MergeHeadAt          sql.NullString
+	TotalFixRounds       int64
+	TotalReviewRounds    int64
 }
 
 type TaskState struct {

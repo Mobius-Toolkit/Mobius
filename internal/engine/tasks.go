@@ -400,6 +400,9 @@ type BoardTask struct {
 	PullRequestURL string
 	FixRounds      int64
 	ReviewRounds   int64
+	// TotalFixRounds and TotalReviewRounds count every round of the task, also the rounds before a reset of FixRounds and ReviewRounds.
+	TotalFixRounds    int64
+	TotalReviewRounds int64
 	// Merging is true for a task in ready_for_review whose merge the Owner started.
 	Merging bool
 	// MergeRefusal is the reason that GitHub gave for the refused merge of a task in ready_for_review, or "".
@@ -435,7 +438,7 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 		if row.State == "ended" && stateAt.Before(since) {
 			continue
 		}
-		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: issueLink(row.Repository, row.Issue), WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds}
+		task := BoardTask{Repository: row.Repository, Number: row.Issue, Title: row.IssueTitle, URL: issueLink(row.Repository, row.Issue), WorkstreamRepository: row.WorkstreamRepository, Workstream: row.Workstream, WorkstreamTitle: row.WorkstreamTitle, State: row.State, StateAt: stateAt, FixRounds: row.FixRounds, ReviewRounds: row.ReviewRounds, TotalFixRounds: row.TotalFixRounds, TotalReviewRounds: row.TotalReviewRounds}
 		if row.MergeQueuedAt.Valid {
 			queue := repoQueue[row.Repository]
 			idx := slices.Index(queue, row.ID)

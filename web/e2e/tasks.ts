@@ -23,6 +23,8 @@ function task(
     pullRequestUrl: null,
     fixRounds: 0,
     reviewRounds: 0,
+    totalFixRounds: 0,
+    totalReviewRounds: 0,
     merging: false,
     mergeRefusal: "",
     mergeQueuePlace: null,
@@ -41,7 +43,7 @@ export const boardTasks = [
   task(52, "queued", "2026-10-15T11:40:00Z", "Show the plan limit on the account page"),
   task(53, "answered", "2026-10-15T11:50:00Z", "Store the plan prices in cents"),
   task(54, "working", "2026-10-15T11:30:00Z", "Let customers change plans", {
-    ...pull(44, { fixRounds: 1, reviewRounds: 2 }),
+    ...pull(44, { fixRounds: 1, reviewRounds: 2, totalFixRounds: 5, totalReviewRounds: 4 }),
   }),
   task(55, "reviewed", "2026-10-15T11:45:00Z", "Send a mail when a plan changes", pull(45)),
   task(56, "checks", "2026-10-15T11:48:00Z", "Add the invoice export", pull(46)),
@@ -50,9 +52,15 @@ export const boardTasks = [
     "approval",
     "2026-10-15T11:20:00Z",
     "Replace the old plan table with a new table for the seat limit and the price of a plan",
-    pull(47, { reviewRounds: 1 }),
+    pull(47, { reviewRounds: 1, totalReviewRounds: 1 }),
   ),
-  task(41, "needs_human", "2026-10-15T10:00:00Z", "Add plan model", pull(43, { fixRounds: 3 })),
+  task(
+    41,
+    "needs_human",
+    "2026-10-15T10:00:00Z",
+    "Add plan model",
+    pull(43, { fixRounds: 3, totalFixRounds: 3 }),
+  ),
   task(45, "asked", "2026-10-15T09:00:00Z", "Pick the plan limits"),
   task(42, "stopped", "2026-10-14T18:00:00Z", "Let customers cancel a plan"),
   task(58, "ready_for_review", "2026-10-15T11:10:00Z", "Remind the customer about the renewal", {
@@ -98,7 +106,7 @@ export const ownerActionTask = task(
   "owner_action",
   "2026-10-15T11:15:00Z",
   "Deploy the plan page",
-  pull(53, { reviewRounds: 1 }),
+  pull(53, { reviewRounds: 1, totalReviewRounds: 1 }),
 );
 
 export const mergeQueueTask = task(

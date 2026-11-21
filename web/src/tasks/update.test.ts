@@ -22,6 +22,8 @@ function createTask(number: number, overrides: Partial<BoardTask> = {}): BoardTa
     pullRequestUrl: null,
     fixRounds: 0,
     reviewRounds: 0,
+    totalFixRounds: 0,
+    totalReviewRounds: 0,
     merging: false,
     mergeRefusal: "",
     mergeQueuePlace: null,
