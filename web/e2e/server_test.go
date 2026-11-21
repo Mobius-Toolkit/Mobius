@@ -1765,10 +1765,10 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 
 // setNeedsHuman moves the task to needs_human, gives its issue mobius:needs-human and removes mobius:working, because the
 // SQL move adds no change of the state labels. The Tasks panel shows mobius:working before mobius:needs-human when
-// the issue has both. The Worker of the task stays. continueByRemoval resumes the task for each removal of the
-// label that is newer than needs_human_at. The fake GitHub dates its events from its own clock, which runs ahead of the
-// wall clock, and a send of the state labels before the move can still write a removal. Thus needs_human_at is one hour
-// after the clock of the fake GitHub.
+// the issue has both. The Worker of the task stays. The poll resumes the task for a comment of a trusted user, and for
+// a removal of the label by a trusted user, that is newer than needs_human_at. The fake GitHub dates its events from its
+// own clock, which runs ahead of the wall clock. Thus needs_human_at is one hour after the clock of the fake GitHub, and
+// no event of the fixture resumes the task.
 func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, task int64) {
 	t.Helper()
 	since := github.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
