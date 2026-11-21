@@ -229,9 +229,9 @@ func TestAFailedUpdateOfTheCheckRunOfTheApprovalAgainPostsOneComment(t *testing.
 	checkApprovalAgain(t, fake, server, approved, head, "Mobius merges it after its checks pass.")
 }
 
-// TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent checks that a 5xx answer after the comment of
-// the approval again returns, and that the next poll does the missing writes. The stored comment keeps one comment, and
-// the Lead gets no ready_for_approval for the head. The level is off, so the retry adds the Inbox item and does not
+// TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent checks that a 5xx answer of a label write does
+// not hold the approval again, and that the send writes the label later. The stored comment keeps one comment, and the
+// Lead gets no ready_for_approval for the head. The level is off, so the approval adds the Inbox item and does not
 // merge the pull request.
 func TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent(t *testing.T) {
 	t.Parallel()
@@ -243,13 +243,16 @@ func TestAFailedLabelWriteOfTheApprovalAgainGivesOneCommentAndNoReadyEvent(t *te
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
 	fake.FailAddLabels(shop, 41, true)
 
-	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 && taskState(t, server) == "checks" })
-	fake.FailAddLabels(shop, 41, false)
-
 	item := waitForItem(t, server, "ready for review")
 	testkit.WaitFor(t, func() bool {
-		return taskState(t, server) == "ready_for_review" && approvedHead(t, server) == head
+		return approvalAgainComments(fake) == 1 && taskState(t, server) == "ready_for_review" && approvedHead(t, server) == head
 	})
+	if hasLabel(fake, "mobius:review") {
+		t.Fatalf("labels = %v", fake.Labels(shop, 41))
+	}
+	fake.FailAddLabels(shop, 41, false)
+
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:review") })
 	waitForPolls(t, fake)
 
 	if item.PullRequest != 42 {
@@ -287,54 +290,6 @@ func TestARefusedCommentOfTheApprovalAgainDoesNotStopTheApproval(t *testing.T) {
 		if event.Kind == "ready_for_approval" && strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)) {
 			t.Errorf("ready_for_approval event after a refused comment: %q", event.Payload)
 		}
-	}
-}
-
-// TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent checks that a 4xx answer that stays on a label write of the
-// approval again gives the Lead one ready_for_approval event for the head. The Mobius check of the head stays open, so
-// the task waits in approval, and each poll does not try the refused approval again.
-func TestARefusedLabelOfTheApprovalAgainGivesOneReadyEvent(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, approved, head := approvalAgainWith(t, fake, func(cfg *config.Config) {
-		cfg.ReviewQuietPeriod = 500 * time.Millisecond
-		cfg.LeadIdleTimeout = time.Hour
-	})
-
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
-	fake.RefuseAddLabels(shop, 41, http.StatusUnprocessableEntity)
-
-	event := eventAfterApproval(t, server, approved)
-	if !strings.Contains(event, "The change of the pull request is the same as at the approved head") {
-		t.Errorf("event = %q", event)
-	}
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
-	before := fake.NotModifiedCount()
-	testkit.WaitFor(t, func() bool { return fake.NotModifiedCount() >= before+20 })
-
-	if got := approvalAgainComments(fake); got != 1 {
-		t.Errorf("comments of the approval again = %d, want 1", got)
-	}
-	if !slices.ContainsFunc(fake.CheckRuns(shop), func(run testkit.CheckRun) bool {
-		return run.Name == "Mobius" && run.HeadSHA == head && run.Status == "in_progress" &&
-			run.Output != nil && run.Output.Title == "Wait for the Lead approval"
-	}) {
-		t.Errorf("no open Mobius check run of the head %s: %+v", head, fake.CheckRuns(shop))
-	}
-	ready := 0
-	events := leadEvents(t, server)
-	for _, event := range events {
-		switch event.Kind {
-		case "approved_again":
-			t.Errorf("approved_again event after a refused label write: %q", event.Payload)
-		case "ready_for_approval":
-			if strings.Contains(event.Payload, fmt.Sprintf("Mobius or the Lead approved the head %.8s before.", approved)) {
-				ready++
-			}
-		}
-	}
-	if ready != 1 {
-		t.Errorf("ready_for_approval events for the approved head = %d, want 1: %+v", ready, events)
 	}
 }
 
@@ -585,7 +540,7 @@ func approvedHead(t *testing.T, server *testserver.Server) string {
 	return approved
 }
 
-// TestARetryOfTheApprovalAgainForTheSameHeadAddsNoSecondChange checks that each retry of a refused label write adds
+// TestARetryOfTheApprovalAgainForTheSameHeadAddsNoSecondChange checks that each retry of a failed label write adds
 // no second outgoing change for the comment of the approval again, so GitHub gets one comment.
 func TestARetryOfTheApprovalAgainForTheSameHeadAddsNoSecondChange(t *testing.T) {
 	t.Parallel()
@@ -595,7 +550,7 @@ func TestARetryOfTheApprovalAgainForTheSameHeadAddsNoSecondChange(t *testing.T) 
 	setWorkstreamAutopilot(t, server, "off")
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].Autopilot == "off" })
 	fake.FailAddLabels(shop, 41, true)
-	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 && taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { return approvalAgainComments(fake) == 1 && taskState(t, server) == "ready_for_review" })
 
 	waitForPolls(t, fake)
 	fake.FailAddLabels(shop, 41, false)

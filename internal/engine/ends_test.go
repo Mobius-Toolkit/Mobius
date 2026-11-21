@@ -299,10 +299,7 @@ func TestARemovalOfNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *test
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(61 * time.Minute) })
 	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Store the unit.")
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+"[[prompts]]\nwhen = \"Action: fix\"\ncall = { tool = \"reply_thread\", arguments = { thread = "+itoa(thread)+", text = \"Stored.\" } }\n")
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
-		t.Fatal(err)
-	}
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	moveToNeedsHuman(t, fake, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
@@ -321,10 +318,7 @@ func TestARemovalOfNeedsHumanSendsAnOpenFollowUpThreadToTheLeadAndNotToAFixRound
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	waitForApproval(t, server, fake)
 	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
-		t.Fatal(err)
-	}
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	moveToNeedsHuman(t, fake, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
@@ -341,10 +335,7 @@ func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	waitForApproval(t, server, fake)
 	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
-		t.Fatal(err)
-	}
-	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	moveToNeedsHuman(t, fake, server)
 	fake.FailResolveThreads(true)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")

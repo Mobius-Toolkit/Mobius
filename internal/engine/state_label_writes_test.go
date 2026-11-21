@@ -25,6 +25,16 @@ func waitForSentChanges(t *testing.T, server *testserver.Server) {
 	})
 }
 
+// moveToNeedsHuman moves the live task of #41 to needs_human with SQL, and gives #41 the label that the send of the
+// state labels writes after a move of the engine.
+func moveToNeedsHuman(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
+}
+
 func TestADispatchGivesTheIssueTheWorkingLabelThroughTheSendAsAnOwnWrite(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -833,8 +833,8 @@ func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureIt
 }
 
 // closeWorkstream ends the work of the Workstream, sets its Autopilot level to Off,
-// dismisses the Inbox items of its issues, which removes mobius:question, closes the open pull requests of its
-// tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
+// dismisses the Inbox items of its issues, writes its state labels from the database, closes the open pull requests
+// of its tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
 	if err := e.deleteRecurringTasks(ctx, repository.FullName, workstream); err != nil {
 		return err
@@ -847,6 +847,13 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		return err
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, workstream, inboxKinds...); err != nil {
+		return err
+	}
+	change, err := addStateLabelsChange(ctx, e.queries, repository.FullName, workstream)
+	if err != nil {
+		return err
+	}
+	if err := e.sendNow(ctx, repository, change); err != nil {
 		return err
 	}
 	pullRequests, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{WorkstreamRepository: repository.FullName, Workstream: workstream})

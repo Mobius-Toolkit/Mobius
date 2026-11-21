@@ -1763,15 +1763,23 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 	}
 }
 
-// setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
-// the task stays. continueByRemoval resumes the task for each removal of the label that is newer than needs_human_at.
-// The fake GitHub dates its events from its own clock, which runs ahead of the wall clock, and a poll of the task
-// before the move can still write a removal. Thus needs_human_at is one hour after the clock of the fake GitHub.
+// setNeedsHuman moves the task to needs_human and gives its issue mobius:needs-human, because the SQL move adds no
+// change of the state labels. The Worker of the task stays. continueByRemoval resumes the task for each removal of the
+// label that is newer than needs_human_at. The fake GitHub dates its events from its own clock, which runs ahead of the
+// wall clock, and a send of the state labels before the move can still write a removal. Thus needs_human_at is one hour
+// after the clock of the fake GitHub.
 func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, task int64) {
 	t.Helper()
 	since := github.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = ? WHERE id = ?", since, task); err != nil {
 		t.Fatal(err)
+	}
+	var issue int64
+	if err := server.DB.QueryRow("SELECT issue FROM tasks WHERE id = ?", task).Scan(&issue); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(github.Labels("owner/shop", issue), "mobius:needs-human") {
+		github.AddLabel("owner/shop", issue, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	}
 }
 

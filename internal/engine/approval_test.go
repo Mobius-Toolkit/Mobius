@@ -327,6 +327,9 @@ func TestARemovalOfNeedsHumanAfterAStopWhoseLabelCallFailedResumesTheTask(t *tes
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	fake.FailAddLabels(shop, 42, false)
+	testkit.WaitFor(t, func() bool { return pullRequestHasNeedsHuman(fake) })
+	waitForSentChanges(t, server)
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
