@@ -58,7 +58,8 @@ type labelWrite struct {
 //   - The issue with no live task has mobius:needs-human when it has an open lost Inbox item, and none of the labels of
 //     taskLabels else.
 //   - The issue has mobius:question when it has an open question Inbox item.
-//   - The pull request of the newest task of the issue has mobius:needs-human only when that task is in needs_human.
+//   - The pull request of the live task, else of the newest task, has mobius:needs-human only when that task is in
+//     needs_human.
 //
 // It writes only a wrong label, adds before it removes, and stores an own write for each write.
 func (e *Engine) sendStateLabels(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
