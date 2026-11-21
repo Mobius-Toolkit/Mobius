@@ -91,7 +91,7 @@ test("a card shows the repository, the Workstream, the PR and the rounds", async
 
   const working = page.getByRole("listitem").filter({ hasText: "Let customers change plans" });
   await expect(working.filter({ hasText: "shop#54 · Integrate loyalty plans" })).toHaveCount(1);
-  await expect(working.getByText("fix 1 · review 2")).toBeVisible();
+  await expect(working.getByText("fix 5 · review 4")).toBeVisible();
   const approval = page.getByRole("listitem").filter({ hasText: "Replace the old plan table" });
   await expect(approval.getByText("review 1", { exact: true })).toBeVisible();
   await expect(approval.getByText("fix", { exact: false })).toHaveCount(0);
