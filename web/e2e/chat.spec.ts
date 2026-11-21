@@ -1616,27 +1616,28 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
 });
 
 const stopStates = [
-  "open",
-  "triage",
-  "needs-human",
-  "closed",
-  "working",
-  "ready",
-  "review",
-  "queued",
-  "question",
-  "waits for CI",
-  "waits for Lead",
-  "waits for Owner",
-  "waits for start_implementer",
-  "start waits",
+  { state: "open", wait: "" },
+  { state: "triage", wait: "" },
+  { state: "needs-human", wait: "" },
+  { state: "closed", wait: "" },
+  { state: "working", wait: "" },
+  { state: "ready", wait: "" },
+  { state: "review", wait: "" },
+  { state: "working", wait: "slot" },
+  { state: "question", wait: "" },
+  { state: "working", wait: "ci" },
+  { state: "working", wait: "lead" },
+  { state: "working", wait: "owner" },
+  { state: "working", wait: "start_implementer" },
+  { state: "start waits", wait: "" },
+  { state: "open", wait: "owner_action" },
 ];
 
 async function routeStopTasks(page: Page) {
   await page.route("**/api/workstreams/plants/garden/19/tasks", (route) =>
     route.fulfill({
       json: {
-        data: stopStates.map((state, index) => ({
+        data: stopStates.map(({ state, wait }, index) => ({
           number: 80 + index,
           title: `Task ${index}`,
           state,
@@ -1648,7 +1649,7 @@ async function routeStopTasks(page: Page) {
           blockedBy: index === 5 ? [{ number: 70, repository: null, workstreamTitle: "" }] : [],
           startWait: "",
           pausedUntil: null,
-          wait: "",
+          wait,
         })),
       },
     }),
@@ -1665,15 +1666,16 @@ test("the Tasks tab shows Stop for a ready or running task, also with a blocker,
   const rows = page.getByRole("listitem");
   await expect(rows.filter({ hasText: "#80 Task 0" })).toBeVisible();
   await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
-  for (const [index, state] of stopStates.entries()) {
+  for (const [index, { state, wait }] of stopStates.entries()) {
+    const name = `${state} ${wait}`;
     const row = rows.filter({ hasText: `#${80 + index} Task ${index}` });
-    await expect(row, state).toBeVisible();
+    await expect(row, name).toBeVisible();
     const stop = row.getByRole("button", { name: `Stop #${80 + index}` });
     if (index >= 4) {
-      await expect(stop, state).toHaveCount(1);
+      await expect(stop, name).toHaveCount(1);
       await expect(stop).toHaveAttribute("title", `Stop #${80 + index}`);
     } else {
-      await expect(stop, state).toHaveCount(0);
+      await expect(stop, name).toHaveCount(0);
     }
   }
 });

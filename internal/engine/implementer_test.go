@@ -724,12 +724,14 @@ func TestWithOneImplementerSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstE
 		return slices.Equal(states, []string{"queued", "working"})
 	})
 	testkit.WaitFor(t, func() bool {
-		var states []string
-		for _, line := range taskTab(t, server) {
-			states = append(states, line.State)
+		slots := 0
+		lines := taskTab(t, server)
+		for _, line := range lines {
+			if line.Wait == "slot" {
+				slots++
+			}
 		}
-		slices.Sort(states)
-		return slices.Equal(states, []string{"queued", "working"})
+		return len(lines) == 2 && slots == 1
 	})
 
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
