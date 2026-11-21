@@ -121,8 +121,9 @@ type Engine struct {
 	// a poll between the steps of the approval can remove the task from the merge queue. A poll does not wait for it. It
 	// is taken before mergeMu.
 	approvalMu sync.Mutex
-	// stopMu makes StopIssue, stopTaskTool and dispatchReady take turns. Else a poll that read its issue page
-	// before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the old page.
+	// stopMu makes StopIssue, stopTaskTool, resumeNeedsHuman and dispatchReady take turns. Else a poll that read its
+	// issue page before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the
+	// old page.
 	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}

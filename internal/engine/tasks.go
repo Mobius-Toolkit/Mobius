@@ -515,17 +515,21 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	return nil
 }
 
-// resumeNeedsHuman continues the task of the issue as resume says, when the live task of the issue is still in needs_human.
-// It holds stopMu and reads the task again, so a poll and an action of a person do not continue one task two times.
+// resumeNeedsHuman continues the task of the issue as resume says, when the live task of the issue is still the task in
+// needs_human that the caller read. The Resume of a person, mark_ready, and each resume of the poll for a task in
+// needs_human call it. It holds stopMu and reads the task again, so two of them do not continue one task two times.
 func (e *Engine) resumeNeedsHuman(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
 	e.stopMu.Lock()
 	defer e.stopMu.Unlock()
 	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
-	if errors.Is(err, sql.ErrNoRows) || err == nil && current.State != "needs_human" {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if current.State != "needs_human" || current.NeedsHumanAt != task.NeedsHumanAt {
+		return nil
 	}
 	return e.resume(ctx, repository, issue, current, actor)
 }

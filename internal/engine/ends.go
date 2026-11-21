@@ -336,7 +336,7 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 		if actor == "" || !e.TrustedAuthor(repository.AppSlug, actor) {
 			continue
 		}
-		return true, e.resume(ctx, repository, issue, task, actor)
+		return true, e.resumeNeedsHuman(ctx, repository, issue, task, actor)
 	}
 	return false, nil
 }
@@ -547,7 +547,8 @@ func (e *Engine) finishStop(ctx context.Context, repository github.Repository, t
 	return nil
 }
 
-// lostAccess ends the live tasks of each repository that no App gives, and stops their Workers.
+// lostAccess ends the live tasks of each repository that no App gives, and stops their Workers. The change of the state
+// labels of each ended task stays pending until an App gives the repository again.
 func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repository) error {
 	names, err := e.queries.ListLiveTaskRepositories(ctx)
 	if err != nil {
@@ -562,7 +563,7 @@ func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repositor
 			return err
 		}
 		for _, task := range tasks {
-			if err := e.queries.EndTask(ctx, task.ID); err != nil {
+			if _, err := e.endTaskRow(ctx, task.ID); err != nil {
 				return err
 			}
 			e.closeKept(task.ID)

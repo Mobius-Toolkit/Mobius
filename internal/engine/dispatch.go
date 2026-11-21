@@ -295,7 +295,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			}
 		}
 		if newest.GetCreatedAt().After(since) {
-			if err := e.resume(ctx, repository, issue, task, newest.GetUser().GetLogin()); err != nil {
+			if err := e.resumeNeedsHuman(ctx, repository, issue, task, newest.GetUser().GetLogin()); err != nil {
 				return err
 			}
 			if task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number}); err != nil {

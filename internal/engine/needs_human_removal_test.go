@@ -56,6 +56,31 @@ func TestARemovalOfNeedsHumanFromTheIssueByATrustedUserContinuesTheTaskAndRemove
 	}
 }
 
+func TestAResumeWithATaskThatAResumeContinuedBeforeContinuesNothing(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := needsHumanWithLabels(t, fake, false)
+	read := liveTask(t, server, 41)
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), fix_rounds = 2 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := server.Engine.ResumeNeedsHuman(t.Context(), shop, 41, read, "owner"); err != nil {
+		t.Fatal(err)
+	}
+
+	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 2 {
+		t.Errorf("state = %s, fix rounds = %d, want needs_human and 2", task.State, task.FixRounds)
+	}
+	if rounds := implementerRounds(t, server); rounds != 1 {
+		t.Errorf("Implementers = %d, want 1", rounds)
+	}
+}
+
 func TestARemovalOfNeedsHumanFromThePullRequestByATrustedUserContinuesTheTaskAndRemovesItFromTheIssue(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := needsHumanWithLabels(t, fake, false)
