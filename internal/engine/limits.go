@@ -568,8 +568,9 @@ var movingRoles = map[string]bool{
 	TriagerRole: true, CuratorRole: true, DiagnoserRole: true, ResearcherRole: true,
 }
 
-// errMoved tells that the Owner changed the Harness of the Role of a session while it waited for a pause. The session
-// ends with the reason "moved", and its caller starts the work again on the new binding.
+// errMoved tells that the Owner changed the Harness of the Role of a session while it waited for a pause, or that
+// another binding of the Implementer has no hold. The session ends with the reason "moved", and its caller starts the
+// work again on the new binding.
 var errMoved = errors.New("the Harness of the Role changed")
 
 // watchMove adds a to pauseWaiters. It gives the channel that closes when a must move, and the function that removes a.
@@ -612,7 +613,8 @@ func (e *Engine) moveWaiters(roles *config.Roles, implementers []ImplementerBind
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
 // again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it. A session of
-// a moving Role gives errMoved when the Harness of its Role changes. A value on stop gives errStopped when a stop is
+// a moving Role gives errMoved when the Harness of its Role changes. An Implementer session that follows the Role also
+// gives errMoved when a binding with another Harness has no hold. A value on stop gives errStopped when a stop is
 // pending. A nil stop never ends the wait.
 func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 	e := a.engine
@@ -638,6 +640,15 @@ func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 		}
 		if err != nil {
 			return err
+		}
+		if a.spec.Role == ImplementerRole && a.level == LevelRole {
+			free, err := e.hasFreeImplementerBinding(ctx, a.binding.Harness)
+			if err != nil {
+				return err
+			}
+			if free {
+				return errMoved
+			}
 		}
 		if !shown {
 			reason, err := pausedReason(pause)
@@ -675,6 +686,24 @@ func (a *Agent) waitForPause(ctx context.Context, stop <-chan struct{}) error {
 		case <-changed:
 		}
 	}
+}
+
+// hasFreeImplementerBinding tells if a binding of the Implementer with a Harness other than harness has no pause of its
+// Harness and no access hold.
+func (e *Engine) hasFreeImplementerBinding(ctx context.Context, harness config.Harness) (bool, error) {
+	for _, b := range e.implementerList() {
+		if b.Binding.Harness == harness {
+			continue
+		}
+		paused, err := e.pausedHarness(ctx, b.Binding.Harness)
+		if err != nil {
+			return false, err
+		}
+		if paused == "" && e.accessHold(b.Binding) == "" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // clearPauseReason removes the queue reason of a wait for a pause from the session of a.

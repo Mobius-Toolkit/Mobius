@@ -260,6 +260,7 @@ func (e *Engine) applyRoles(merged config.Roles) {
 	e.moveWaiters(&merged, list)
 	e.closeStaleKept(list)
 	e.publish(Change{Pauses: true})
+	e.pausesChanged.notify()
 	e.workers.changed.notify()
 }
 
