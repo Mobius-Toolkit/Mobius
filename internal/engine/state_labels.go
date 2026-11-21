@@ -70,12 +70,15 @@ func (e *Engine) sendStateLabels(ctx context.Context, repository github.Reposito
 	if issue == nil {
 		return false, e.refuse(ctx, change)
 	}
-	task, err := e.queries.GetNewestTask(ctx, store.GetNewestTaskParams{Repository: change.Repository, Issue: number})
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: change.Repository, Issue: number})
+	live := err == nil
+	if errors.Is(err, sql.ErrNoRows) {
+		task, err = e.queries.GetNewestTask(ctx, store.GetNewestTaskParams{Repository: change.Repository, Issue: number})
+	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
 	found := err == nil
-	live := found && task.State != "ended"
 	kept := live && judgesHuman(task)
 	needed := ""
 	if live {
