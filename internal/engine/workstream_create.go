@@ -99,6 +99,9 @@ func (e *Engine) sendCreate(ctx context.Context, repository github.Repository, c
 			return false, err
 		}
 		e.publish(Change{Workstreams: true})
+		if err := e.syncMissingWorkstreams(ctx, true); err != nil {
+			return false, err
+		}
 	}
 	if err := e.sendNewWorkstream(ctx, repository, number); err != nil {
 		return false, err

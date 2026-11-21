@@ -268,7 +268,7 @@ You can add these keys:
 | Key | Default | Value |
 | --- | --- | --- |
 | `trusted_bots` | `[]` | The GitHub logins of bots that Mobius trusts, as it trusts the trusted users |
-| `data_dir` | `~/.mobius` | The directory of `mobius.db` and of the work directories of the agents |
+| `data_dir` | `~/.mobius` | The directory of `mobius.db`, of the log file and of the work directories of the agents |
 | `ui_url` | `""` | The public address of the web UI, for example `"https://mobius.example.com"`. Mobius adds a link to the Lead chat of the Workstream to each pull request and each task issue that it creates. With no `ui_url`, Mobius adds no link, so a public repository does not show the address |
 | `max_checks` | `1` | The maximum number of local checks that run at the same time |
 | `max_fix_rounds` | `10` | The maximum number of fix rounds of a task |
@@ -280,6 +280,8 @@ You can add these keys:
 | `lead_idle_timeout` | `"50m"` | A Lead session with no new message or event ends after this time |
 | `poll_interval` | `"30s"` | The time between two polls of GitHub |
 | `housekeeper_interval` | `"1h"` | The time between two runs of the Housekeeper |
+
+Mobius writes each log line to the standard error and to the file `<data_dir>/logs/mobius.log`, so `~/.mobius/logs/mobius.log` by default. When the file reaches 10 MB, Mobius starts a new file and keeps 14 old files. The oldest old file goes away. The log files use at most 150 MB.
 
 The table `organizations` has one entry for each GitHub organization. The key `issue_repository` of an entry is the repository (`owner/name`) that holds the Workstream issues of the organization. Its owner must be the organization. The Coordinator creates and finds the Workstreams there. Each task issue stays in the repository of its code. The key is necessary when the Mobius App has more than one repository in the organization. For example:
 
