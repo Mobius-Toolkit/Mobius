@@ -226,7 +226,11 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	reviewed := !again && task.ReviewedHead.String == head && !hasLabel(issue, questionLabel) && len(neutralCheckRuns(state.checkRuns)) == 0
+	asked, err := e.hasOpenQuestion(ctx, repository.FullName, task.Issue)
+	if err != nil {
+		return err
+	}
+	reviewed := !again && task.ReviewedHead.String == head && !asked && len(neutralCheckRuns(state.checkRuns)) == 0
 	var level string
 	var checkRun int64
 	if again || reviewed {

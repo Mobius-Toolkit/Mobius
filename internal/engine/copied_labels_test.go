@@ -36,7 +36,12 @@ func startLabeled(t *testing.T, fake *testkit.FakeGitHub, stopped bool, before s
 // statement before runs before the server starts.
 func startOnePoll(t *testing.T, fake *testkit.FakeGitHub, before string) (*testserver.Server, <-chan engine.Change) {
 	t.Helper()
-	dataDir := t.TempDir()
+	return startOnePollWith(t, fake, before, t.TempDir())
+}
+
+// startOnePollWith is startOnePoll with the data directory dataDir, which can hold a fake Harness.
+func startOnePollWith(t *testing.T, fake *testkit.FakeGitHub, before, dataDir string) (*testserver.Server, <-chan engine.Change) {
+	t.Helper()
 	// The App exists before the server starts, so the first poll of the server reads the repository, and no other poll runs.
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
 	if err != nil {
@@ -169,5 +174,33 @@ func TestThePollShowsTheRowAgainWhenGitHubStillHasNeedsHuman(t *testing.T) {
 
 	if rows := needsHumanRows(t, server); rows != 1 {
 		t.Errorf("rows = %d", rows)
+	}
+}
+
+func TestTheTasksPanelListsAStoppedTaskWhenTheCopyHasNoStateLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startLabeled(t, fake, false, taskInNeedsHuman)
+
+	rows := apiData[[]needsHuman](t, server, "/api/needs-human")
+
+	if len(rows) != 1 || rows[0].Number != 41 || !rows[0].Stopped || rows[0].Question {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestTheTasksPanelListsAnOpenQuestionWhenTheCopyHasNoStateLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askedWithNoPoll(t, fake)
+	waitForItem(t, server, "question")
+	if _, err := server.DB.Exec(`UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json('[]')) WHERE number = 41`); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := apiData[[]needsHuman](t, server, "/api/needs-human")
+
+	if len(rows) != 1 || rows[0].Number != 41 || rows[0].Stopped || !rows[0].Question {
+		t.Errorf("rows = %+v", rows)
 	}
 }

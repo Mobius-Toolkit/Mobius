@@ -344,14 +344,17 @@ func TestAFollowUpOfTheReviewGivesTheLeadReadyForApprovalAndNoMerge(t *testing.T
 }
 
 // TestAQuestionOnTheTaskIssueGivesTheLeadReadyForApproval checks that a clean review round and a passed CI give the
-// event ready_for_approval while the task issue has mobius:question.
+// event ready_for_approval while the task issue has an open question.
 func TestAQuestionOnTheTaskIssueGivesTheLeadReadyForApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := reviewedHeadServer(t, fake, leadStarts, 5*time.Second)
+	ask := "[[prompts]]\nwhen = \"Ask #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
+	server := reviewedHeadServer(t, fake, ask+leadStarts, 5*time.Second)
+	authorize(t, server)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && reviewedHead(t, server) != "" })
-	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	sendChat(t, server, leadChat, "Ask #41")
+	waitForChat(t, server, leadChat, "Lead", "Asked on #41.")
 
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "ready_for_approval" })

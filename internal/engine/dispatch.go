@@ -249,15 +249,21 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	if answered && hasLabel(issue, questionLabel) {
-		if err := e.answerQuestions(ctx, repository.FullName, number, replies); err != nil {
+	if answered {
+		asked, err := e.hasOpenQuestion(ctx, repository.FullName, number)
+		if err != nil {
 			return err
 		}
-		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
-			return err
-		}
-		if err := e.releaseEvents(ctx, task.WorkstreamRepository, task.Workstream); err != nil {
-			return err
+		if asked {
+			if err := e.answerQuestions(ctx, repository.FullName, number, replies); err != nil {
+				return err
+			}
+			if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+				return err
+			}
+			if err := e.releaseEvents(ctx, task.WorkstreamRepository, task.Workstream); err != nil {
+				return err
+			}
 		}
 	}
 	if task.State == "asked" || task.State == "answered" {
@@ -512,15 +518,21 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	if err := acknowledge(ctx, repository, events); err != nil {
 		return err
 	}
-	if answered && workstream == number && hasLabel(issue, questionLabel) {
-		if err := e.answerQuestions(ctx, repository.FullName, number, events); err != nil {
+	if answered && workstream == number {
+		asked, err := e.hasOpenQuestion(ctx, repository.FullName, number)
+		if err != nil {
 			return err
 		}
-		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
-			return err
-		}
-		if err := e.releaseEvents(ctx, workstreamRepository, workstream); err != nil {
-			return err
+		if asked {
+			if err := e.answerQuestions(ctx, repository.FullName, number, events); err != nil {
+				return err
+			}
+			if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+				return err
+			}
+			if err := e.releaseEvents(ctx, workstreamRepository, workstream); err != nil {
+				return err
+			}
 		}
 	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstreamRepository != repository.FullName || workstream != number}
@@ -995,7 +1007,11 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 	if err != nil {
 		return "", err
 	}
-	if !hasLabel(issue, questionLabel) {
+	asked, err := e.hasOpenQuestion(ctx, repository.FullName, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !asked {
 		return "", refuse("%s has no open question. An answer of the Owner on GitHub closes the question, so the Lead calls no close_question for it.", eventRef(c.repository, repository.FullName, input.N))
 	}
 	text, err := e.withMark(ctx, c, repository.FullName, chatAnswerPrefix+"\n\n"+quote(input.Answer))

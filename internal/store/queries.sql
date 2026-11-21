@@ -622,16 +622,10 @@ WHERE event.repository = ? AND event.delivered_at IS NULL AND event.held = 0
   )
 ORDER BY event.workstream;
 
--- A Workstream with an issue that has the question label, or with an open question item, has no row.
+-- A Workstream with an open question item has no row.
 -- name: ListHeldLeadEventsWithoutQuestion :many
 SELECT * FROM lead_events AS event
-WHERE event.repository = sqlc.arg(repository) AND event.held = 1 AND event.delivered_at IS NULL
-  AND NOT EXISTS (
-      SELECT 1 FROM issues AS i
-      JOIN workstreams AS w ON w.id = i.workstream
-      WHERE w.repository = event.repository AND w.number = event.workstream AND i.state = 'open'
-        AND instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(question_label) AS TEXT))) > 0
-  )
+WHERE event.repository = ? AND event.held = 1 AND event.delivered_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM inbox_items AS n
       WHERE n.workstream_repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
@@ -1556,14 +1550,17 @@ DELETE FROM blockers WHERE issue = ? AND blocker = ?;
 UPDATE issues SET metadata = json_set(metadata, '$.github.workstream', workstream)
 WHERE workstream = ? AND EXISTS (SELECT 1 FROM blockers WHERE blockers.blocker = issues.id);
 
--- name: ListCopiedIssuesWithLabels :many
+-- stopped is true for an issue whose live task is in needs_human, or that has an open lost item. question is true for an
+-- issue that has an open question item.
+-- name: ListIssuesNeedingHuman :many
 SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository,
     i.title, i.state, i.author,
-    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(needs_human) AS TEXT))) > 0 AS has_needs_human,
-    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(sqlc.arg(question) AS TEXT))) > 0 AS has_question
+    CAST(EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'needs_human')
+        OR EXISTS (SELECT 1 FROM inbox_items n WHERE n.repository = i.repository AND n.issue = i.number AND n.kind = 'lost' AND n.dismissed_at IS NULL) AS BOOLEAN) AS stopped,
+    EXISTS (SELECT 1 FROM inbox_items n WHERE n.repository = i.repository AND n.issue = i.number AND n.kind = 'question' AND n.dismissed_at IS NULL) AS question
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
-WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (has_needs_human OR has_question)
+WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (stopped OR question)
 ORDER BY w.repository, w.number, i.number;
 
 -- name: ListEndedTaskIssueLabels :many

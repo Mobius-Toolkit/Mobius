@@ -94,8 +94,7 @@ func storeStopNotice(task store.Task, title, leadText string, notice stopNotice)
 // stop event of the Lead and the comment. A notice is deleted after all of them succeed, or when its task left
 // needs_human, or when GitHub answers 404 or 410. A write that fails stays for the next poll.
 // The caller of handToHuman gives the id of its task. Then sendStopNotices sends only the notice of that task. The poll
-// gives 0, and sendStopNotices sends each notice of the repository whose issue has mobius:needs-human. It writes no
-// label, because a person can have removed the label to resume the task. checkTask heals the label or resumes the task.
+// gives 0, and sendStopNotices sends each notice of the repository whose task is in needs_human. It writes no label.
 func (e *Engine) sendStopNotices(ctx context.Context, name string, task int64) error {
 	e.stopNoticeMu.Lock()
 	defer e.stopNoticeMu.Unlock()
@@ -108,14 +107,6 @@ func (e *Engine) sendStopNotices(ctx context.Context, name string, task int64) e
 			continue
 		}
 		if row.Task.State == "needs_human" {
-			if task == 0 {
-				if labelled, err := e.hasNeedsHuman(ctx, row.Task); err != nil || !labelled {
-					if err != nil {
-						log.Printf("read the labels of %s#%d: %v", name, row.Task.Issue, err)
-					}
-					continue
-				}
-			}
 			if err := e.deliverStopNotice(ctx, row.StopNotice, row.Task); err != nil && !github.NotFound(err) {
 				log.Printf("send the stop notice of %s#%d: %v", name, row.Task.Issue, err)
 				continue
@@ -126,17 +117,6 @@ func (e *Engine) sendStopNotices(ctx context.Context, name string, task int64) e
 		}
 	}
 	return nil
-}
-
-// hasNeedsHuman tells if the issue of the task has mobius:needs-human. closeInboxItems dismisses a stopped item of an
-// issue with no such label.
-func (e *Engine) hasNeedsHuman(ctx context.Context, task store.Task) (bool, error) {
-	repository, err := e.repository(task.Repository)
-	if err != nil {
-		return false, err
-	}
-	issue, err := repository.Issue(ctx, task.Issue)
-	return issue != nil && hasLabel(issue, needsHumanLabel), err
 }
 
 // deliverStopNotice does each write of the stop notice once. The comment is the last write, so that a retry after a

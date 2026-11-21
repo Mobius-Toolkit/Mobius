@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -169,4 +170,29 @@ func TestAHeldEventWithNoQuestionStaysHeldUntilAMessageOfTheOwner(t *testing.T) 
 	}
 	sendChat(t, server, leadChat, "Go on")
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) && len(onlySession(t, server)) == 3 })
+}
+
+func TestAHeldEventStaysHeldWhileTheQuestionItemIsOpenAndFreesAtTheDismissOfTheItem(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := heldAfterQuestion(t, fake)
+	waitForPolls(t, fake)
+	if got := onlySession(t, server); len(got) != 3 || !held(t, server, 2) {
+		t.Fatalf("prompts = %q", got)
+	}
+
+	if status, body := dismissItem(t, server, item.ID); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) >= 5 && eventDelivered(t, server)
+	})
+	if len(prompts) != 5 || !strings.Contains(prompts[3], "Held follow-up.") || !strings.Contains(prompts[4], "Ready for approval.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func TestCloseQuestionPostsTheAnswerAndClosesTheQuestionOfAnAskedTask(t *testing.T) {
@@ -213,4 +214,53 @@ func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
 		t.Errorf("inbox = %+v", items)
 	}
 	testkit.WaitFor(t, func() bool { return len(apiData[[]needsHuman](t, server, "/api/needs-human")) == 0 })
+}
+
+// askedWithNoPoll starts a server with a poll interval that is longer than the test, and lets the Lead ask a question
+// on #41 after one manual poll. No later poll changes the copy of #41 or closes the question item.
+func askedWithNoPoll(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	script := `
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "answer of #41"
+reply = ["Seen"]
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+script)
+	server, _ := startOnePollWith(t, fake, "", dataDir)
+	dispatchTask(fake, 41, "Add plan model")
+	server.Engine.Poll(t.Context())
+	return server
+}
+
+func TestCloseQuestionClosesAnOpenQuestionOfAnIssueWithNoQuestionLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askedWithNoPoll(t, fake)
+	waitForItem(t, server, "question")
+	fake.RemoveLabel(shop, 41, "mobius:question", "owner")
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["result"] == "Closed the question on #41."
+	})
+	if items := itemsOf(t, server, "question"); len(items) != 0 {
+		t.Errorf("question items = %+v", items)
+	}
 }

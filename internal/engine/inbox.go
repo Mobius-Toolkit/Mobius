@@ -109,7 +109,7 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if !done {
 			continue
 		}
-		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" && hasLabel(issue, needsHumanLabel) {
+		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" {
 			if err := e.reopenStoppedItem(ctx, item); err != nil {
 				return err
 			}
@@ -202,6 +202,12 @@ func (e *Engine) openIssueItems(ctx context.Context, repository string, number i
 	return slices.DeleteFunc(items, func(item store.InboxItem) bool {
 		return item.Repository != repository || item.Issue != number || !slices.Contains(kinds, item.Kind)
 	}), nil
+}
+
+// hasOpenQuestion tells if the issue number of repository has an open question Inbox item.
+func (e *Engine) hasOpenQuestion(ctx context.Context, repository string, number int64) (bool, error) {
+	items, err := e.openIssueItems(ctx, repository, number, questionKind)
+	return len(items) > 0, err
 }
 
 // dismissIssueItems dismisses each Inbox item of the kinds that is open on the issue number of repository.

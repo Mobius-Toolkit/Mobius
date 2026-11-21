@@ -507,9 +507,15 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 // stored head of the comment stays, so a retry for the same head does not add the comment a second time.
 func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, comment, mark, leadReport string, again bool) error {
 	head := pullRequest.GetHead().GetSHA()
-	if mark != "" && hasLabel(issue, questionLabel) {
-		if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark), ""); err != nil {
+	if mark != "" {
+		asked, err := e.hasOpenQuestion(ctx, repository.FullName, task.Issue)
+		if err != nil {
 			return err
+		}
+		if asked {
+			if err := e.closeQuestion(ctx, repository, issue, task, runner.WithMark(fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber()), mark), ""); err != nil {
+				return err
+			}
 		}
 	}
 	summary := "The Lead approved the pull request."

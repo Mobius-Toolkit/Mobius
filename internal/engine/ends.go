@@ -197,9 +197,15 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if err := e.setStateLabels(ctx, repository, task, issue, pullRequest); err != nil {
 		return Work{}, false, false, err
 	}
-	if task.State == "dispatched" && !hasLabel(issue, questionLabel) {
-		if err := e.remindDispatch(ctx, task, issue); err != nil {
+	if task.State == "dispatched" {
+		asked, err := e.hasOpenQuestion(ctx, repository.FullName, task.Issue)
+		if err != nil {
 			return Work{}, false, false, err
+		}
+		if !asked {
+			if err := e.remindDispatch(ctx, task, issue); err != nil {
+				return Work{}, false, false, err
+			}
 		}
 	}
 	if pullRequest == nil {

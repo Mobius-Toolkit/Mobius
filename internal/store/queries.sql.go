@@ -6888,67 +6888,6 @@ func (q *Queries) ListClosePendingWorkstreams(ctx context.Context, repository st
 	return items, nil
 }
 
-const listCopiedIssuesWithLabels = `-- name: ListCopiedIssuesWithLabels :many
-SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository,
-    i.title, i.state, i.author,
-    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(?1 AS TEXT))) > 0 AS has_needs_human,
-    instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(?2 AS TEXT))) > 0 AS has_question
-FROM issues i
-JOIN workstreams w ON w.id = i.workstream
-WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (has_needs_human OR has_question)
-ORDER BY w.repository, w.number, i.number
-`
-
-type ListCopiedIssuesWithLabelsParams struct {
-	NeedsHuman string
-	Question   string
-}
-
-type ListCopiedIssuesWithLabelsRow struct {
-	Repository      string
-	Workstream      int64
-	Number          int64
-	IssueRepository string
-	Title           string
-	State           string
-	Author          string
-	HasNeedsHuman   bool
-	HasQuestion     bool
-}
-
-func (q *Queries) ListCopiedIssuesWithLabels(ctx context.Context, arg ListCopiedIssuesWithLabelsParams) ([]ListCopiedIssuesWithLabelsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listCopiedIssuesWithLabels, arg.NeedsHuman, arg.Question)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListCopiedIssuesWithLabelsRow
-	for rows.Next() {
-		var i ListCopiedIssuesWithLabelsRow
-		if err := rows.Scan(
-			&i.Repository,
-			&i.Workstream,
-			&i.Number,
-			&i.IssueRepository,
-			&i.Title,
-			&i.State,
-			&i.Author,
-			&i.HasNeedsHuman,
-			&i.HasQuestion,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listCopiedRepositories = `-- name: ListCopiedRepositories :many
 SELECT DISTINCT repository FROM workstreams
 `
@@ -8065,13 +8004,7 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 
 const listHeldLeadEventsWithoutQuestion = `-- name: ListHeldLeadEventsWithoutQuestion :many
 SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at, issue_repository FROM lead_events AS event
-WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
-  AND NOT EXISTS (
-      SELECT 1 FROM issues AS i
-      JOIN workstreams AS w ON w.id = i.workstream
-      WHERE w.repository = event.repository AND w.number = event.workstream AND i.state = 'open'
-        AND instr(json_extract(i.metadata, '$.github.labels'), json_quote(CAST(?2 AS TEXT))) > 0
-  )
+WHERE event.repository = ? AND event.held = 1 AND event.delivered_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM inbox_items AS n
       WHERE n.workstream_repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
@@ -8079,14 +8012,9 @@ WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
 ORDER BY event.id
 `
 
-type ListHeldLeadEventsWithoutQuestionParams struct {
-	Repository    string
-	QuestionLabel string
-}
-
-// A Workstream with an issue that has the question label, or with an open question item, has no row.
-func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, arg ListHeldLeadEventsWithoutQuestionParams) ([]LeadEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listHeldLeadEventsWithoutQuestion, arg.Repository, arg.QuestionLabel)
+// A Workstream with an open question item has no row.
+func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, repository string) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldLeadEventsWithoutQuestion, repository)
 	if err != nil {
 		return nil, err
 	}
@@ -8334,6 +8262,65 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 			&i.Questions,
 			&i.Answer,
 			&i.Withdrawn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIssuesNeedingHuman = `-- name: ListIssuesNeedingHuman :many
+SELECT w.repository, CAST(w.number AS INTEGER) AS workstream, CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository,
+    i.title, i.state, i.author,
+    CAST(EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'needs_human')
+        OR EXISTS (SELECT 1 FROM inbox_items n WHERE n.repository = i.repository AND n.issue = i.number AND n.kind = 'lost' AND n.dismissed_at IS NULL) AS BOOLEAN) AS stopped,
+    EXISTS (SELECT 1 FROM inbox_items n WHERE n.repository = i.repository AND n.issue = i.number AND n.kind = 'question' AND n.dismissed_at IS NULL) AS question
+FROM issues i
+JOIN workstreams w ON w.id = i.workstream
+WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (stopped OR question)
+ORDER BY w.repository, w.number, i.number
+`
+
+type ListIssuesNeedingHumanRow struct {
+	Repository      string
+	Workstream      int64
+	Number          int64
+	IssueRepository string
+	Title           string
+	State           string
+	Author          string
+	Stopped         bool
+	Question        bool
+}
+
+// stopped is true for an issue whose live task is in needs_human, or that has an open lost item. question is true for an
+// issue that has an open question item.
+func (q *Queries) ListIssuesNeedingHuman(ctx context.Context) ([]ListIssuesNeedingHumanRow, error) {
+	rows, err := q.db.QueryContext(ctx, listIssuesNeedingHuman)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListIssuesNeedingHumanRow
+	for rows.Next() {
+		var i ListIssuesNeedingHumanRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Workstream,
+			&i.Number,
+			&i.IssueRepository,
+			&i.Title,
+			&i.State,
+			&i.Author,
+			&i.Stopped,
+			&i.Question,
 		); err != nil {
 			return nil, err
 		}

@@ -333,9 +333,9 @@ type NeedsHuman struct {
 	Number     int64
 	Title      string
 	URL        string
-	// Stopped is true when the issue has mobius:needs-human: the task stopped.
+	// Stopped is true when the live task of the issue is in needs_human, or the issue has an open lost Inbox item.
 	Stopped bool
-	// Question is true when the issue has mobius:question: the Lead waits for an answer.
+	// Question is true when the issue has an open question Inbox item: the Lead waits for an answer.
 	Question bool
 	// PullRequest is the pull request of the live task of the issue, or 0.
 	PullRequest    int64
@@ -344,10 +344,10 @@ type NeedsHuman struct {
 	Reason string
 }
 
-// NeedsHuman gives the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of the
+// NeedsHuman gives the open issues of trusted authors that are stopped or have an open question in the trees of the
 // Workstreams, from the local copy, by repository, Workstream and number.
 func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
-	rows, err := e.queries.ListCopiedIssuesWithLabels(ctx, store.ListCopiedIssuesWithLabelsParams{NeedsHuman: needsHumanLabel, Question: questionLabel})
+	rows, err := e.queries.ListIssuesNeedingHuman(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 		if !ok || row.State != "open" || !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			continue
 		}
-		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: issueLink(repository.FullName, row.Number), Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
+		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: issueLink(repository.FullName, row.Number), Stopped: row.Stopped, Question: row.Question}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: row.Number})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
