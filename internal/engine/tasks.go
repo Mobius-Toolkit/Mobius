@@ -468,7 +468,7 @@ func stopReason(number int64, text string) string {
 }
 
 // ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
-// task. The next poll continues the task. An issue with no live task has lost its task: ResumeIssue requests a Start
+// task. It continues a task in needs_human at once, as resume says. An issue with no live task has lost its task: ResumeIssue requests a Start
 // instead, so the dispatch starts a new task. The removal of mobius:needs-human uses the user token of the Owner,
 // because the poll trusts that change only from a trusted user.
 func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
@@ -506,6 +506,15 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	}
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
 		return err
+	}
+	if task.State == "needs_human" {
+		issue, err := e.existingIssue(ctx, repository, number)
+		if err != nil {
+			return err
+		}
+		if err := e.resume(ctx, repository, issue, task, "ui"); err != nil {
+			return err
+		}
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
 		return err

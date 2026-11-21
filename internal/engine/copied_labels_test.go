@@ -104,11 +104,10 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	checkTasks(t, server, "ready")
-	server.Engine.Poll(t.Context())
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
+	checkTasks(t, server, "open")
 	waitForWorkstreams(t, changes)
 }
 
