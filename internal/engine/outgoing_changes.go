@@ -172,9 +172,11 @@ func (e *Engine) postCommentOnce(ctx context.Context, repository github.Reposito
 	return e.postComment(ctx, repository, number, text)
 }
 
-// sendNow sends the outgoing change id after its caller added it. It reads no comments, because no earlier send of the
-// row exists. The row stays pending when an older pending row of the same item exists or when GitHub fails. The next
-// poll sends it then. Only a failed read or write of the database is an error.
+// sendNow sends the outgoing change id after its caller added it. It first sends each older pending change of the same
+// item in order, because a change that stays pending holds the later changes. It reads the comments of an older change,
+// because an earlier send of it can have made the comment, but not of the change id, because no earlier send of that
+// row exists. The row stays pending when an older change stays pending or when GitHub fails. The next poll sends it
+// then. Only a failed read or write of the database is an error.
 func (e *Engine) sendNow(ctx context.Context, repository github.Repository, id int64) error {
 	change, err := e.queries.GetOutgoingChange(ctx, id)
 	if err != nil || change.Status != "pending" {
@@ -192,11 +194,13 @@ func (e *Engine) sendNow(ctx context.Context, repository github.Repository, id i
 	if err != nil {
 		return err
 	}
-	if len(pending) == 0 || pending[0].ID != change.ID {
-		return nil
+	for _, next := range pending {
+		own := next.ID == change.ID
+		if stays, err := e.send(ctx, repository, next, !own); stays || own || err != nil {
+			return err
+		}
 	}
-	_, err = e.send(ctx, repository, change, false)
-	return err
+	return nil
 }
 
 // sentOrLater gives the text sent when the outgoing change id is sent, and the text later when it stays pending. A

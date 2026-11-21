@@ -68,10 +68,10 @@ func TestAStopToNeedsHumanGivesTheIssueAndThePullRequestTheLabelAndTheEndOfTheTa
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 
 	testkit.WaitFor(t, func() bool {
-		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake)
+		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:working")
 	})
 
-	if hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:review") {
+	if hasLabel(fake, "mobius:review") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	for _, number := range []int64{41, pullRequestNumber} {
