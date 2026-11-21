@@ -449,7 +449,8 @@ func (e *Engine) implementerSlots(ctx context.Context, spec Spec) (*implementerS
 	return slots, nil
 }
 
-// keptChoice gives the binding of the list that is equal to kept, or nil.
+// keptChoice gives the binding of the list that is equal to kept, or nil. It gives nil when the binding has a hold and
+// another binding has none, because the session leaves the kept session then.
 func (s *implementerSlots) keptChoice(kept *config.RoleBinding) *slotChoice {
 	if kept == nil {
 		return nil
@@ -458,11 +459,15 @@ func (s *implementerSlots) keptChoice(kept *config.RoleBinding) *slotChoice {
 	if index < 0 {
 		return nil
 	}
-	return &s.choices[index]
+	c := &s.choices[index]
+	if c.hold != "" && slices.ContainsFunc(s.choices, func(o slotChoice) bool { return o.hold == "" }) {
+		return nil
+	}
+	return c
 }
 
 // waitsOn gives the binding whose reason a session shows when no binding can take it: the binding of the kept session
-// when it is in the list, and else the first binding.
+// when keptChoice gives it, and else the first binding.
 func (s *implementerSlots) waitsOn(kept *config.RoleBinding) slotChoice {
 	if c := s.keptChoice(kept); c != nil {
 		return *c
@@ -480,7 +485,8 @@ func (s *implementerSlots) held(kept *config.RoleBinding) bool {
 }
 
 // pick gives the binding that the next session takes. A session with a kept session in the list takes only the binding
-// of the kept session, because the round continues it. Else it is a binding with no hold and a free slot, with the
+// of the kept session, because the round continues it, unless that binding has a hold and another binding has none.
+// Else it is a binding with no hold and a free slot, with the
 // fewest running sessions in counts, and then the first in the list.
 func (s *implementerSlots) pick(counts map[int64]int, kept *config.RoleBinding) (slotChoice, bool) {
 	if c := s.keptChoice(kept); c != nil {
