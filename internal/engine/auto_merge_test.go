@@ -204,6 +204,7 @@ func TestAChangeOfTheLevelToOffStopsTheAutomaticMergeAndTheMergeButtonMerges(t *
 		items := itemsOf(t, server, "ready for review")
 		return len(items) == 1 && items[0].Merging
 	})
+	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
 
 	setWorkstreamAutopilot(t, server, "off")
 
