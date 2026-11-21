@@ -1563,19 +1563,6 @@ JOIN workstreams w ON w.id = i.workstream
 WHERE w.number IS NOT NULL AND i.number IS NOT NULL AND (stopped OR question)
 ORDER BY w.repository, w.number, i.number;
 
--- name: ListEndedTaskIssueLabels :many
-SELECT DISTINCT CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.metadata,
-    EXISTS (
-        SELECT 1 FROM inbox_items n
-        WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number AND i.repository = n.repository
-    ) AS lost
-FROM issues i
-JOIN workstreams w ON w.id = i.workstream
-WHERE w.repository = sqlc.arg(repository) AND i.state = 'open'
-  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended' AND i.repository = t.repository)
-  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended' AND i.repository = t.repository)
-ORDER BY i.number;
-
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, file, time, author, reason, text) VALUES (?, ?, ?, ?, ?, ?);
 
@@ -1963,6 +1950,9 @@ SELECT ci_failure_places.* FROM ci_failure_places JOIN ci_failures ON ci_failure
 WHERE ci_failures.repository = sqlc.arg(repository) AND ci_failures.ended_at <> '' AND ci_failure_places.pull_request <> 0
   AND (ci_failure_places.branch_updated_at = '' OR ci_failure_places.branch_updated_at > sqlc.arg(updated_after))
 ORDER BY ci_failure_places.id;
+
+-- name: GetNewestTask :one
+SELECT * FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1;
 
 -- name: GetNewestTaskPullRequest :one
 SELECT pull_request FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1;

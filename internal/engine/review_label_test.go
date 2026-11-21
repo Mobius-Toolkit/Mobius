@@ -23,6 +23,7 @@ func approved(t *testing.T, fake *testkit.FakeGitHub, lead, implementer string, 
 	waitForReadyEvents(t, fake, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	waitForSentStateLabels(t, server)
 	return server
 }
 
@@ -172,27 +173,6 @@ func TestAFixRoundOfTheLeadFromReadyForReviewPutsTheWorkingLabelBack(t *testing.
 
 	waitForChat(t, server, leadChat, "Lead", "Sent the findings to a fix round of #41. At max_fix_rounds, Mobius stops the task instead.")
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review") })
-}
-
-func TestAFixRoundThatFailsToPutTheWorkingLabelBackSetsTheWorkerBeforeTheRestart(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := approved(t, fake, leadFindings, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 10 })
-	fake.FailAddLabels(shop, 41, true)
-
-	sendChat(t, server, leadChat, "Send the findings to #41")
-
-	testkit.WaitFor(t, func() bool { return workerRestarts(t, server) >= 1 })
-	var worker, input string
-	if err := server.DB.QueryRow("SELECT coalesce(worker, ''), coalesce(worker_input, '') FROM tasks WHERE issue = 41").Scan(&worker, &input); err != nil {
-		t.Fatal(err)
-	}
-	if worker != engine.ImplementerRole || !strings.Contains(input, "# Open items\n") {
-		t.Errorf("worker = %q, input = %q", worker, input)
-	}
-	fake.FailAddLabels(shop, 41, false)
-
-	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 }
 
 func TestAConflictRoundFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {

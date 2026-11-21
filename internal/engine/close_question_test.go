@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -91,7 +92,7 @@ reply = ["Seen"]
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(apiData[[]needsHuman](t, server, "/api/needs-human"), func(row needsHuman) bool { return row.Number == 41 && row.Question })
 	})
-	fake.FailAddLabels(shop, 41, true)
+	fake.RefuseNextCommentList(shop, 41, http.StatusInternalServerError)
 
 	sendChat(t, server, leadChat, "Dollars were chosen")
 
@@ -102,7 +103,6 @@ reply = ["Seen"]
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
-	fake.FailAddLabels(shop, 41, false)
 
 	sendChat(t, server, leadChat, "Dollars again")
 
@@ -174,6 +174,9 @@ reply = ["Seen"]
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(apiData[[]needsHuman](t, server, "/api/needs-human"), func(row needsHuman) bool { return row.Number == 41 && row.Question })
+	})
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 41), "mobius:question") && len(fake.Comments(shop, 41)) == 1
 	})
 	fake.AddComment(shop, 41, "owner", "Cents.")
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
@@ -252,6 +255,7 @@ func TestCloseQuestionClosesAnOpenQuestionOfAnIssueWithNoQuestionLabel(t *testin
 	fake := testkit.NewFakeGitHub(t)
 	server := askedWithNoPoll(t, fake)
 	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	fake.RemoveLabel(shop, 41, "mobius:question", "owner")
 
 	sendChat(t, server, leadChat, "Dollars were chosen")

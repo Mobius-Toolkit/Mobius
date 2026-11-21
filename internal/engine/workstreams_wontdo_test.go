@@ -317,7 +317,7 @@ func TestACloseAsWontDoEndsWhenTheRequestIsCanceled(t *testing.T) {
 	})
 }
 
-func TestAFailedCloseWorkstreamAfterWontDoRetriesOnTheNextPoll(t *testing.T) {
+func TestAFailedRemovalOfTheQuestionLabelAfterWontDoRetriesOnTheNextPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
@@ -325,16 +325,19 @@ func TestAFailedCloseWorkstreamAfterWontDoRetriesOnTheNextPoll(t *testing.T) {
 	fake.AddLabel(shop, 12, "mobius:question", "owner")
 	fake.FailRemoveLabels(shop, 12, true)
 
-	if status, _ := closeWontDo(t, server, 12); status != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", status)
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
 	}
 	var state string
 	var closePending int
 	if err := server.DB.QueryRow("SELECT state, close_pending FROM workstreams WHERE repository = ? AND number = 12", shop).Scan(&state, &closePending); err != nil {
 		t.Fatal(err)
 	}
-	if state != "closed" || closePending != 1 {
-		t.Fatalf("row after failed won't-do close = (%q, %d), want (\"closed\", 1)", state, closePending)
+	if state != "closed" || closePending != 0 {
+		t.Fatalf("row after the won't-do close = (%q, %d), want (\"closed\", 0)", state, closePending)
+	}
+	if !slices.Contains(fake.Labels(shop, 12), "mobius:question") {
+		t.Fatalf("labels = %v", fake.Labels(shop, 12))
 	}
 
 	fake.FailRemoveLabels(shop, 12, false)

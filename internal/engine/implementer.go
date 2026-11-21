@@ -171,8 +171,8 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if queued == 0 {
 		return "", refuse("The task of #%d is %s, not dispatched.", number, task.State)
 	}
-	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
-		log.Printf("remove %s from %s#%d: %v", questionLabel, repository.FullName, number, err)
+	if err := e.closeQuestionItems(ctx, repository.FullName, number); err != nil {
+		log.Printf("close the question of %s#%d: %v", repository.FullName, number, err)
 	}
 	j := job{
 		task:        task,
@@ -291,8 +291,7 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 }
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
-// makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
-// the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
+// makes a draft pull request ready for review, and adds the Inbox item for the Owner. Before the check, it posts the report of the Lead as a comment on the pull request. With a merge level, it
 // then approves the pull request for the Owner (autoApprove), and a failure of that does not fail the approval. It also adds
 // a todo for each new deployment need of the task. Before the check of the new head passes, it ends an approval of Mobius
 // from an earlier head, so the poll cannot merge the new head while a todo blocks.
@@ -497,8 +496,7 @@ func approvalAgainComment(branch, head, approved, reportHead, report string) str
 
 // approve adds comment as an outgoing change on the pull request, sets the Mobius check of the head to success, stores leadReport in the
 // task, makes a draft pull request ready for review, or a ready pull request a draft while a deployment need blocks
-// (blockedByTodos), replaces mobius:working with mobius:review, and adds the Inbox
-// item for the Owner. While a todo blocks, the item is not merging, even when the task has an approval, and it gets
+// (blockedByTodos), and adds the Inbox item for the Owner. While a todo blocks, the item is not merging, even when the task has an approval, and it gets
 // the reason openTodosReason. It stores the approved head last, so a retry after a failed write still sees the earlier approval.
 // It completes the check after each GitHub write that can be refused, so a refused write leaves the check open and a
 // task in approval stays there instead of calling onChecks again at each poll.
@@ -554,12 +552,6 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
 			return err
 		}
-	}
-	if err := repository.AddLabel(ctx, task.Issue, reviewLabel); err != nil {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
 	}
 	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", summary); err != nil {
 		return err
@@ -787,9 +779,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		if err := e.queries.DropLeadFindings(ctx, store.DropLeadFindingsParams{Taken: kept, ID: r.task.ID}); err != nil {
 			return false, err
 		}
-		if err := resumeWork(ctx, repository, r.task); err != nil {
-			return false, err
-		}
 		if err := e.setFixRoundStep(ctx, repository, r.pullRequest.GetHead().GetSHA(), r.cause, count); err != nil {
 			return false, err
 		}
@@ -799,18 +788,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		return true, nil
 	}, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 	return nil
-}
-
-// resumeWork replaces mobius:review of the issue of a task in ready_for_review with mobius:working, because a round
-// starts. task.State is the state before the round.
-func resumeWork(ctx context.Context, repository github.Repository, task store.Task) error {
-	if task.State != "ready_for_review" {
-		return nil
-	}
-	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
-	}
-	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
 }
 
 // makeDraft makes the pull request a draft, so that a pull request that is ready for review is a draft during the round.
@@ -868,9 +845,6 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	defer func() {
 		err = errors.Join(err, e.dismissReadyForReview(ctx, task, task.State))
 	}()
-	if err := resumeWork(ctx, repository, task); err != nil {
-		return err
-	}
 	j := job{
 		task:          task,
 		title:         issue.GetTitle(),
@@ -935,7 +909,7 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 }
 
 func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string) error {
-	return e.queries.SetTaskWorker(ctx, store.SetTaskWorkerParams{
+	return e.setTaskWorker(ctx, store.SetTaskWorkerParams{
 		Worker:      sql.NullString{String: worker, Valid: true},
 		WorkerInput: sql.NullString{String: input, Valid: true},
 		ID:          task,

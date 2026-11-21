@@ -63,6 +63,7 @@ func (e *Engine) pauseTask(ctx context.Context, repository github.Repository, ta
 		return store.InboxItem{}, false, err
 	}
 	var item store.InboxItem
+	var change int64
 	moved := false
 	err = e.inTx(ctx, func(q *store.Queries) error {
 		changed, err := q.SetTaskState(ctx, store.SetTaskStateParams{State: "owner_action", ID: task.ID, FromState: from})
@@ -70,6 +71,9 @@ func (e *Engine) pauseTask(ctx context.Context, repository github.Repository, ta
 			return err
 		}
 		moved = true
+		if change, err = addStateLabelsChange(ctx, q, task.Repository, task.Issue); err != nil {
+			return err
+		}
 		item, err = q.AddInboxItem(ctx, store.AddInboxItemParams{
 			Kind:                 ownerActionKind,
 			Organization:         repository.Owner(),
@@ -94,13 +98,13 @@ func (e *Engine) pauseTask(ctx context.Context, repository github.Repository, ta
 	}
 	e.publish(Change{Workstreams: true})
 	e.publish(Change{Inbox: &item})
-	return item, true, nil
+	return item, true, e.sendLabelsNow(ctx, task.Repository, change)
 }
 
 // markOwnerAction pauses the dispatched task, or the task with a pull request that waits for CI, for the Lead or for the
 // Owner, or that needs a human, until the Owner marks the action as done or the Lead clears it. Then Mobius starts
-// the step next. It removes the state label of the old state, and it dismisses the ready for review item or the
-// stopped items of the old state. No review round runs, so it adds no Lead event.
+// the step next. It dismisses the ready for review item or the stopped items of the old state. The state label of the
+// old state goes away with the send of the state. No review round runs, so it adds no Lead event.
 func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository github.Repository, input markOwnerActionInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -143,28 +147,21 @@ func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository githu
 	if !moved {
 		return "", refuse("The task of #%d is not %s any more.", input.N, task.State)
 	}
-	if err := e.cleanAfterPause(ctx, repository, task); err != nil {
+	if err := e.cleanAfterPause(ctx, task); err != nil {
 		return "", fmt.Errorf("the task of #%d waits for the action now, but the clean up failed: %w", input.N, err)
 	}
 	return fmt.Sprintf("Paused the task of #%d. Inbox item %d has the action. After the Owner marks it as done, or after clear_owner_action, Mobius starts the step %s.", input.N, item.ID, input.Next), nil
 }
 
-// cleanAfterPause removes the state label of the state that the task left for owner_action, and dismisses the Inbox
-// items of that state.
-func (e *Engine) cleanAfterPause(ctx context.Context, repository github.Repository, task store.Task) error {
+// cleanAfterPause dismisses the Inbox items of the state that the task left for owner_action.
+func (e *Engine) cleanAfterPause(ctx context.Context, task store.Task) error {
 	switch task.State {
 	case "needs_human":
-		if err := removeNeedsHuman(ctx, repository, task); err != nil {
-			return err
-		}
 		return e.dismissIssueItems(ctx, task.Repository, task.Issue, stoppedKind)
 	case "ready_for_review":
-		if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
-			return err
-		}
 		return e.dismissReadyForReview(ctx, task, task.State)
 	}
-	return repository.RemoveLabel(ctx, task.Issue, workingLabel)
+	return nil
 }
 
 // doneOwnerAction starts the next step of the task of the open owner action Inbox item. The task gets zero round
@@ -268,7 +265,7 @@ func (e *Engine) startAfterOwnerAction(ctx context.Context, task store.Task, act
 		if !empty(note) {
 			text += "\nNote of the Owner: " + strings.TrimSpace(note)
 		}
-		moved, err := e.redispatch(ctx, repository, issue, task, text, commentRef{})
+		moved, err := e.redispatch(ctx, issue, task, text, commentRef{})
 		if err == nil && !moved {
 			return refuse("The task does not wait for this action.")
 		}
@@ -309,7 +306,7 @@ func (e *Engine) reviewAgain(ctx context.Context, repository github.Repository, 
 	if queued == 0 {
 		return refuse("The task does not wait for this action.")
 	}
-	if err := e.queries.SetTaskWorker(ctx, store.SetTaskWorkerParams{Worker: sql.NullString{String: ReviewerRole, Valid: true}, ID: task.ID}); err != nil {
+	if err := e.setTaskWorker(ctx, store.SetTaskWorkerParams{Worker: sql.NullString{String: ReviewerRole, Valid: true}, ID: task.ID}); err != nil {
 		return err
 	}
 	e.runReviewer(reviewJob{task: task, title: issue.GetTitle(), pullRequest: pullRequest, head: head, parent: parent})

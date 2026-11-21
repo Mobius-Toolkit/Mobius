@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	gh "github.com/google/go-github/v92/github"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
@@ -470,32 +472,28 @@ func stopReason(number int64, text string) string {
 	return prefix.ReplaceAllString(text, "")
 }
 
-// ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
-// task. It continues a task in needs_human at once, as resume says. An issue with no live task has lost its task: ResumeIssue requests a Start
-// instead, so the dispatch starts a new task. The removal of mobius:needs-human uses the user token of the Owner,
-// because the poll trusts that change only from a trusted user.
+// ResumeIssue continues a task in needs_human at once, as resume says. The send of the state labels then removes
+// mobius:needs-human from the issue and from the pull request of the task. An issue with no live task has lost its
+// task: ResumeIssue requests a Start instead, so the dispatch starts a new task, and it dismisses the lost item and
+// sends the state labels, so the issue loses mobius:needs-human.
 func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
 		return err
 	}
-	asOwner, err := e.github.AsOwner(ctx, repository)
-	if err != nil {
-		// The text tells the Owner how to authorize the Mobius App.
-		return refusal(err.Error())
-	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := asOwner.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
-			return err
-		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
-			return err
-		}
 		if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
 			return err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
+			return err
+		}
+		change, err := addStateLabelsChange(ctx, e.queries, repository.FullName, number)
+		if err != nil {
+			return err
+		}
+		if err := e.sendNow(ctx, repository, change); err != nil {
 			return err
 		}
 		e.addIssueRecord(ctx, repository, number, "You resumed")
@@ -504,22 +502,12 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	if err != nil {
 		return err
 	}
-	if err := removeNeedsHuman(ctx, asOwner, task); err != nil {
-		return err
-	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
-		return err
-	}
 	if task.State == "needs_human" {
 		issue, err := e.existingIssue(ctx, repository, number)
 		if err != nil {
 			return err
 		}
-		owner, _, err := asOwner.Client.Users.Get(ctx, "")
-		if err != nil {
-			return err
-		}
-		if err := e.resume(ctx, repository, issue, task, owner.GetLogin()); err != nil {
+		if err := e.resumeNeedsHuman(ctx, repository, issue, task, "ui"); err != nil {
 			return err
 		}
 	}
@@ -528,6 +516,25 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	}
 	e.addIssueRecord(ctx, repository, number, "You resumed")
 	return nil
+}
+
+// resumeNeedsHuman continues the task of the issue as resume says, when the live task of the issue is still the task in
+// needs_human that the caller read. The Resume of a person, mark_ready, and each resume of the poll for a task in
+// needs_human call it. It holds stopMu and reads the task again, so two of them do not continue one task two times.
+func (e *Engine) resumeNeedsHuman(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
+	e.stopMu.Lock()
+	defer e.stopMu.Unlock()
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.State != "needs_human" || current.NeedsHumanAt != task.NeedsHumanAt {
+		return nil
+	}
+	return e.resume(ctx, repository, issue, current, actor)
 }
 
 // addIssueRecord adds a record "<what> <issue>." to the Lead chat of the Workstream of the issue number. The live
@@ -573,9 +580,6 @@ func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number in
 			return err
 		}
 		if err := e.stopTask(ctx, repository, task, "Stopped by the Owner."); err != nil {
-			return err
-		}
-		if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel}); err != nil {
 			return err
 		}
 		e.addIssueRecord(ctx, repository, number, "You stopped")

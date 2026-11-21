@@ -274,9 +274,9 @@ type ResumeIssueRequest struct {
 	}
 }
 
-// ResumeIssue removes mobius:needs-human from an issue and from the pull request of its task, so Mobius continues the
-// task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with
-// the steps when the Owner did not.
+// ResumeIssue continues the stopped task of an issue. Mobius then removes mobius:needs-human from the issue and from the
+// pull request of the task. An issue with no live task gets a Start request. It returns 409 when Mobius refuses the
+// action.
 func (h *handlers) ResumeIssue(ctx context.Context, req ResumeIssueRequest) error {
 	err := h.engine.ResumeIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {

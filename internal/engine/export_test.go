@@ -20,6 +20,19 @@ func UseProgram(t *testing.T, path string) {
 	t.Cleanup(func() { executable = previous })
 }
 
+// ResumeNeedsHuman calls resumeNeedsHuman for the issue number of the repository with the task that the caller read.
+func (e *Engine) ResumeNeedsHuman(ctx context.Context, repositoryName string, number int64, task store.Task, actor string) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return err
+	}
+	return e.resumeNeedsHuman(ctx, repository, issue, task, actor)
+}
+
 // The tests make these waits short.
 var (
 	ToolsTimeout             = &toolsTimeout

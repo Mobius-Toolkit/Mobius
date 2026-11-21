@@ -134,22 +134,6 @@ func TestTheNeedsHumanListHasAStoppedTaskInAnotherRepository(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(apiData[[]needsHuman](t, server, "/api/needs-human"), want) })
 }
 
-func TestAPollRemovesTheStateLabelsOfATaskIssueOfAnotherRepositoryWhenItsTaskEnded(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	addGardenTask(fake)
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
-		VALUES (1, 'owner/garden', 'owner/shop', 7, 12, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
-	server.WaitForFirstPoll(t, shop)
-	server.WaitForFirstPoll(t, garden)
-
-	for _, label := range []string{"mobius:working", "mobius:review", "mobius:question", "mobius:needs-human"} {
-		fake.AddLabel(garden, 7, label, testkit.AppSlug+"[bot]")
-	}
-
-	testkit.WaitFor(t, func() bool { return len(fake.Labels(garden, 7)) == 0 })
-}
-
 func TestSearchIssuesGivesAnIssueOfAnotherRepositoryWithItsRepositoryAndItsOwnComments(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

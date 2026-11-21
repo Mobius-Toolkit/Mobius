@@ -192,7 +192,7 @@ func TestAHeldEventStaysHeldWhileTheQuestionItemIsOpenAndFreesAtTheDismissOfTheI
 	if len(prompts) != 5 || !strings.Contains(prompts[3], "Held follow-up.") || !strings.Contains(prompts[4], "Ready for approval.") {
 		t.Errorf("prompts = %q", prompts)
 	}
-	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
+	if slices.Contains(fake.Labels(shop, 41), "mobius:question") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }

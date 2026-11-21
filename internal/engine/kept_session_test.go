@@ -499,6 +499,7 @@ func TestAStoppedTaskClosesTheKeptImplementerSession(t *testing.T) {
 	kept := waitForKept(t, server, 41)
 	taskID := liveTask(t, server, 41).ID
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
+	waitForSentChanges(t, server)
 
 	fake.RemoveLabel(shop, 41, "mobius:working", "owner")
 

@@ -1327,7 +1327,7 @@ func (e *Engine) setTaskStateClearStart(ctx context.Context, params store.SetTas
 }
 
 func (e *Engine) setTaskStateWithStart(ctx context.Context, params store.SetTaskStateParams, repository string, number int64, clearStart bool) (int64, error) {
-	var moved, clearedQueue int64
+	var moved, clearedQueue, change int64
 	var task store.Task
 	if clearStart {
 		e.copyWrite.Lock()
@@ -1338,6 +1338,9 @@ func (e *Engine) setTaskStateWithStart(ctx context.Context, params store.SetTask
 		if err != nil || moved == 0 {
 			return err
 		}
+		if task, change, err = addTaskLabelsChange(ctx, q, params.ID); err != nil {
+			return err
+		}
 		if clearStart {
 			if _, err := q.ClearIssueStart(ctx, store.ClearIssueStartParams{Repository: repository, Number: number}); err != nil {
 				return err
@@ -1346,11 +1349,6 @@ func (e *Engine) setTaskStateWithStart(ctx context.Context, params store.SetTask
 		if !afterReview(params.State) {
 			if clearedQueue, err = q.ClearTaskMergeQueuedAt(ctx, params.ID); err != nil {
 				return err
-			}
-			if clearedQueue > 0 {
-				if task, err = q.GetTask(ctx, params.ID); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
@@ -1368,13 +1366,40 @@ func (e *Engine) setTaskStateWithStart(ctx context.Context, params store.SetTask
 			}
 		}
 		e.publish(Change{Workstreams: true})
+		return moved, e.sendLabelsNow(ctx, task.Repository, change)
 	}
 	return moved, nil
 }
 
+// changeTask runs write, which changes a value of the row of the task id that the state labels read, and adds the
+// outgoing change of the state labels in the same transaction. It gives the number of the rows that write changed, the
+// task, and the id of the change. A write that changed no row adds no change.
+func (e *Engine) changeTask(ctx context.Context, id int64, write func(q *store.Queries) (int64, error)) (int64, store.Task, int64, error) {
+	var task store.Task
+	var moved, change int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		if moved, err = write(q); err != nil || moved == 0 {
+			return err
+		}
+		task, change, err = addTaskLabelsChange(ctx, q, id)
+		return err
+	})
+	return moved, task, change, err
+}
+
+// writeTask is changeTask, and it sends the change at once. It gives the number of the rows that write changed.
+func (e *Engine) writeTask(ctx context.Context, id int64, write func(q *store.Queries) (int64, error)) (int64, error) {
+	moved, task, change, err := e.changeTask(ctx, id, write)
+	if err != nil || moved == 0 {
+		return 0, err
+	}
+	return moved, e.sendLabelsNow(ctx, task.Repository, change)
+}
+
 // queueTask moves the task like QueueTask. It publishes a Workstream change when the task moved.
 func (e *Engine) queueTask(ctx context.Context, params store.QueueTaskParams) (int64, error) {
-	moved, err := e.queries.QueueTask(ctx, params)
+	moved, err := e.writeTask(ctx, params.ID, func(q *store.Queries) (int64, error) { return q.QueueTask(ctx, params) })
 	if err == nil && moved > 0 {
 		e.publish(Change{Workstreams: true})
 	}
@@ -1383,7 +1408,7 @@ func (e *Engine) queueTask(ctx context.Context, params store.QueueTaskParams) (i
 
 // requeueTask moves the task like RequeueTask. It publishes a Workstream change when the task moved.
 func (e *Engine) requeueTask(ctx context.Context, id int64) (int64, error) {
-	moved, err := e.queries.RequeueTask(ctx, id)
+	moved, err := e.writeTask(ctx, id, func(q *store.Queries) (int64, error) { return q.RequeueTask(ctx, id) })
 	if err == nil && moved > 0 {
 		e.publish(Change{Workstreams: true})
 	}
@@ -1396,7 +1421,7 @@ func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWork
 	if err != nil {
 		return 0, err
 	}
-	moved, err := e.queries.StartTaskWorker(ctx, params)
+	moved, err := e.writeTask(ctx, params.ID, func(q *store.Queries) (int64, error) { return q.StartTaskWorker(ctx, params) })
 	if err == nil && moved > 0 {
 		if task.MergeQueuedAt.Valid {
 			if pubErr := e.publishMergeQueue(ctx, task.Repository, task); pubErr != nil {
@@ -1406,6 +1431,26 @@ func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWork
 		e.publish(Change{Workstreams: true})
 	}
 	return moved, err
+}
+
+// setTaskWorker stores the Worker of the task and its input like SetTaskWorker. The Worker can change the state labels.
+func (e *Engine) setTaskWorker(ctx context.Context, params store.SetTaskWorkerParams) error {
+	_, err := e.writeTask(ctx, params.ID, func(q *store.Queries) (int64, error) { return 1, q.SetTaskWorker(ctx, params) })
+	return err
+}
+
+// endTaskRow ends the task like EndTask and adds the outgoing change of the state labels. It gives the id of the change,
+// which the caller sends after it stopped the Worker of the task.
+func (e *Engine) endTaskRow(ctx context.Context, id int64) (int64, error) {
+	_, _, change, err := e.changeTask(ctx, id, func(q *store.Queries) (int64, error) { return 1, q.EndTask(ctx, id) })
+	return change, err
+}
+
+// stopTaskRow stops the task like StopTask and adds the outgoing change of the state labels. It gives the number of
+// the rows that it changed and the id of the change, which the caller sends after it stopped the Worker of the task.
+func (e *Engine) stopTaskRow(ctx context.Context, id int64) (int64, int64, error) {
+	moved, _, change, err := e.changeTask(ctx, id, func(q *store.Queries) (int64, error) { return q.StopTask(ctx, id) })
+	return moved, change, err
 }
 
 // dismissReadyForReview dismisses the ready for review Inbox items of the issue of the task, when from is

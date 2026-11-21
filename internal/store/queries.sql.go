@@ -4611,6 +4611,66 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 	return text, err
 }
 
+const getNewestTask = `-- name: GetNewestTask :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestTaskParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) GetNewestTask(ctx context.Context, arg GetNewestTaskParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getNewestTask, arg.Repository, arg.Issue)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+		&i.ApprovedReview,
+		&i.RefusedReview,
+		&i.NeedsHumanAt,
+		&i.ConflictHead,
+		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
+		&i.CheckErrors,
+		&i.LeadFindings,
+		&i.Recoveries,
+		&i.BreakWaitHead,
+		&i.RerunHead,
+		&i.RerunRuns,
+		&i.WorkstreamRepository,
+		&i.BranchChecked,
+		&i.AutoMerge,
+		&i.ApprovedHead,
+		&i.Report,
+		&i.ApprovedReport,
+		&i.ApprovedAgainHead,
+		&i.ApprovedAgainComment,
+		&i.ApprovedReportHead,
+		&i.MergeQueuedAt,
+		&i.ReviewedHead,
+		&i.ApprovedAgainChange,
+		&i.MergeHeadAt,
+	)
+	return i, err
+}
+
 const getNewestTaskOfPullRequest = `-- name: GetNewestTaskOfPullRequest :one
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs, workstream_repository, branch_checked, auto_merge, approved_head, report, approved_report, approved_again_head, approved_again_comment, approved_report_head, merge_queued_at, reviewed_head, approved_again_change, merge_head_at, total_fix_rounds, total_review_rounds FROM tasks WHERE repository = ? AND pull_request = ? ORDER BY id DESC LIMIT 1
 `
@@ -7530,55 +7590,6 @@ func (q *Queries) ListEndedCIFailurePullRequestPlaces(ctx context.Context, arg L
 			&i.Lines,
 			&i.CreatedAt,
 			&i.BranchUpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEndedTaskIssueLabels = `-- name: ListEndedTaskIssueLabels :many
-SELECT DISTINCT CAST(i.number AS INTEGER) AS number, i.repository AS issue_repository, i.metadata,
-    EXISTS (
-        SELECT 1 FROM inbox_items n
-        WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.issue = i.number AND i.repository = n.repository
-    ) AS lost
-FROM issues i
-JOIN workstreams w ON w.id = i.workstream
-WHERE w.repository = ?1 AND i.state = 'open'
-  AND EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state = 'ended' AND i.repository = t.repository)
-  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.issue = i.number AND t.state <> 'ended' AND i.repository = t.repository)
-ORDER BY i.number
-`
-
-type ListEndedTaskIssueLabelsRow struct {
-	Number          int64
-	IssueRepository string
-	Metadata        string
-	Lost            bool
-}
-
-func (q *Queries) ListEndedTaskIssueLabels(ctx context.Context, repository string) ([]ListEndedTaskIssueLabelsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listEndedTaskIssueLabels, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListEndedTaskIssueLabelsRow
-	for rows.Next() {
-		var i ListEndedTaskIssueLabelsRow
-		if err := rows.Scan(
-			&i.Number,
-			&i.IssueRepository,
-			&i.Metadata,
-			&i.Lost,
 		); err != nil {
 			return nil, err
 		}

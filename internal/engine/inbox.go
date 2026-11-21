@@ -79,7 +79,7 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 
 // closeInboxItems dismisses each Inbox item of repository whose action of the Owner is done. It reads the issue of the
 // item from GitHub, because an item can be newer than the labels of the local copy.
-//   - A question is done when the issue has no mobius:question.
+//   - A question is done when the issue has no mobius:question and no write of the state labels is pending.
 //   - A stopped task is done when its task is no longer in needs_human. A Judge that runs from needs_human keeps it open.
 //   - A lost task is done when the issue has a live task.
 //   - Each of these items is done when its issue is closed.
@@ -98,11 +98,16 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if item.Repository != repository.FullName || !slices.Contains([]string{questionKind, stoppedKind, lostKind}, item.Kind) {
 			continue
 		}
+		// The check comes before the read of the issue, so a send between the two cannot hide a pending write.
+		writing, err := e.stateLabelsPending(ctx, item.Repository, item.Issue)
+		if err != nil {
+			return err
+		}
 		issue, err := repository.Issue(ctx, item.Issue)
 		if err != nil {
 			return err
 		}
-		done, err := e.actionDone(ctx, issue, item)
+		done, err := e.actionDone(ctx, issue, item, writing)
 		if err != nil {
 			return err
 		}
@@ -121,13 +126,16 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 	return nil
 }
 
-func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.InboxItem) (bool, error) {
+// actionDone tells if the action of the Owner of the item is done. writing tells that an outgoing change of the state
+// labels of the issue of the item was pending before the read of the issue, so the issue can lack mobius:question
+// until the send writes it.
+func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.InboxItem, writing bool) (bool, error) {
 	if issue == nil || issue.GetState() == "closed" {
 		return true, nil
 	}
 	switch item.Kind {
 	case questionKind:
-		return !hasLabel(issue, questionLabel), nil
+		return !writing && !hasLabel(issue, questionLabel), nil
 	case stoppedKind:
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -446,7 +454,7 @@ func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem,
 		return store.InboxItem{}, refuse("Pull request #%d is already merged or closed.", item.PullRequest)
 	}
 	ctx = context.WithoutCancel(ctx)
-	if err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
+	if _, err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
 		return store.InboxItem{}, err
 	}
 	item, err = e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 1, ID: id})
@@ -505,13 +513,28 @@ func (e *Engine) Dismiss(ctx context.Context, id int64) error {
 	return err
 }
 
+// dismiss dismisses the Inbox item id. The dismiss of a question or lost item of an issue adds the outgoing change of
+// the state labels of that issue in the same transaction, and sends it.
 func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error) {
-	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})
+	var item store.InboxItem
+	var change int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		item, err = q.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})
+		if err != nil || item.Issue == 0 || item.Kind != questionKind && item.Kind != lostKind {
+			return err
+		}
+		change, err = addStateLabelsChange(ctx, q, item.Repository, item.Issue)
+		return err
+	})
 	if err != nil {
 		return item, err
 	}
 	e.publish(Change{Inbox: &item})
-	return item, nil
+	if change == 0 {
+		return item, nil
+	}
+	return item, e.sendLabelsNow(ctx, item.Repository, change)
 }
 
 // DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item. For a

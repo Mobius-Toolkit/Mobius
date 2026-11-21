@@ -101,6 +101,7 @@ func TestALeadCallWithNoRepositoryFailsAndChangesNothing(t *testing.T) {
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+	waitForSentStateLabels(t, server)
 	labels := fake.Labels(shop, 41)
 
 	session := run(t, server, leadSpec(t), "Stop it", "Start it")

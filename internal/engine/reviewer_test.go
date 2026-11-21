@@ -453,9 +453,11 @@ func TestAFailedUpdateOfTheReviewCommentGoesToTheNextPoll(t *testing.T) {
 	})
 }
 
-// commentWrites gives the number of outgoing changes that wait for the next poll.
+// commentWrites gives the number of outgoing changes that wait for the next poll, except the changes of the state
+// labels. A change of the state labels is pending for a short time after each change of the task.
 func commentWrites(t *testing.T, server *testserver.Server) int {
-	return outgoingChanges(t, server, "pending")
+	t.Helper()
+	return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE status = 'pending' AND field <> 'state_labels'")
 }
 
 // outgoingChanges gives the number of outgoing changes with the status.

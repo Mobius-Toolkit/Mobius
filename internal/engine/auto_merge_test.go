@@ -204,6 +204,9 @@ func TestAChangeOfTheLevelToOffStopsTheAutomaticMergeAndTheMergeButtonMerges(t *
 		items := itemsOf(t, server, "ready for review")
 		return len(items) == 1 && items[0].Merging
 	})
+	if approvedReview(t, server) == "" {
+		t.Fatal("the task holds no approval while its item is merging")
+	}
 
 	setWorkstreamAutopilot(t, server, "off")
 

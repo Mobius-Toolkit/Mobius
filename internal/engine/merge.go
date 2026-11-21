@@ -66,9 +66,9 @@ func awaitsMerge(task store.Task) bool {
 // mergeApprovedAfterApproval calls mergeApproved with the task row read again under approvalMu. Thus the poll sees the
 // task before the approval of its head (finishApproval) or after it, never between its steps. It does nothing while an
 // approval runs, because the next poll sees the task after the approval. It also does nothing when the task row is gone.
-// The approval of the Owner that finishApproval wrote on GitHub is not in the task row until keepApproval reads it, and the
-// poll read the reviews before the approval. Thus a queued task with auto_merge in ready_for_review that has no approval
-// reads the reviews again.
+// approveAsOwner stores the approval that it wrote in the task row. When that store fails after GitHub accepted the
+// review, the row has no approval until keepApproval reads it, and the poll read the reviews before the approval. Thus a
+// queued task with auto_merge in ready_for_review that has no approval reads the reviews again.
 func (e *Engine) mergeApprovedAfterApproval(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	if !e.approvalMu.TryLock() {
 		return false, nil

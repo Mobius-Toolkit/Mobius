@@ -29,9 +29,11 @@ func doneChangesOfPersons(t *testing.T, server *testserver.Server) int {
 	return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE status = 'done' AND actor <> ?", testkit.AppSlug+"[bot]")
 }
 
+// ownWrites counts the own writes that wait for an event of GitHub. The own writes of the state labels stay until the
+// age cleanup, because no incoming change reads the events of the state labels.
 func ownWrites(t *testing.T, server *testserver.Server) int {
 	t.Helper()
-	return countRows(t, server, "SELECT count(*) FROM own_writes")
+	return countRows(t, server, "SELECT count(*) FROM own_writes WHERE field <> 'state_labels'")
 }
 
 func TestAChangeOfAutopilotByATrustedUserChangesTheWorkstreamAndAddsAnEventForTheLead(t *testing.T) {
