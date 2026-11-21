@@ -273,9 +273,6 @@ func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) 
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	waitForPolls(t, fake)
-	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
-		t.Errorf("stopped items = %+v", items)
-	}
 	if task := liveTask(t, server, 41); task.CiFailedHead.String != sha {
 		t.Errorf("ci_failed_head = %v", task.CiFailedHead)
 	}
@@ -283,6 +280,7 @@ func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) 
 
 	wantStopNotice(t, server, fake, "CI failed", "The CI of the head commit failed, and a fix round cannot change it.",
 		"Read the failed jobs of PR #42. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
 	assertCIStop(t, server, fake, sha)
 	if runs := mobiusCheckRuns(fake); runs[0].Status != "completed" || runs[0].Output == nil || runs[0].Output.Title != "CI failed" {
 		t.Errorf("check runs = %+v", runs)

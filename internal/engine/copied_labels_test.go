@@ -104,10 +104,11 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
+	checkTasks(t, server, "ready")
+	server.Engine.Poll(t.Context())
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "ready")
 	waitForWorkstreams(t, changes)
 }
 
@@ -144,7 +145,7 @@ func TestStartChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, changes := startLabeled(t, fake, true, "")
+	server, changes := startLabeled(t, fake, true, taskInNeedsHuman)
 	fake.FailRemoveLabels(shop, 41, true)
 
 	if status, _ := postIssue(t, server, "resume"); status == http.StatusNoContent {
@@ -156,25 +157,6 @@ func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 	}
 	checkTasks(t, server, "needs-human")
 	noWorkstreams(t, changes)
-}
-
-func TestThePollShowsTheRowAgainWhenGitHubStillHasNeedsHuman(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := startLabeled(t, fake, true, taskInNeedsHuman)
-	if status, body := postIssue(t, server, "resume"); status != http.StatusNoContent {
-		t.Fatalf("status = %d: %s", status, body)
-	}
-	if rows := needsHumanRows(t, server); rows != 0 {
-		t.Fatalf("rows = %d", rows)
-	}
-
-	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
-	server.Engine.Poll(t.Context())
-
-	if rows := needsHumanRows(t, server); rows != 1 {
-		t.Errorf("rows = %d", rows)
-	}
 }
 
 func TestTheTasksPanelListsAStoppedTaskWhenTheCopyHasNoStateLabel(t *testing.T) {

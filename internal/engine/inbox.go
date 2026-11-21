@@ -80,7 +80,7 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 // closeInboxItems dismisses each Inbox item of repository whose action of the Owner is done. It reads the issue of the
 // item from GitHub, because an item can be newer than the labels of the local copy.
 //   - A question is done when the issue has no mobius:question.
-//   - A stopped task is done when the issue has no mobius:needs-human.
+//   - A stopped task is done when its task is no longer in needs_human.
 //   - A lost task is done when the issue has a live task.
 //   - Each of these items is done when its issue is closed.
 //
@@ -129,7 +129,11 @@ func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.Inb
 	case questionKind:
 		return !hasLabel(issue, questionLabel), nil
 	case stoppedKind:
-		return !hasLabel(issue, needsHumanLabel), nil
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
+		}
+		return err == nil && task.State != "needs_human", err
 	case lostKind:
 		_, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 		if errors.Is(err, sql.ErrNoRows) {

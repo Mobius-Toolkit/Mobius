@@ -105,8 +105,12 @@ func TestATaskThatWaitsInDispatchedForMoreThanTwoHoursGivesTheLeadOneReminderAnd
 
 func TestATaskInDispatchedWithAQuestionGetsNoReminder(t *testing.T) {
 	t.Parallel()
-	fake, server := dispatchedTask(t)
-	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	fake := testkit.NewFakeGitHub(t)
+	ask := "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
+	server, _ := connectWith(t, fake, ask+leadWaits, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	waitForPolls(t, fake)
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
 

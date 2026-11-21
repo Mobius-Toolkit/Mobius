@@ -312,9 +312,6 @@ func TestAStalePullRequestWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *t
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	waitForPolls(t, fake)
-	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
-		t.Errorf("stopped items = %+v", items)
-	}
 	fake.FailAddLabels(shop, 41, false)
 
 	wantStopNotice(t, server, fake, "PR #42 has a merge conflict", "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
@@ -327,7 +324,8 @@ func TestAStalePullRequestWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *t
 	if runs := mobiusCheckRuns(fake); len(runs) != 1 || runs[0].Status != "completed" || runs[0].Conclusion != "failure" || runs[0].Output == nil || runs[0].Output.Title != "Stale pull request" {
 		t.Errorf("check runs = %+v", runs)
 	}
-	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	if hasLabel(fake, "mobius:working") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }
