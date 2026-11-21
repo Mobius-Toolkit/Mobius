@@ -997,6 +997,16 @@ func TestServer(t *testing.T) {
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
+	for _, stopped := range []struct {
+		repository string
+		workstream int64
+		issue      int64
+	}{{"owner/shop", 12, 42}, {"plants/garden", 20, 21}, {"plants/garden", 20, 22}, {"plants/garden", 30, 31}, {"plants/garden", 30, 32}, {"plants/garden", 19, 72}} {
+		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+			VALUES (?1, ?1, ?2, ?3, 'needs_human', ?4)`, stopped.repository, stopped.issue, stopped.workstream, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for number, state := range map[int64]string{38: "checks", 39: "approval"} {
 		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
 			VALUES ('owner/shop', 'owner/shop', ?, 12, ?, ?)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {

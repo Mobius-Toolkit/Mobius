@@ -207,7 +207,7 @@ func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {
 	waitForTasks(t, server, []taskLine{line(40, "Add plan model", "queued", 0), api})
 }
 
-func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
+func TestTheNeedsHumanListHasTheOpenIssuesThatAreStoppedOrAskedInTheTrees(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
@@ -216,19 +216,21 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	// The issue of a task exists, so the poll keeps the task.
 	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddIssue(shop, 42, "Let customers change plans")
+	fake.AddIssue(shop, 50, "Store the price in cents")
 	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
-		VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z', 45)`)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z', 45),
+		('owner/shop', 'owner/shop', 42, 12, 'working', '2026-09-30T00:00:00Z', NULL),
+		('owner/shop', 'owner/shop', 50, 12, 'needs_human', '2026-09-30T00:00:00Z', NULL)`)
 	server.WaitForFirstPoll(t, shop)
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddPullRequest(shop, 45, "Add plan model")
 	// The task keeps working while it asks, so mobius:working comes first.
-	fake.AddIssue(shop, 50, "Store the price in cents")
 	fake.AddSubIssue(shop, 41, 50)
 	fake.AddLabel(shop, 50, "mobius:working", "owner")
 	fake.AddLabel(shop, 50, "mobius:needs-human", "owner")
 	fake.AddLabel(shop, 50, "mobius:question", "owner")
-	fake.AddIssue(shop, 42, "Let customers change plans")
 	fake.AddSubIssue(shop, 12, 42)
 	fake.AddLabel(shop, 42, "mobius:working", "owner")
 	fake.AddIssue(shop, 43, "Add season table")
@@ -242,6 +244,11 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddIssue(shop, 51, "Cents or dollars?")
 	fake.AddSubIssue(shop, 12, 51)
 	fake.AddLabel(shop, 51, "mobius:question", "owner")
+	if _, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		('question', 'owner/shop', 'owner/shop', 12, 50, 'Cents or dollars?', '', '2026-10-04T12:00:00Z'),
+		('question', 'owner/shop', 'owner/shop', 12, 51, 'Cents or dollars?', '', '2026-10-04T12:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 
 	pullRequest := int64(45)
 	pullRequestURL := "https://github.com/owner/shop/pull/45"
@@ -264,7 +271,9 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddIssue(shop, 42, "Let customers change plans")
 	fake.AddIssue(shop, 43, "Show plans")
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z'),
+		('owner/shop', 'owner/shop', 42, 12, 'needs_human', '2026-09-30T00:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 42)
@@ -303,6 +312,7 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	})
 
 	question(41, "2026-10-04T12:00:00Z", "Which plan model do you want?")
+	question(43, "2026-10-04T12:00:00Z", "Which plan list do you want?")
 	fake.AddLabel(shop, 41, "mobius:question", "owner")
 	fake.AddLabel(shop, 43, "mobius:question", "owner")
 	testkit.WaitFor(t, func() bool {
@@ -318,7 +328,10 @@ func TestTheNeedsHumanListHasTheReasonWithNoPrefixOfTheStopEventsAndKeepsTheText
 	for number, title := range map[int64]string{41: "Add plan model", 42: "Let customers change plans", 43: "Show plans"} {
 		fake.AddIssue(shop, number, title)
 	}
-	server := startServer(t, fake, t.TempDir(), "")
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z'),
+		('owner/shop', 'owner/shop', 42, 12, 'needs_human', '2026-09-30T00:00:00Z'),
+		('owner/shop', 'owner/shop', 43, 12, 'needs_human', '2026-09-30T00:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 	for _, number := range []int64{41, 42, 43} {
 		fake.AddSubIssue(shop, 12, number)

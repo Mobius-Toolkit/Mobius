@@ -27,9 +27,6 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 	if hasLabel(fake, "mobius:needs-human") {
 		t.Fatalf("labels = %v", fake.Labels(shop, 41))
 	}
-	if comments, items := fake.Comments(shop, 41), inbox(t, server); len(comments) != 0 || len(items) != 0 {
-		t.Errorf("comments = %+v, inbox = %+v", comments, items)
-	}
 
 	fake.FailAddLabels(shop, 41, false)
 

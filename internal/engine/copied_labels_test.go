@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,7 +37,12 @@ func startLabeled(t *testing.T, fake *testkit.FakeGitHub, stopped bool, before s
 // statement before runs before the server starts.
 func startOnePoll(t *testing.T, fake *testkit.FakeGitHub, before string) (*testserver.Server, <-chan engine.Change) {
 	t.Helper()
-	dataDir := t.TempDir()
+	return startOnePollWith(t, fake, before, t.TempDir())
+}
+
+// startOnePollWith is startOnePoll with the data directory dataDir, which can hold a fake Harness.
+func startOnePollWith(t *testing.T, fake *testkit.FakeGitHub, before, dataDir string) (*testserver.Server, <-chan engine.Change) {
+	t.Helper()
 	// The App exists before the server starts, so the first poll of the server reads the repository, and no other poll runs.
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
 	if err != nil {
@@ -102,7 +108,11 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "ready")
+	checkTasks(t, server, "open")
+	events := leadEvents(t, server)
+	if len(events) != 1 || events[0].Kind != "dispatch" || !strings.Contains(events[0].Payload, ` "Add plan model" by @owner:`) {
+		t.Errorf("events = %+v", events)
+	}
 	waitForWorkstreams(t, changes)
 }
 
@@ -139,7 +149,7 @@ func TestStartChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, changes := startLabeled(t, fake, true, "")
+	server, changes := startLabeled(t, fake, true, taskInNeedsHuman)
 	fake.FailRemoveLabels(shop, 41, true)
 
 	if status, _ := postIssue(t, server, "resume"); status == http.StatusNoContent {
@@ -153,21 +163,30 @@ func TestAFailedLabelWriteOfResumeKeepsTheCopy(t *testing.T) {
 	noWorkstreams(t, changes)
 }
 
-func TestThePollShowsTheRowAgainWhenGitHubStillHasNeedsHuman(t *testing.T) {
+func TestTheTasksPanelListsAStoppedTaskWhenTheCopyHasNoStateLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := startLabeled(t, fake, true, taskInNeedsHuman)
-	if status, body := postIssue(t, server, "resume"); status != http.StatusNoContent {
-		t.Fatalf("status = %d: %s", status, body)
+	server, _ := startLabeled(t, fake, false, taskInNeedsHuman)
+
+	rows := apiData[[]needsHuman](t, server, "/api/needs-human")
+
+	if len(rows) != 1 || rows[0].Number != 41 || !rows[0].Stopped || rows[0].Question {
+		t.Errorf("rows = %+v", rows)
 	}
-	if rows := needsHumanRows(t, server); rows != 0 {
-		t.Fatalf("rows = %d", rows)
+}
+
+func TestTheTasksPanelListsAnOpenQuestionWhenTheCopyHasNoStateLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askedWithNoPoll(t, fake)
+	waitForItem(t, server, "question")
+	if _, err := server.DB.Exec(`UPDATE issues SET metadata = json_set(metadata, '$.github.labels', json('[]')) WHERE number = 41`); err != nil {
+		t.Fatal(err)
 	}
 
-	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
-	server.Engine.Poll(t.Context())
+	rows := apiData[[]needsHuman](t, server, "/api/needs-human")
 
-	if rows := needsHumanRows(t, server); rows != 1 {
-		t.Errorf("rows = %d", rows)
+	if len(rows) != 1 || rows[0].Number != 41 || rows[0].Stopped || !rows[0].Question {
+		t.Errorf("rows = %+v", rows)
 	}
 }

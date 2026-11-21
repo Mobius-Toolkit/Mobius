@@ -1712,11 +1712,11 @@ func (e *Engine) releaseEvents(ctx context.Context, repository string, workstrea
 }
 
 // freeClosedQuestionHolds frees the held events of each Workstream of the repository whose question closed after the
-// hold. The Workstream has no issue with mobius:question and no open question item, and a question item closed after
+// hold. The Workstream has no open question item, and a question item closed after
 // the hold of a held event. A hold that came after the close waits for a message of the Owner. The hold of a Lead turn
 // that runs now stays, because it is not stored yet.
 func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string) error {
-	events, err := e.queries.ListHeldLeadEventsWithoutQuestion(ctx, store.ListHeldLeadEventsWithoutQuestionParams{Repository: repository, QuestionLabel: questionLabel})
+	events, err := e.queries.ListHeldLeadEventsWithoutQuestion(ctx, repository)
 	if err != nil || len(events) == 0 {
 		return err
 	}

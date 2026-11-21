@@ -333,9 +333,9 @@ type NeedsHuman struct {
 	Number     int64
 	Title      string
 	URL        string
-	// Stopped is true when the issue has mobius:needs-human: the task stopped.
+	// Stopped is true when the live task of the issue is in needs_human, or the issue has an open lost Inbox item.
 	Stopped bool
-	// Question is true when the issue has mobius:question: the Lead waits for an answer.
+	// Question is true when the issue has an open question Inbox item: the Lead waits for an answer.
 	Question bool
 	// PullRequest is the pull request of the live task of the issue, or 0.
 	PullRequest    int64
@@ -344,10 +344,10 @@ type NeedsHuman struct {
 	Reason string
 }
 
-// NeedsHuman gives the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of the
+// NeedsHuman gives the open issues of trusted authors that are stopped or have an open question in the trees of the
 // Workstreams, from the local copy, by repository, Workstream and number.
 func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
-	rows, err := e.queries.ListCopiedIssuesWithLabels(ctx, store.ListCopiedIssuesWithLabelsParams{NeedsHuman: needsHumanLabel, Question: questionLabel})
+	rows, err := e.queries.ListIssuesNeedingHuman(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 		if !ok || row.State != "open" || !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			continue
 		}
-		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: issueLink(repository.FullName, row.Number), Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
+		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: issueLink(repository.FullName, row.Number), Stopped: row.Stopped, Question: row.Question}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: row.Number})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -468,7 +468,7 @@ func stopReason(number int64, text string) string {
 }
 
 // ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
-// task. The next poll continues the task. An issue with no live task has lost its task: ResumeIssue requests a Start
+// task. It continues a task in needs_human at once, as resume says. An issue with no live task has lost its task: ResumeIssue requests a Start
 // instead, so the dispatch starts a new task. The removal of mobius:needs-human uses the user token of the Owner,
 // because the poll trusts that change only from a trusted user.
 func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
@@ -506,6 +506,19 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	}
 	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
 		return err
+	}
+	if task.State == "needs_human" {
+		issue, err := e.existingIssue(ctx, repository, number)
+		if err != nil {
+			return err
+		}
+		owner, _, err := asOwner.Client.Users.Get(ctx, "")
+		if err != nil {
+			return err
+		}
+		if err := e.resume(ctx, repository, issue, task, owner.GetLogin()); err != nil {
+			return err
+		}
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
 		return err

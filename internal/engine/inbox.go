@@ -80,7 +80,7 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 // closeInboxItems dismisses each Inbox item of repository whose action of the Owner is done. It reads the issue of the
 // item from GitHub, because an item can be newer than the labels of the local copy.
 //   - A question is done when the issue has no mobius:question.
-//   - A stopped task is done when the issue has no mobius:needs-human.
+//   - A stopped task is done when its task is no longer in needs_human. A Judge that runs from needs_human keeps it open.
 //   - A lost task is done when the issue has a live task.
 //   - Each of these items is done when its issue is closed.
 //
@@ -109,7 +109,7 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if !done {
 			continue
 		}
-		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" && hasLabel(issue, needsHumanLabel) {
+		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" {
 			if err := e.reopenStoppedItem(ctx, item); err != nil {
 				return err
 			}
@@ -129,7 +129,11 @@ func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.Inb
 	case questionKind:
 		return !hasLabel(issue, questionLabel), nil
 	case stoppedKind:
-		return !hasLabel(issue, needsHumanLabel), nil
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+		if errors.Is(err, sql.ErrNoRows) {
+			return true, nil
+		}
+		return err == nil && task.State != "needs_human" && !judgesHuman(task), err
 	case lostKind:
 		_, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -202,6 +206,12 @@ func (e *Engine) openIssueItems(ctx context.Context, repository string, number i
 	return slices.DeleteFunc(items, func(item store.InboxItem) bool {
 		return item.Repository != repository || item.Issue != number || !slices.Contains(kinds, item.Kind)
 	}), nil
+}
+
+// hasOpenQuestion tells if the issue number of repository has an open question Inbox item.
+func (e *Engine) hasOpenQuestion(ctx context.Context, repository string, number int64) (bool, error) {
+	items, err := e.openIssueItems(ctx, repository, number, questionKind)
+	return len(items) > 0, err
 }
 
 // dismissIssueItems dismisses each Inbox item of the kinds that is open on the issue number of repository.
