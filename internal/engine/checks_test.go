@@ -343,10 +343,7 @@ func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
-	if hasLabel(fake, "mobius:working") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
-	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:needs-human"}) })
 	if count := implementers(t, server); count != 1 {
 		t.Errorf("Implementers = %d", count)
 	}

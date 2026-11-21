@@ -24,8 +24,10 @@ const (
 
 // handLostTasks continues the earlier task of each issue of repository that has mobius:needs-human, mobius:review or
 // mobius:working and no live task, when its pull request is still open. Else it hands to a human each such issue that has
-// mobius:working or mobius:review: the task is lost with the store. The Inbox item comes before the label change, so a
-// later poll finds the issue again after a failure.
+// mobius:working or mobius:review: the task is lost with the store. The send of the state labels gives the issue
+// mobius:needs-human, because the issue has an open lost Inbox item. It reads these labels from GitHub, because the
+// task is lost with the store. An issue with a pending change of the state labels is no lost task: its task ended or
+// changed, and the send writes the labels.
 func (e *Engine) handLostTasks(ctx context.Context, repository github.Repository) error {
 	for _, label := range []string{needsHumanLabel, reviewLabel, workingLabel} {
 		if err := e.handLostTasksWith(ctx, repository, label); err != nil {
@@ -49,6 +51,13 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		writing, err := e.stateLabelsPending(ctx, repository.FullName, number)
+		if err != nil {
+			return err
+		}
+		if writing {
+			continue
+		}
 		recovered, err := e.recoverTask(ctx, repository, issue, label)
 		if err != nil {
 			return err
@@ -60,27 +69,7 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if err != nil {
 			return err
 		}
-		if err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:                 lostKind,
-			Organization:         repository.Owner(),
-			Repository:           repository.FullName,
-			WorkstreamRepository: workstreamRepository,
-			Workstream:           workstream,
-			Issue:                number,
-			Title:                issue.GetTitle(),
-			Reason:               "Mobius lost the task",
-			Text:                 lostText,
-			Link:                 issue.GetHTMLURL(),
-		}); err != nil {
-			return err
-		}
-		if err := repository.AddLabel(ctx, number, needsHumanLabel); err != nil {
-			return err
-		}
-		if err := repository.RemoveLabel(ctx, number, workingLabel); err != nil {
-			return err
-		}
-		if err := repository.RemoveLabel(ctx, number, reviewLabel); err != nil {
+		if err := e.addLostItem(ctx, repository, issue, workstreamRepository, workstream); err != nil {
 			return err
 		}
 		if err := e.postComment(ctx, repository, number, lostText); err != nil {
@@ -88,6 +77,39 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		}
 	}
 	return nil
+}
+
+// addLostItem adds the lost Inbox item of the issue and the outgoing change of its state labels in one transaction, and
+// sends the change.
+func (e *Engine) addLostItem(ctx context.Context, repository github.Repository, issue *gh.Issue, workstreamRepository string, workstream int64) error {
+	var item store.InboxItem
+	var change int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		item, err = q.AddInboxItem(ctx, store.AddInboxItemParams{
+			Kind:                 lostKind,
+			Organization:         repository.Owner(),
+			Repository:           repository.FullName,
+			WorkstreamRepository: workstreamRepository,
+			Workstream:           workstream,
+			Issue:                int64(issue.GetNumber()),
+			Title:                issue.GetTitle(),
+			Reason:               "Mobius lost the task",
+			Text:                 lostText,
+			Link:                 issue.GetHTMLURL(),
+			Time:                 now(),
+		})
+		if err != nil {
+			return err
+		}
+		change, err = addStateLabelsChange(ctx, q, repository.FullName, int64(issue.GetNumber()))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Inbox: &item})
+	return e.sendNow(ctx, repository, change)
 }
 
 // endedTaskToContinue gives the newest ended task of the issue number that has a branch and a pull request, when
@@ -137,7 +159,8 @@ func (e *Engine) recoverTask(ctx context.Context, repository github.Repository, 
 			return false, err
 		}
 	}
-	recovered, err := e.queries.RecoverTask(ctx, store.RecoverTaskParams{State: state, ID: task.ID, Max: int64(e.config.MaxWorkerRestarts)})
+	params := store.RecoverTaskParams{State: state, ID: task.ID, Max: int64(e.config.MaxWorkerRestarts)}
+	recovered, err := e.writeTask(ctx, task.ID, func(q *store.Queries) (int64, error) { return q.RecoverTask(ctx, params) })
 	if err != nil || recovered == 0 {
 		return false, err
 	}
@@ -166,7 +189,7 @@ func (e *Engine) stateBeforeEnd(ctx context.Context, task int64) (string, error)
 // continueEndedTask opens the ended task again in the state stopped, because the Owner continued the issue, and
 // continues it as resume says. The limit of recoveries does not apply.
 func (e *Engine) continueEndedTask(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
-	reopened, err := e.queries.ContinueEndedTask(ctx, task.ID)
+	reopened, err := e.writeTask(ctx, task.ID, func(q *store.Queries) (int64, error) { return q.ContinueEndedTask(ctx, task.ID) })
 	if err != nil {
 		return err
 	}

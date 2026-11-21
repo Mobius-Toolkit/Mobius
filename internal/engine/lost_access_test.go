@@ -59,6 +59,28 @@ func TestACompleteReadWithNoAccessToTheRepositoryEndsItsLiveTask(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
 }
 
+func TestTheStateLabelsOfATaskThatEndedWithTheLostAccessGoAwayWhenTheAccessComesBack(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaiting(t, fake, "checks")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") })
+	waitForSentChanges(t, server)
+
+	fake.RemoveRepository(shop)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'state_labels' AND status = 'pending'"); got != 1 {
+		t.Errorf("pending changes of the state labels = %d, want 1", got)
+	}
+	if !hasLabel(fake, "mobius:working") {
+		t.Fatalf("labels = %v", fake.Labels(shop, 41))
+	}
+
+	fake.RestoreRepository(shop)
+
+	testkit.WaitFor(t, func() bool { return len(fake.Labels(shop, 41)) == 0 })
+}
+
 func TestTheCopyOfARepositoryComesBackWhenItsAccessComesBack(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

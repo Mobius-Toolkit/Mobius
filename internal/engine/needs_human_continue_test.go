@@ -240,20 +240,6 @@ func TestAStopOnTheRoundLimitStaysInNeedsHumanWhenTheCIPasses(t *testing.T) {
 	}
 }
 
-func TestATaskThatContinuesKeepsMobiusQuestion(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	server, id := stoppedOnFailedCI(t, fake, noChange)
-	fake.AddLabel(shop, 41, "mobius:question", "owner")
-
-	fake.SetCheckRunStatus(id, "completed", "success")
-
-	waitForReadyEvents(t, fake, server, 2)
-	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:needs-human") })
-	if labels := fake.Labels(shop, 41); !slices.Contains(labels, "mobius:question") {
-		t.Errorf("labels = %v", labels)
-	}
-}
-
 func TestACommentOfATrustedUserOnTheIssueOfATaskInNeedsHumanContinuesTheTaskAndResetsItsCounters(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -30,28 +30,11 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 
 	fake.FailAddLabels(shop, 41, false)
 
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
-	if labels := fake.Labels(shop, 41); slices.Contains(labels, "mobius:working") || slices.Contains(labels, "mobius:review") {
-		t.Errorf("labels = %v", labels)
-	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:needs-human"}) })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 && len(inbox(t, server)) == 1 })
 	waitForPolls(t, fake)
 	if comments, items := fake.Comments(shop, 41), inbox(t, server); len(comments) != 1 || len(items) != 1 {
 		t.Errorf("comments = %+v, inbox = %+v", comments, items)
-	}
-}
-
-func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := seedWaiting(t, fake, "needs_human")
-	fake.AddLabel(shop, 41, "mobius:review", testkit.AppSlug+"[bot]")
-
-	testkit.WaitFor(t, func() bool {
-		return hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review")
-	})
-	if state := taskState(t, server); state != "needs_human" {
-		t.Errorf("state = %s", state)
 	}
 }
 

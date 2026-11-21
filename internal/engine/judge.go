@@ -552,9 +552,6 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
 			return err
 		}
-		if err := e.unstop(ctx, repository, j.task); err != nil {
-			return err
-		}
 	}
 	counts := slices.ContainsFunc(routes.round, func(item itemVerdicts) bool {
 		return slices.ContainsFunc(item.Actions, func(a action) bool { return a.Verdict == fixVerdict })

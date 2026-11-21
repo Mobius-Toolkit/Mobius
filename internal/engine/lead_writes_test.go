@@ -137,7 +137,7 @@ func TestTheAddOfMobiusAutopilotThatTheLeadMadeHasNoEffect(t *testing.T) {
 	}
 }
 
-func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *testing.T) {
+func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchItAndContinuesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaitingAdjusted(t, fake, "needs_human", leadWriteScript("gh issue edit 41 -R owner/shop --remove-label mobius:needs-human"), func(cfg *config.Config) { stubGH(t, cfg.DataDir) })
@@ -151,8 +151,10 @@ func TestAnEventOfTheAppMoreThanTenMinutesAfterAWriteOfTheLeadDoesNotMatchIt(t *
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
 
-	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 6 })
+	hasNoEffect(t, fake, server)
+	if rounds := liveTask(t, server, 41).FixRounds; rounds != 5 {
+		t.Errorf("fix rounds = %d, want 5", rounds)
+	}
 }
 
 func TestTheAddOfMobiusTriageThatTheAppMadeStartsNoTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {
@@ -186,12 +188,15 @@ func TestTheRemovalOfNeedsHumanThatTheLeadMadeSetsTheRoundCountersBackToZero(t *
 
 			fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
 
-			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-			want := 6
-			if recorded {
-				want = 1
+			if !recorded {
+				hasNoEffect(t, fake, server)
+				if rounds := liveTask(t, server, 41).FixRounds; rounds != 5 {
+					t.Errorf("fix rounds = %d, want 5", rounds)
+				}
+				return
 			}
-			testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == int64(want) })
+			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+			testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 		})
 	}
 }

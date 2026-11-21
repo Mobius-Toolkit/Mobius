@@ -111,12 +111,11 @@ func TestATaskThatLosesItsWorkerAfterMaxWorkerRestartsGoesToAHuman(t *testing.T)
 
 	server.Engine.StopWorker(1)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "needs_human" && slices.Equal(fake.Labels(shop, 41), []string{"mobius:needs-human"})
+	})
 	if restarts := taskRestarts(t, server, 41); restarts != 1 {
 		t.Errorf("worker restarts = %d", restarts)
-	}
-	if hasLabel(fake, "mobius:working") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	waitForPolls(t, fake)
 	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 2 {

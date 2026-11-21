@@ -109,9 +109,7 @@ reply = ["Seen"]
 	if got := fake.Comments(shop, 12); !slices.Equal(got, want) {
 		t.Errorf("comments = %v", got)
 	}
-	if !slices.Contains(fake.Labels(shop, 12), "mobius:question") {
-		t.Errorf("labels = %v", fake.Labels(shop, 12))
-	}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), "mobius:question") })
 }
 
 func TestAskRefusesAQuestionWithOneOption(t *testing.T) {

@@ -114,6 +114,22 @@ func TestAStartContinuesTheEndedTaskOfAnIssueForHumanReviewInReadyForReview(t *t
 	}
 }
 
+func TestTheLabelsShowTheContinuedTaskWhenANewerEndedTaskHasNoPullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+
+	server := seedEnded(t, fake, []string{"mobius:review"}, 0, nil,
+		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+		 VALUES (2, 'owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T12:00:00Z', '2026-10-04T12:00:00Z')`)
+
+	testkit.WaitFor(t, func() bool { return taskStateOf(t, server, 41) == "ready_for_review" })
+	waitForSentChanges(t, server)
+	waitForPolls(t, fake)
+	if labels := fake.Labels(shop, 41); !reflect.DeepEqual(labels, []string{"mobius:review"}) {
+		t.Errorf("labels = %q", labels)
+	}
+}
+
 func TestAStartContinuesTheEndedTaskOfAnIssueWithNeedsHumanInNeedsHumanAndKeepsItsInboxItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

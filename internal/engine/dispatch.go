@@ -136,7 +136,11 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			continue
 		}
 		if live {
-			if err := e.queries.EndTask(ctx, task.ID); err != nil {
+			change, err := e.endTaskRow(ctx, task.ID)
+			if err != nil {
+				return err
+			}
+			if err := e.sendLabelsNow(ctx, task.Repository, change); err != nil {
 				return err
 			}
 			e.closeKept(task.ID)
@@ -186,18 +190,17 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 		return err
 	}
 	number := int64(issue.GetNumber())
-	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
-		return err
-	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, nil); err != nil {
-		return err
-	}
+	var change int64
 	e.copyWrite.Lock()
 	err = e.inTx(ctx, func(q *store.Queries) error {
 		if _, err := q.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, WorkstreamRepository: workstreamRepository, Workstream: workstream, DispatchedAt: now()}); err != nil {
 			return err
 		}
-		_, err := q.ClearIssueStart(ctx, store.ClearIssueStartParams{Repository: repository.FullName, Number: number})
+		if _, err := q.ClearIssueStart(ctx, store.ClearIssueStartParams{Repository: repository.FullName, Number: number}); err != nil {
+			return err
+		}
+		var err error
+		change, err = addStateLabelsChange(ctx, q, repository.FullName, number)
 		return err
 	})
 	e.copyWrite.Unlock()
@@ -205,6 +208,9 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, change); err != nil {
+		return err
+	}
 	text := eventText(time.Now(), "dispatch of", eventRef(workstreamRepository, repository.FullName, number), issue, actor, issue.GetBody())
 	return e.addLeadEvent(ctx, workstreamRepository, workstream, repository.FullName, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 }
@@ -258,7 +264,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			if err := e.answerQuestions(ctx, repository.FullName, number, replies); err != nil {
 				return err
 			}
-			if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+			if err := e.closeQuestionItems(ctx, repository.FullName, number); err != nil {
 				return err
 			}
 			if err := e.releaseEvents(ctx, task.WorkstreamRepository, task.Workstream); err != nil {
@@ -289,7 +295,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			}
 		}
 		if newest.GetCreatedAt().After(since) {
-			if err := e.resume(ctx, repository, issue, task, newest.GetUser().GetLogin()); err != nil {
+			if err := e.resumeNeedsHuman(ctx, repository, issue, task, newest.GetUser().GetLogin()); err != nil {
 				return err
 			}
 			if task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number}); err != nil {
@@ -466,7 +472,7 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 		replies.WriteString("\n\n" + change.Text.String)
 	}
 	text := eventText(time.Now(), "answer of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()) + replies.String()
-	_, err = e.redispatch(ctx, repository, issue, task, text, newest)
+	_, err = e.redispatch(ctx, issue, task, text, newest)
 	return err
 }
 
@@ -527,7 +533,7 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 			if err := e.answerQuestions(ctx, repository.FullName, number, events); err != nil {
 				return err
 			}
-			if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+			if err := e.closeQuestionItems(ctx, repository.FullName, number); err != nil {
 				return err
 			}
 			if err := e.releaseEvents(ctx, workstreamRepository, workstream); err != nil {
@@ -766,10 +772,10 @@ func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repositor
 	return e.queries.IsOwnerAnswer(ctx, store.IsOwnerAnswerParams{Repository: repository.FullName, CommentID: comment.GetID()})
 }
 
-// ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds
-// mobius:question, and adds an Inbox item that replaces the stopped item of the issue. The reply comes later as a
-// comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again. The
-// task moves before mobius:working goes away, because setStateLabels adds mobius:working again to a dispatched task.
+// ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, and adds an
+// Inbox item that replaces the stopped item of the issue. The send of the state labels then adds mobius:question. The
+// reply comes later as a comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply
+// dispatches it again.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input taskAskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -799,16 +805,19 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err != nil {
 		return "", err
 	}
-	for _, item := range replaced {
-		if err := e.Dismiss(ctx, item.ID); err != nil {
-			return "", err
-		}
-	}
 	var asked store.InboxItem
 	var message store.ChatMessage
-	var change int64
+	var change, labels int64
+	var dismissed []store.InboxItem
 	e.questionMu.Lock()
 	err = e.inTx(ctx, func(q *store.Queries) error {
+		for _, item := range replaced {
+			dismissedItem, err := q.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: item.ID})
+			if err != nil {
+				return err
+			}
+			dismissed = append(dismissed, dismissedItem)
+		}
 		var err error
 		if change, err = e.addOutgoingChange(ctx, q, repository.FullName, input.N, 0, commentField, comment); err != nil {
 			return err
@@ -826,14 +835,18 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			Questions:            questions,
 			Link:                 issue.GetHTMLURL(),
 		})
+		if err != nil {
+			return err
+		}
+		labels, err = addStateLabelsChange(ctx, q, repository.FullName, input.N)
 		return err
 	})
-	if err == nil {
-		err = repository.AddLabel(ctx, input.N, questionLabel)
-	}
 	e.questionMu.Unlock()
 	if err != nil {
 		return "", err
+	}
+	for _, item := range dismissed {
+		e.publish(Change{Inbox: &item})
 	}
 	if err := e.announceQuestion(ctx, asked, message); err != nil {
 		return "", err
@@ -841,14 +854,14 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err := e.sendNow(ctx, repository, change); err != nil {
 		return "", err
 	}
+	if err := e.sendNow(ctx, repository, labels); err != nil {
+		return "", err
+	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, input.N, stoppedKind); err != nil {
 		return "", err
 	}
 	if task.State == "dispatched" {
 		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "asked", ID: task.ID, FromState: "dispatched"}); err != nil {
-			return "", err
-		}
-		if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
 			return "", err
 		}
 	}
@@ -926,9 +939,8 @@ func questionsJSON(questions []Question) (string, error) {
 	return string(stored), err
 }
 
-// closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
-// removes mobius:question, and dismisses the open question items of the issue. An issue whose task is in needs_human
-// gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again. A call
+// closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue, and
+// dismisses the open question items of the issue (closeQuestionItems). mobius:question stays until the dismiss, so a failed call can run again. A call
 // adds no comment when the newest comment of the Mobius App already has text, or when the newest comment change of the
 // issue has text and is pending or sent.
 // task is the zero value for the Workstream issue. answer is the answer of the Owner that each dismissed question item
@@ -966,13 +978,13 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 			}
 		}
 	}
-	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
-		return err
-	}
-	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{questionLabel}); err != nil {
-		return err
-	}
-	items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
+	return e.closeQuestionItems(ctx, repository.FullName, number)
+}
+
+// closeQuestionItems dismisses the open question items of the issue number of repository. The send of the state labels
+// then removes mobius:question. An issue whose task is in needs_human gets its stopped item back.
+func (e *Engine) closeQuestionItems(ctx context.Context, repository string, number int64) error {
+	items, err := e.openIssueItems(ctx, repository, number, questionKind)
 	if err != nil {
 		return err
 	}
@@ -1191,7 +1203,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
-		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()), commentRef{})
+		moved, err = e.redispatch(ctx, issue, task, eventText(time.Now(), "resume of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()), commentRef{})
 	}
 	if err != nil || !moved {
 		return err
@@ -1217,10 +1229,7 @@ func (e *Engine) restoreIssueStart(ctx context.Context, repository string, numbe
 
 // redispatch gives the task with no pull request back to the Lead with a dispatch event that has text and comment. It
 // tells if the task moved.
-func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string, comment commentRef) (bool, error) {
-	if err := e.unstop(ctx, repository, task); err != nil {
-		return false, err
-	}
+func (e *Engine) redispatch(ctx context.Context, issue *gh.Issue, task store.Task, text string, comment commentRef) (bool, error) {
 	start, startErr := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: task.Repository, Number: task.Issue})
 	if startErr != nil && !errors.Is(startErr, sql.ErrNoRows) {
 		return false, startErr
@@ -1238,22 +1247,11 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	return true, nil
 }
 
-// unstop marks the task as working again: it adds mobius:working and removes mobius:needs-human.
-func (e *Engine) unstop(ctx context.Context, repository github.Repository, task store.Task) error {
-	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
-	}
-	return removeNeedsHuman(ctx, repository, task)
-}
-
 // continueTask continues the task with the pull request. A pull request with a merge conflict gets a conflict round.
 // Another pull request gets a fix round with its open review threads and the failed check runs of its head. The task
 // moves from the state from, and goes back to that state when the round fails to start. It tells if the task
 // moved.
 func (e *Engine) continueTask(ctx context.Context, repository github.Repository, title string, task store.Task, pullRequest *gh.PullRequest, from string) (bool, error) {
-	if err := e.unstop(ctx, repository, task); err != nil {
-		return false, err
-	}
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable()
 	to := "working"
 	if conflict {

@@ -96,8 +96,9 @@ type Engine struct {
 	// the open Workstreams of each organization at its last check.
 	missingWorkstreamsMu sync.Mutex
 	checkedWorkstreams   map[string]string
-	// questionMu makes the store of a new question item with the add of mobius:question in ask, and closeInboxItems, take
-	// turns. Else closeInboxItems can dismiss the new item, because its issue has no mobius:question yet.
+	// questionMu makes the store of a new question item with its outgoing change of the state labels in ask, and
+	// closeInboxItems, take turns. Else closeInboxItems can dismiss the new item, because its issue has no
+	// mobius:question yet.
 	questionMu sync.Mutex
 	// outgoingItems holds one mutex for each item with outgoing changes, by "repository#number". It makes the sends of the
 	// item take turns, so a send of the poll and an immediate send cannot both post the same comment. The poll skips an
@@ -120,8 +121,9 @@ type Engine struct {
 	// a poll between the steps of the approval can remove the task from the merge queue. A poll does not wait for it. It
 	// is taken before mergeMu.
 	approvalMu sync.Mutex
-	// stopMu makes StopIssue, stopTaskTool and dispatchReady take turns. Else a poll that read its issue page
-	// before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the old page.
+	// stopMu makes StopIssue, stopTaskTool, resumeNeedsHuman and dispatchReady take turns. Else a poll that read its
+	// issue page before a Stop can read the stopped task after the Stop, end it and dispatch the issue again from the
+	// old page.
 	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}
