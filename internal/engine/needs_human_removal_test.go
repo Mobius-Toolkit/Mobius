@@ -34,7 +34,7 @@ func implementerRounds(t *testing.T, server *testserver.Server) int {
 
 func hasNoEffect(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) {
 	t.Helper()
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
+	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
@@ -160,12 +160,10 @@ func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheIssueLacksTheLab
 	hasNoEffect(t, fake, server)
 }
 
-func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTheNextPollContinuesTheTask(t *testing.T) {
+func TestResumeContinuesTheTaskWithNoOwnerTokenAndTheSendRemovesNeedsHumanFromTheIssueAndFromThePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server := needsHumanWithLabels(t, fake, false)
-	authorize(t, server)
 	setFixRounds(t, server, 2)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {
@@ -176,9 +174,13 @@ func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTh
 	if hasLabel(fake, "mobius:ready") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:needs-human") && !pullRequestHasNeedsHuman(fake) })
 	for _, number := range []int64{41, pullRequestNumber} {
-		if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", "owner") {
-			t.Errorf("mobius:needs-human on #%d has no removal by the owner", number)
+		if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", app) {
+			t.Errorf("mobius:needs-human on #%d has no removal by the App", number)
+		}
+		if got := stateLabelWrites(t, server, number, "mobius:needs-human", "unlabeled"); got != 1 {
+			t.Errorf("own writes of the removal on #%d = %d, want 1", number, got)
 		}
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })

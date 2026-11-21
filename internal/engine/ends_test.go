@@ -344,7 +344,7 @@ func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
 		t.Fatal(err)
 	}
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	fake.FailResolveThreads(true)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")

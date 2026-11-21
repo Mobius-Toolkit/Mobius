@@ -72,7 +72,7 @@ func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) er
 	if j.conflictRound {
 		worker.WorkerInput = sql.NullString{String: conflictRoundWorker, Valid: true}
 	}
-	if err := e.queries.SetTaskWorker(ctx, worker); err != nil {
+	if err := e.setTaskWorker(ctx, worker); err != nil {
 		return err
 	}
 	e.runReviewer(reviewJob{task: j.task, title: j.title, pullRequest: p.pullRequest, head: p.head, parent: sql.NullInt64{Int64: session, Valid: true}})

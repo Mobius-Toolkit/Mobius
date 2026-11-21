@@ -832,8 +832,8 @@ func closureItem(repository string, issue *gh.Issue, pullRequest bool) ClosureIt
 	return ClosureItem{PullRequest: pullRequest, Repository: repository, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
 }
 
-// closeWorkstream ends the work of the Workstream, sets its Autopilot level to Off, removes mobius:question,
-// dismisses the Inbox items of its issues, closes the open pull requests of its
+// closeWorkstream ends the work of the Workstream, sets its Autopilot level to Off,
+// dismisses the Inbox items of its issues, which removes mobius:question, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
 	if err := e.deleteRecurringTasks(ctx, repository.FullName, workstream); err != nil {
@@ -844,9 +844,6 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	}
 	// The row of workstreams stays after the close, so a reopened Workstream starts with the level Off.
 	if _, err := e.setLevel(ctx, repository, workstream, levelOff); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, workstream, questionLabel); err != nil {
 		return err
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, workstream, inboxKinds...); err != nil {
@@ -876,27 +873,26 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		}
 	}
 	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue treeIssue) (bool, error) {
-		return false, e.closeBelowWorkstream(ctx, source, issue.number, issue.labels, issue.state == "open")
+		return false, e.closeBelowWorkstream(ctx, source, issue.number, issue.state == "open")
 	})
 	return err
 }
 
-// closeBelowWorkstream dismisses the Inbox items of the issue number below a closing Workstream, removes its Mobius
-// labels among labels, and, when open is true and the issue is still open, closes it as not planned.
-func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Repository, number int64, labels []string, open bool) error {
+// closeBelowWorkstream dismisses the Inbox items of the issue number below a closing Workstream, writes its state labels
+// from the database, and, when open is true and the issue is still open, closes it as not planned.
+func (e *Engine) closeBelowWorkstream(ctx context.Context, source github.Repository, number int64, open bool) error {
 	if err := e.dismissIssueItems(ctx, source.FullName, number, inboxKinds...); err != nil {
 		return err
 	}
 	if err := e.clearStart(ctx, source.FullName, number); err != nil {
 		return err
 	}
-	for _, label := range []string{workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
-		if !slices.Contains(labels, label) {
-			continue
-		}
-		if err := source.RemoveLabel(ctx, number, label); err != nil {
-			return err
-		}
+	change, err := addStateLabelsChange(ctx, e.queries, source.FullName, number)
+	if err != nil {
+		return err
+	}
+	if err := e.sendNow(ctx, source, change); err != nil {
+		return err
 	}
 	if !open {
 		return nil
@@ -981,7 +977,7 @@ func (e *Engine) closeSubIssuesOf(ctx context.Context, repository github.Reposit
 		if err := e.closeSubIssuesOf(ctx, repository, workstream, closedAt, source, number); err != nil {
 			return err
 		}
-		if err := e.closeBelowWorkstream(ctx, source, number, labelNames(sub.issue), true); err != nil {
+		if err := e.closeBelowWorkstream(ctx, source, number, true); err != nil {
 			return err
 		}
 	}

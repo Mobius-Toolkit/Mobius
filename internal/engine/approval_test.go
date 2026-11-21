@@ -445,7 +445,13 @@ func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script s
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
-	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	stateLabel, labeled := map[string]string{"needs_human": "mobius:needs-human", "ready_for_review": "mobius:review", "owner_action": ""}[state]
+	if !labeled {
+		stateLabel = "mobius:working"
+	}
+	if stateLabel != "" {
+		fake.AddLabel(shop, 41, stateLabel, testkit.AppSlug+"[bot]")
+	}
 	testkit.InstallFakeAgent(t, dataDir, options+script)
 	seed(t, dataDir,
 		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
@@ -460,6 +466,9 @@ func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script s
 	}
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
+	}
+	if state == "needs_human" {
+		fake.AddLabel(shop, 42, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	}
 	server.WaitForFirstPoll(t, shop)
 	return server, head(t, fake, "mobius/41")

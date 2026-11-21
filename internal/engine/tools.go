@@ -240,7 +240,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.updateBlockers),
 			taskTool(e, c, "mark_ready",
-				"Request a Start of an issue of the Workstream, or continue a task in mobius:needs-human by removing that label. Use it when the Owner tells you to start or continue an issue. For a stopped task, it resets the round counters and continues the task; for a task in mobius:needs-human, the round counters keep their values.",
+				"Request a Start of an issue of the Workstream, or continue a task in mobius:needs-human. Use it when the Owner tells you to start or continue an issue. For a stopped task, it resets the round counters and continues the task; for a task in mobius:needs-human, the round counters keep their values.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
@@ -1905,10 +1905,10 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	if err == nil && task.State == "needs_human" {
-		if err := removeNeedsHuman(ctx, repository, task); err != nil {
+		if err := e.resumeNeedsHuman(ctx, repository, issue, task, appLogin(repository.AppSlug)); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Removed mobius:needs-human from %s#%d, so the task continues.", repository.FullName, input.N), nil
+		return fmt.Sprintf("Continued the task of %s#%d.", repository.FullName, input.N), nil
 	}
 	if err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
 		return "", err
