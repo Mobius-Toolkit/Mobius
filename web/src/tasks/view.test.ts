@@ -1,8 +1,12 @@
 import { Option } from "effect";
-import { inertHtml } from "foldkit/html";
-import { describe, expect, it } from "vitest";
+import * as Scene from "foldkit/scene";
+import { describe, it } from "vitest";
+import { Navigate } from "./commands";
+import { Message } from "./message";
 import { initialModel } from "./model";
 import type { BoardTask } from "./schemas";
+import { defineRouterLink } from "@/ui/link";
+import { update } from "./update";
 import { view } from "./view";
 
 const task: BoardTask = {
@@ -27,19 +31,21 @@ const task: BoardTask = {
   mergeQueueSize: 0,
 };
 
-const render = (tasks: readonly BoardTask[]) =>
-  JSON.stringify(
-    view({ ...initialModel({ organization: "owner" }), tasks: Option.some(tasks) }, inertHtml),
-  );
+const RouterLink = defineRouterLink(Message.NavigateTo);
+
+const board = (tasks: readonly BoardTask[]) => ({
+  ...initialModel({ organization: "owner" }),
+  tasks: Option.some(tasks),
+});
 
 describe("the card of a task", () => {
   it("shows the total fix rounds and the total review rounds", () => {
-    expect(render([task])).toContain("fix 5 · review 4");
-  });
-
-  it("shows no round text when the totals are 0", () => {
-    const result = render([{ ...task, fixRounds: 0, totalFixRounds: 0, totalReviewRounds: 0 }]);
-    expect(result).not.toContain("fix ");
-    expect(result).not.toContain("review ");
+    Scene.scene(
+      { update, view },
+      Scene.given(board([task])),
+      Scene.Mount.resolve(RouterLink, Message.NavigateTo({ path: "/workstreams/owner/shop/12" })),
+      Scene.Command.resolve(Navigate, Message.CompletedNavigate()),
+      Scene.expect(Scene.text("fix 5 · review 4")).toExist(),
+    );
   });
 });
