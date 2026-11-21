@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,6 +109,10 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 		t.Errorf("rows = %d", rows)
 	}
 	checkTasks(t, server, "open")
+	events := leadEvents(t, server)
+	if len(events) != 1 || events[0].Kind != "dispatch" || !strings.Contains(events[0].Payload, ` "Add plan model" by @owner:`) {
+		t.Errorf("events = %+v", events)
+	}
 	waitForWorkstreams(t, changes)
 }
 

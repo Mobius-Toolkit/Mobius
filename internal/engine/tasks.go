@@ -512,7 +512,11 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err != nil {
 			return err
 		}
-		if err := e.resume(ctx, repository, issue, task, "ui"); err != nil {
+		owner, _, err := asOwner.Client.Users.Get(ctx, "")
+		if err != nil {
+			return err
+		}
+		if err := e.resume(ctx, repository, issue, task, owner.GetLogin()); err != nil {
 			return err
 		}
 	}
