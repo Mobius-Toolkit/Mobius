@@ -2038,29 +2038,36 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	return fmt.Sprintf("Created the Workstream #%d.", row.Number.Int64), nil
 }
 
-// triageEndText starts the comment of the Mobius App that ends the triage of an issue.
+// triageEndText starts the end comment of a triage.
 const triageEndText = "The triage ends."
 
 // endTriage comments on the issue of the Triager c with the link to the Workstream in workstreamRepository and closes
-// the issue as completed. since is the time of the approved action. A comment change with the same link line from
-// since on stays the only one, because a Triager reply can come between two runs of the step. An earlier comment with
-// the same link line belongs to an earlier triage of the issue.
+// the issue as completed. since is the time of the approved action. It stores the end in issues.triage_ended_at and adds
+// the comment in one transaction. A triage that ended from since on has its comment already, because a Triager reply
+// can come between two runs of the step. An earlier end belongs to an earlier triage of the issue.
 func (e *Engine) endTriage(ctx context.Context, c caller, workstreamRepository github.Repository, workstream int64, since string) error {
 	repository, err := e.repository(c.repository)
 	if err != nil {
 		return err
 	}
-	line := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream))
-	posted, err := e.queries.HasCommentChangeWithText(ctx, store.HasCommentChangeWithTextParams{Repository: repository.FullName, Number: c.issue, Part: line + "\n", Since: since})
+	text, err := e.withMark(ctx, c, repository.FullName, fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(workstreamRepository.FullName, workstream)))
 	if err != nil {
 		return err
 	}
-	if !posted {
-		text, err := e.withMark(ctx, c, repository.FullName, line)
-		if err != nil {
+	var change int64
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		ended, err := q.EndIssueTriage(ctx, store.EndIssueTriageParams{EndedAt: sql.NullString{String: now(), Valid: true}, Repository: repository.FullName, Number: c.issue, Since: since})
+		if err != nil || ended == 0 {
 			return err
 		}
-		if err := e.postComment(ctx, repository, c.issue, text); err != nil {
+		change, err = e.addOutgoingChange(ctx, q, repository.FullName, c.issue, 0, commentField, text)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if change != 0 {
+		if err := e.sendNow(ctx, repository, change); err != nil {
 			return err
 		}
 	}
