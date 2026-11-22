@@ -479,7 +479,7 @@ func TestARemovalOfTheWorkstreamLabelThatTheGHOfTheLeadMadeIsWrittenBack(t *test
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --remove-label mobius:workstream")
-	leadWrites(t, server, 1)
+	leadWrites(t, server)
 
 	fake.RemoveLabel(shop, 12, workstreamLabelName, app)
 

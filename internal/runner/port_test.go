@@ -137,8 +137,8 @@ func TestPortWritesTheErrorOfTheServerWithExitCode1(t *testing.T) {
 func TestACommandWithAPortURLHasTheURLAndNoInheritedURL(t *testing.T) {
 	t.Setenv("MOBIUS_PORT_URL", "http://127.0.0.1:1/ports/parent")
 
-	without := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "", "", "")
-	with := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "", "", "http://127.0.0.1:6363/ports/key")
+	without := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "", "")
+	with := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "", "http://127.0.0.1:6363/ports/key")
 
 	for _, entry := range without.Env {
 		if strings.HasPrefix(entry, "MOBIUS_PORT_URL=") {

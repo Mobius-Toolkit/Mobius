@@ -27,7 +27,7 @@ const accessTimeout = 2 * time.Minute
 // The access of the Harness to the model is good when the turn ends with no error. Only a prompt proves it, because a
 // model without access passes the start and the set. The error holds the error text of the Harness.
 func CheckAccess(ctx context.Context, harness config.Harness, model, effort, dir, dataDir, path string) error {
-	session, err := Start(ctx, harness, 0, false, false, dir, dataDir, path, "", nil, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(ctx, harness, 0, false, false, dir, dataDir, path, "", nil, "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func runScript(ctx context.Context, name, dataDir, worktree, path, portURL strin
 	if _, err := os.Stat(filepath.Join(worktree, script)); errors.Is(err, fs.ErrNotExist) {
 		return "", true, nil
 	}
-	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", "", portURL)
+	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", portURL)
 	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./"+script+" 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
@@ -125,7 +125,7 @@ func FreeSpace(ctx context.Context, dataDir, path string) (uint64, error) {
 	if df == "" {
 		return 0, errors.New("df is not on PATH")
 	}
-	cmd := command(ctx, df, dataDir, dataDir, path, "", "", "", "")
+	cmd := command(ctx, df, dataDir, dataDir, path, "", "", "")
 	cmd.Args = append(cmd.Args, "-Pk", dataDir)
 	output, err := run(cmd)
 	if err != nil {

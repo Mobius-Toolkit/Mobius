@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -16,13 +15,9 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// leadWriteScript gives the prompts of a fake Lead whose prompt "Lead write N." runs the gh command number N, from 1.
-func leadWriteScript(commands ...string) string {
-	var script strings.Builder
-	for i, command := range commands {
-		fmt.Fprintf(&script, "\n[[prompts]]\nwhen = \"Lead write %d.\"\nshell = %q\n", i+1, command)
-	}
-	return script.String()
+// leadWriteScript gives the prompts of a fake Lead whose prompt "Lead write." runs the gh command.
+func leadWriteScript(command string) string {
+	return fmt.Sprintf("\n[[prompts]]\nwhen = \"Lead write.\"\nshell = %q\n", command)
 }
 
 // stubGH makes a gh that changes nothing the real gh of the agents of dataDir. The test makes the change on the fake
@@ -44,60 +39,24 @@ func stubGH(t *testing.T, dataDir string) {
 	}
 }
 
-// leadWrites runs the gh command number n of the fake Lead.
-func leadWrites(t *testing.T, server *testserver.Server, n int) {
+// leadWrites runs the gh command of the fake Lead.
+func leadWrites(t *testing.T, server *testserver.Server) {
 	t.Helper()
-	session := run(t, server, leadSpec(t), fmt.Sprintf("Lead write %d.", n))
+	session := run(t, server, leadSpec(t), "Lead write.")
 	if text := reply(t, server, session); !strings.HasSuffix(text, "exit 0") {
 		t.Fatalf("reply = %q", text)
 	}
 }
 
-// connectLeadWrites is connectTriager with the prompts of commands for the Lead.
-func connectLeadWrites(t *testing.T, fake *testkit.FakeGitHub, commands ...string) *testserver.Server {
+// connectLeadWrites is connectTriager with the prompt of command for the Lead.
+func connectLeadWrites(t *testing.T, fake *testkit.FakeGitHub, command string) *testserver.Server {
 	t.Helper()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
-	server, dataDir := connect(t, fake, triager+leadWriteScript(commands...))
+	server, dataDir := connect(t, fake, triager+leadWriteScript(command))
 	stubGH(t, dataDir)
 	return server
-}
-
-func TestTheGHOfTheLeadRecordsOnlyTheCommentsWithTheSessionOfTheLead(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := connectLeadWrites(t, fake,
-		"gh issue edit 41 42 -R owner/shop --add-label mobius:ready --remove-label mobius:triage",
-		"gh pr comment 42 -R owner/shop --body 'Please rebase.'",
-		"gh issue list -R owner/shop",
-	)
-
-	for n := 1; n <= 3; n++ {
-		leadWrites(t, server, n)
-	}
-
-	var got []string
-	rows, err := server.DB.Query("SELECT session, repository, issue, kind, labels, text FROM lead_writes ORDER BY id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var session, issue int64
-		var repository, kind, labels, text string
-		if err := rows.Scan(&session, &repository, &issue, &kind, &labels, &text); err != nil {
-			t.Fatal(err)
-		}
-		if session == 0 {
-			t.Error("a write has no session")
-		}
-		got = append(got, fmt.Sprintf("%s#%d %s %s %q", repository, issue, kind, labels, text))
-	}
-	want := []string{fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark))}
-	if !slices.Equal(got, want) {
-		t.Errorf("writes = %q", got)
-	}
 }
 
 func TestTheRemovalOfMobiusTriageThatTheAppMadeDoesNotStopTheTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {
@@ -107,7 +66,7 @@ func TestTheRemovalOfMobiusTriageThatTheAppMadeDoesNotStopTheTriagerAlsoAfterAWr
 	fake.AddIssue(shop, 51, "Rename plans")
 	fake.AddLabel(shop, 51, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return !session.EndedAt.Valid })
-	leadWrites(t, server, 1)
+	leadWrites(t, server)
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", app)
 
@@ -121,7 +80,7 @@ func TestTheAddOfMobiusAutopilotThatTheLeadMadeHasNoEffect(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake, "gh issue edit 12 -R owner/shop --add-label mobius:autopilot")
-	leadWrites(t, server, 1)
+	leadWrites(t, server)
 
 	fake.AddLabel(shop, 12, "mobius:autopilot", app)
 
@@ -136,7 +95,7 @@ func TestTheAddOfMobiusTriageThatTheAppMadeStartsNoTriagerAlsoAfterAWriteOfTheLe
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLeadWrites(t, fake, "gh issue edit 53 -R owner/shop --add-label mobius:triage")
 	fake.AddIssue(shop, 53, "Add points")
-	leadWrites(t, server, 1)
+	leadWrites(t, server)
 
 	fake.AddLabel(shop, 53, "mobius:triage", app)
 
@@ -152,7 +111,7 @@ func TestTheAddOfMobiusReadyThatTheLeadMadeStartsNoTaskAndRemovesTheLabel(t *tes
 	server, dataDir := connectWith(t, fake, leadWriteScript("gh issue edit 41 -R owner/shop --add-label mobius:ready"), func(*config.Config) {})
 	stubGH(t, dataDir)
 	addStoppedTask(t, fake, server)
-	leadWrites(t, server, 1)
+	leadWrites(t, server)
 
 	fake.AddLabel(shop, 41, "mobius:ready", app)
 
