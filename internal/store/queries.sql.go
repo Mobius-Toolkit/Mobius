@@ -5984,9 +5984,9 @@ func (q *Queries) HoldLeadEvent(ctx context.Context, arg HoldLeadEventParams) er
 
 const isAnswerComment = `-- name: IsAnswerComment :one
 SELECT EXISTS (
-    SELECT 1 FROM inbox_items
-    WHERE repository = ?1 AND issue = CAST(?2 AS INTEGER)
-        AND json_extract(metadata, '$.github.answer') = CAST(?3 AS INTEGER)
+    SELECT 1 FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = CAST(?2 AS INTEGER)
+        AND answer.value = CAST(?3 AS INTEGER)
 )
 `
 
@@ -12155,7 +12155,7 @@ func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams
 }
 
 const setAnswerComment = `-- name: SetAnswerComment :exec
-UPDATE inbox_items SET metadata = json_set(metadata, '$.github.answer', CAST(?1 AS INTEGER)) WHERE id = ?2
+UPDATE inbox_items SET metadata = json_insert(metadata, '$.github.answers[#]', CAST(?1 AS INTEGER)) WHERE id = ?2
 `
 
 type SetAnswerCommentParams struct {

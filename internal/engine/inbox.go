@@ -290,7 +290,7 @@ var ErrNoInboxIssue = errors.New("the Inbox item has no issue")
 
 // AnswerInboxItem posts text as a comment on the issue of the Inbox item id, with the user token of the Owner, and
 // gives the GitHub URL of the comment. For a question of the Coordinator, it adds text to the Coordinator chat as a
-// message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in $.github.answer
+// message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in $.github.answers
 // of the item, so the poll treats the comment as a comment of a trusted user. It returns a refusal when the Owner did not authorize the Mobius App.
 func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (string, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)

@@ -71,8 +71,10 @@ func TestACommentOfATrustedUserThroughTheMobiusAppIsAnEventOnlyWhenItIsAnOwnerAn
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.queries.SetAnswerComment(t.Context(), store.SetAnswerCommentParams{Comment: 7, ID: item.ID}); err != nil {
-		t.Fatal(err)
+	for _, id := range []int64{3, 7} {
+		if err := e.queries.SetAnswerComment(t.Context(), store.SetAnswerCommentParams{Comment: id, ID: item.ID}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	onIssue := func(c *gh.IssueComment, id, issue int64) *gh.IssueComment {
 		c.ID = &id
@@ -80,6 +82,7 @@ func TestACommentOfATrustedUserThroughTheMobiusAppIsAnEventOnlyWhenItIsAnOwnerAn
 		return c
 	}
 	answer := onIssue(comment("owner", "mobius-app", 0), 7, 41)
+	firstAnswer := onIssue(comment("owner", "mobius-app", 0), 3, 41)
 	other := onIssue(comment("owner", "mobius-app", 0), 8, 41)
 	stranger := onIssue(comment("mallory", "mobius-app", 0), 7, 41)
 	onAnotherIssue := onIssue(comment("owner", "mobius-app", 0), 7, 42)
@@ -87,7 +90,7 @@ func TestACommentOfATrustedUserThroughTheMobiusAppIsAnEventOnlyWhenItIsAnOwnerAn
 	for _, c := range []struct {
 		comment *gh.IssueComment
 		want    bool
-	}{{answer, true}, {other, false}, {stranger, false}, {onAnotherIssue, false}} {
+	}{{answer, true}, {firstAnswer, true}, {other, false}, {stranger, false}, {onAnotherIssue, false}} {
 		if isEvent, err := e.commentIsEvent(t.Context(), appRepository, c.comment); err != nil || isEvent != c.want {
 			t.Errorf("comment %d of %s on %s: event = %t, err = %v", c.comment.GetID(), c.comment.GetUser().GetLogin(), c.comment.GetIssueURL(), isEvent, err)
 		}

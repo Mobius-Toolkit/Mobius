@@ -764,7 +764,7 @@ func (e *Engine) replies(ctx context.Context, repository github.Repository, numb
 
 // commentIsEvent tells if the comment is an event for the Lead: a comment of a trusted user. A comment of the Lead
 // session has a trusted user as its author and the Mobius App in performed_via_github_app, so it is no event. An
-// answer of the Owner from the app has the same marks, and its id is in $.github.answer of an Inbox item of the issue.
+// answer of the Owner from the app has the same marks, and its id is in $.github.answers of an Inbox item of the issue.
 func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repository, comment *gh.IssueComment) (bool, error) {
 	if !e.trustedUser(comment.GetUser().GetLogin()) {
 		return false, nil

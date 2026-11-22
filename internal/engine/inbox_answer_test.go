@@ -32,10 +32,10 @@ func answer(t *testing.T, server *testserver.Server, id int64, text string) stri
 	return result.Data.URL
 }
 
-// answerCommentIDs gives $.github.answer of each Inbox item that has one.
+// answerCommentIDs gives $.github.answers of each Inbox item, in the order of the items and of the answers.
 func answerCommentIDs(t *testing.T, server *testserver.Server) []int64 {
 	t.Helper()
-	rows, err := server.DB.Query(`SELECT json_extract(metadata, '$.github.answer') FROM inbox_items WHERE json_extract(metadata, '$.github.answer') IS NOT NULL ORDER BY id`)
+	rows, err := server.DB.Query(`SELECT answer.value FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer ORDER BY inbox_items.id, answer.key`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +79,28 @@ func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEve
 	ids := fake.CommentIDs(shop, 41)
 	if got := answerCommentIDs(t, server); len(ids) != 2 || !slices.Equal(got, []int64{ids[1]}) {
 		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	}
+}
+
+func TestTwoAnswersFromTheInboxToTheSameItemKeepBothCommentIdsAndGiveTheLeadBothComments(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+
+	answer(t, server, item.ID, "Cents.")
+	answer(t, server, item.ID, "Dollars.")
+
+	ids := fake.CommentIDs(shop, 41)
+	if got := answerCommentIDs(t, server); len(ids) != 3 || !slices.Equal(got, ids[1:]) {
+		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	}
+	for _, reply := range []string{"> Cents.", "> Dollars."} {
+		testkit.WaitFor(t, func() bool {
+			return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, reply) })
+		})
 	}
 }
 
