@@ -227,6 +227,14 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"report": map[string]any{"type": "string", "minLength": 1, "description": "The report for the people on the issue: what the Project did, and where each item of its Done list is on the main branch."},
 				},
 				e.closeProject),
+			taskTool(e, c, "set_project",
+				"Move a task issue of the Workstream into a Project, to another Project, or out of a Project. Mobius sets the parent of the task issue in the database and sends the change to GitHub. It acts at once. It refuses a Workstream issue, a Project as n, an issue that is not in this Workstream, and a project that is not an open Project of this Workstream. A task that runs continues.",
+				map[string]any{
+					"repository": repositoryProperty,
+					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"project":    map[string]any{"type": "integer", "minimum": 0, "description": "The number of the Project issue, in the repository of the Workstream. 0 moves the task issue to a place directly below the Workstream issue."},
+				},
+				e.setProject),
 			taskTool(e, c, "set_implementer_binding",
 				"Set or clear the Implementer setting (Harness, model and effort) of a task issue, or of the Workstream issue. Use it only when the Owner asks for it. For the Workstream issue, the setting applies to each task of the Workstream with no setting of its own. An empty harness, model and effort clear the setting. The next Implementer session uses the setting, and a session that runs keeps its binding. Mobius refuses a setting that the Roles page refuses. It acts at once.",
 				map[string]any{
@@ -911,6 +919,12 @@ type closeProjectInput struct {
 	Report string `json:"report"`
 }
 
+type setProjectInput struct {
+	repositoryInput
+	N       int64 `json:"n"`
+	Project int64 `json:"project"`
+}
+
 type editIssueBodyInput struct {
 	repositoryInput
 	N    int64  `json:"n"`
@@ -1390,6 +1404,95 @@ type resolvedBlocker struct {
 	reference string
 	id        int64
 	issue     *gh.Issue
+}
+
+// setProject sets the parent of the task issue input.N in repository to the open Project input.Project of the Workstream
+// of c, or to the Workstream issue for 0, and sends the change to GitHub.
+func (e *Engine) setProject(ctx context.Context, c caller, repository github.Repository, input setProjectInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if input.Project < 0 {
+		return "", refuse("project must be 0 or more.")
+	}
+	workstreamIssue, err := e.queries.HasWorkstream(ctx, store.HasWorkstreamParams{Repository: repository.FullName, Number: input.N})
+	if err != nil {
+		return "", err
+	}
+	if workstreamIssue {
+		return "", refuse("%s#%d is a Workstream issue.", repository.FullName, input.N)
+	}
+	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: c.repository, Number: c.workstream})
+	if err != nil {
+		return "", err
+	}
+	at := slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool {
+		return row.Number == input.N && strings.EqualFold(row.IssueRepository, repository.FullName)
+	})
+	if at < 0 {
+		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
+	}
+	task := tree[at]
+	if task.Kind == projectKind {
+		return "", refuse("%s#%d is a Project.", repository.FullName, input.N)
+	}
+	var parent sql.NullInt64
+	place := "directly below the Workstream issue"
+	advice := "If an Implementer works on the task, tell it with send_message that the task is no longer in a Project."
+	if input.Project > 0 {
+		at := slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool {
+			return row.Number == input.Project && strings.EqualFold(row.IssueRepository, c.repository) && row.Kind == projectKind && row.State == "open"
+		})
+		if at < 0 {
+			return "", refuse("%s#%d is not an open Project of this Workstream.", c.repository, input.Project)
+		}
+		parent = sql.NullInt64{Int64: tree[at].ID, Valid: true}
+		for range tree {
+			if !tree[at].Parent.Valid {
+				break
+			}
+			if tree[at].Parent.Int64 == task.ID {
+				return "", refuse("%s#%d is below %s#%d.", c.repository, input.Project, repository.FullName, input.N)
+			}
+			at = slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool { return row.ID == tree[at].Parent.Int64 })
+			if at < 0 {
+				break
+			}
+		}
+		place = fmt.Sprintf("below the Project %s#%d", c.repository, input.Project)
+		advice = "If an Implementer works on the task, send the Project body with send_message."
+	}
+	if task.Parent == parent {
+		return fmt.Sprintf("%s#%d is already %s. Mobius changed nothing.", repository.FullName, input.N, place), nil
+	}
+	workstream, err := e.queries.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: c.repository, Number: c.workstream})
+	if err != nil {
+		return "", err
+	}
+	var changeID int64
+	e.copyWrite.Lock()
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		if err := q.SetIssueParentAndWorkstream(ctx, store.SetIssueParentAndWorkstreamParams{Workstream: sql.NullInt64{Int64: workstream, Valid: true}, Parent: parent, ID: task.ID}); err != nil {
+			return err
+		}
+		if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: 0, ID: task.ID}); err != nil {
+			return err
+		}
+		changeID, err = addIssueChange(ctx, q, repository.FullName, input.N, task.ID, parentField)
+		return err
+	})
+	e.copyWrite.Unlock()
+	if err != nil {
+		return "", err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, changeID); err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, changeID,
+		fmt.Sprintf("Moved %s#%d %s. A running task continues. %s", repository.FullName, input.N, place, advice),
+		fmt.Sprintf("Mobius moves %s#%d %s on GitHub later. A running task continues. %s", repository.FullName, input.N, place, advice),
+	)
 }
 
 // editIssueBody sets the body of the task issue input.N in repository in the database and sends the body with the link
