@@ -1447,6 +1447,18 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 			return "", refuse("%s#%d is not an open Project of this Workstream.", c.repository, input.Project)
 		}
 		parent = sql.NullInt64{Int64: tree[at].ID, Valid: true}
+		for range tree {
+			if !tree[at].Parent.Valid {
+				break
+			}
+			if tree[at].Parent.Int64 == task.ID {
+				return "", refuse("%s#%d is below %s#%d.", c.repository, input.Project, repository.FullName, input.N)
+			}
+			at = slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool { return row.ID == tree[at].Parent.Int64 })
+			if at < 0 {
+				break
+			}
+		}
 		place = fmt.Sprintf("below the Project %s#%d", c.repository, input.Project)
 		advice = "If an Implementer works on the task, send the Project body with send_message."
 	}

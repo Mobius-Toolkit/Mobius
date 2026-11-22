@@ -273,7 +273,7 @@ func TestSetProjectChangesNothingWhenTheTaskHasThatParent(t *testing.T) {
 func TestSetProjectRefusesAWorkstreamIssueAProjectAnIssueOfAnotherWorkstreamAndAProjectThatIsNotOpenOfThisWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, setProject(12, 41)+setProject(42, 41)+setProject(52, 41)+setProject(98, 41)+setProject(43, 43)+setProject(43, 51)+setProject(43, 45)+setProject(43, 98))
+	server, _ := connect(t, fake, setProject(12, 41)+setProject(42, 41)+setProject(52, 41)+setProject(98, 41)+setProject(43, 43)+setProject(43, 51)+setProject(43, 45)+setProject(43, 98)+setProject(43, 46)+setProject(43, 47))
 	addProjectTree(fake, 12)
 	fake.AddIssue(shop, 45, "Closed project")
 	fake.AddLabel(shop, 45, "mobius:project", "owner")
@@ -286,12 +286,18 @@ func TestSetProjectRefusesAWorkstreamIssueAProjectAnIssueOfAnotherWorkstreamAndA
 	fake.AddSubIssue(shop, 13, 51)
 	fake.AddIssue(shop, 52, "Other task")
 	fake.AddSubIssue(shop, 13, 52)
+	fake.AddIssue(shop, 46, "Project below the task")
+	fake.AddLabel(shop, 46, "mobius:project", "owner")
+	fake.AddSubIssue(shop, 43, 46)
+	fake.AddIssue(shop, 47, "Project below that Project")
+	fake.AddLabel(shop, 47, "mobius:project", "owner")
+	fake.AddSubIssue(shop, 46, 47)
 	testkit.WaitFor(t, func() bool {
-		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 43, 44, 45, 51, 52) AND workstream IS NOT NULL", shop) == 7 &&
-			countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 45, 51) AND kind = 'project'", shop) == 4
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 43, 44, 45, 46, 47, 51, 52) AND workstream IS NOT NULL", shop) == 9 &&
+			countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 45, 46, 47, 51) AND kind = 'project'", shop) == 6
 	})
 
-	session := run(t, server, leadSpec(t), "Move 12 to 41", "Move 42 to 41", "Move 52 to 41", "Move 98 to 41", "Move 43 to 43", "Move 43 to 51", "Move 43 to 45", "Move 43 to 98")
+	session := run(t, server, leadSpec(t), "Move 12 to 41", "Move 42 to 41", "Move 52 to 41", "Move 98 to 41", "Move 43 to 43", "Move 43 to 51", "Move 43 to 45", "Move 43 to 98", "Move 43 to 46", "Move 43 to 47")
 
 	calls := mcpCalls(t, server, session)
 	want := []string{
@@ -303,6 +309,8 @@ func TestSetProjectRefusesAWorkstreamIssueAProjectAnIssueOfAnotherWorkstreamAndA
 		"owner/shop#51 is not an open Project of this Workstream.",
 		"owner/shop#45 is not an open Project of this Workstream.",
 		"owner/shop#98 is not an open Project of this Workstream.",
+		"owner/shop#46 is below owner/shop#43.",
+		"owner/shop#47 is below owner/shop#43.",
 	}
 	if len(calls) != len(want) {
 		t.Fatalf("calls = %+v", calls)
