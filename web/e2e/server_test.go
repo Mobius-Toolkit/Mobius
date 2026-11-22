@@ -388,6 +388,8 @@ func TestServer(t *testing.T) {
 	github.AddSubIssueOf("plants/garden", 50, 52, "Sow the daisies")
 	github.AddSubIssueOf("plants/garden", 50, 53, "Cost reports")
 	github.AddLabel("plants/garden", 53, "mobius:project", "owner")
+	// An open Project is an open task of #50, so the note "All tasks are closed." would not show.
+	github.CloseIssue("plants/garden", 53)
 	github.AddSubIssueOf("plants/garden", 55, 56, "Buy aster seeds")
 	github.CloseIssue("plants/garden", 56)
 	github.AddSubIssueOf("plants/garden", 55, 57, "Sow the asters")
