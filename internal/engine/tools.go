@@ -1561,7 +1561,7 @@ func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository,
 		if !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
 			return refuse("%s#%d is not in this Workstream.", row.Repository, row.Number.Int64)
 		}
-		clean := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, body)
+		clean := runner.WithoutMark(e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(body)))
 		if _, err := q.SetIssueBody(ctx, store.SetIssueBodyParams{Body: clean, ID: id}); err != nil {
 			return err
 		}
