@@ -32,6 +32,28 @@ func answer(t *testing.T, server *testserver.Server, id int64, text string) stri
 	return result.Data.URL
 }
 
+// answerCommentIDs gives $.github.answers of each Inbox item, in the order of the items and of the answers.
+func answerCommentIDs(t *testing.T, server *testserver.Server) []int64 {
+	t.Helper()
+	rows, err := server.DB.Query(`SELECT answer.value FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer ORDER BY inbox_items.id, answer.key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return ids
+}
+
 func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -54,6 +76,32 @@ func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEve
 	}
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	waitForNoItem(t, server, "question")
+	ids := fake.CommentIDs(shop, 41)
+	if got := answerCommentIDs(t, server); len(ids) != 2 || !slices.Equal(got, []int64{ids[1]}) {
+		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	}
+}
+
+func TestTwoAnswersFromTheInboxToTheSameItemKeepBothCommentIdsAndGiveTheLeadBothComments(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+
+	answer(t, server, item.ID, "Cents.")
+	answer(t, server, item.ID, "Dollars.")
+
+	ids := fake.CommentIDs(shop, 41)
+	if got := answerCommentIDs(t, server); len(ids) != 3 || !slices.Equal(got, ids[1:]) {
+		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	}
+	for _, reply := range []string{"> Cents.", "> Dollars."} {
+		testkit.WaitFor(t, func() bool {
+			return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, reply) })
+		})
+	}
 }
 
 func TestACommentOfTheLeadWithGhOnTheIssueOfAQuestionIsNoAnswerAndAnAnswerFromTheInboxIs(t *testing.T) {

@@ -10,8 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 )
 
 // GH is the main function of the gh of the agent environment. It runs with args and the environment of getenv,
@@ -21,12 +19,9 @@ import (
 // this program with the token in GH_TOKEN. The Lead gets the installation token of the App, and each other role gets
 // the read-only installation token. With no MOBIUS_GH_SESSION_URL, GH refuses to run.
 //
-// With MOBIUS_GH_WRITES_URL, GH sends the label changes, the new issues and the comments of args to that URL before it
-// runs the real gh. When the send fails, it does not run the real gh.
-//
 // With MOBIUS_GH_MARK (the JSON of a GHMark), GH adds the mark line to each body that args gives to a gh issue create, gh issue comment, gh pr
 // comment or gh issue edit, and to the comment of a gh issue close. The mark line is Elsewhere when the -R flag names another
-// repository than Repository. The records and the real gh get the marked text.
+// repository than Repository. The real gh gets the marked text.
 func GH(args []string, getenv func(string) string) int {
 	url := getenv(ghURLEnv)
 	if url == "" {
@@ -48,16 +43,6 @@ func GH(args []string, getenv func(string) string) int {
 		var mark GHMark
 		if err = json.Unmarshal([]byte(encoded), &mark); err == nil {
 			args, stdin, err = markBodies(args, stdin, mark)
-		}
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
-		}
-	}
-	if writesURL := getenv(ghWritesURLEnv); writesURL != "" {
-		var writes []mcp.GHWrite
-		if writes, stdin, err = ghWrites(args, stdin); err == nil && len(writes) > 0 {
-			err = sendGHWrites(writesURL, writes)
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)

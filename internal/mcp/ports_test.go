@@ -157,9 +157,8 @@ func TestAKeyOfOpenPortsGetsPortsAndNothingElse(t *testing.T) {
 	portsOf(t, addr, key, 1)
 
 	for url, method := range map[string]string{
-		URL(addr, key):         http.MethodPost,
-		GHTokenURL(addr, key):  http.MethodGet,
-		GHWritesURL(addr, key): http.MethodPost,
+		URL(addr, key):        http.MethodPost,
+		GHTokenURL(addr, key): http.MethodGet,
 	} {
 		if status, body := send(t, method, url, "2026-07-28", `{}`); status != http.StatusNotFound {
 			t.Errorf("%s: %d %s", url, status, body)

@@ -474,9 +474,6 @@ func (a *Agent) mcpCaller() mcp.Caller {
 		}
 		return repository.ReadToken(ctx)
 	}
-	if spec.Role == LeadRole {
-		mcpCaller.GHWrites = a.recordGHWrites
-	}
 	return mcpCaller
 }
 
@@ -515,9 +512,8 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	mcpCaller := a.mcpCaller()
 	a.key = e.agents.MCP.Open(mcpCaller)
 	ghTokenURL := mcp.GHTokenURL(e.agents.Addr, a.key)
-	ghWritesURL, ghMark := "", ""
+	ghMark := ""
 	if spec.Role == LeadRole {
-		ghWritesURL = mcp.GHWritesURL(e.agents.Addr, a.key)
 		lead := caller{role: LeadRole, repository: spec.Repository, workstream: spec.Workstream}
 		mark := runner.GHMark{Repository: spec.Repository}
 		var err error
@@ -542,7 +538,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		}
 		servers = runnerMcpServers(selected)
 	}
-	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghWritesURL, ghMark, mcp.PortURL(e.agents.Addr, a.key), a.update)
+	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghMark, mcp.PortURL(e.agents.Addr, a.key), a.update)
 	if err != nil {
 		return err
 	}

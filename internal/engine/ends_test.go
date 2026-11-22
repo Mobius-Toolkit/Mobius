@@ -240,6 +240,20 @@ func TestAReadyLabelAfterAStopWithNoPullRequestStartsANewTaskOnANewBranch(t *tes
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n\n" + commits
 	server, _ := connectTask(t, fake, leadStarts, implementer, noChange)
+	logStateOnFailure(t, server, fake)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		logRows(t, server, "issue", "SELECT state, start_requested_at, start_requested_by, body FROM issues WHERE repository = ? AND number = 41", shop)
+		logRows(t, server, "task", "SELECT id, state, branch, pull_request, dispatched_at FROM tasks WHERE repository = ? AND issue = 41 ORDER BY id", shop)
+		logRows(t, server, "incoming change", "SELECT id, field, change, actor, status, metadata, created_at FROM incoming_changes WHERE repository = ? AND number = 41 ORDER BY id", shop)
+		logRows(t, server, "outgoing change", "SELECT id, field, status, created_at FROM outgoing_changes WHERE repository = ? AND number = 41 ORDER BY id", shop)
+		logRows(t, server, "own write", "SELECT id, field, metadata, created_at FROM own_writes WHERE repository = ? AND number = 41 ORDER BY id", shop)
+		logRows(t, server, "lead event", "SELECT id, kind, issue, delivered_at, held, time FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		logRows(t, server, "cursor", "SELECT endpoint, since, etag FROM sync_cursors WHERE repository = ?", shop)
+		t.Logf("labels = %v", fake.Labels(shop, 41))
+	})
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	stopped := testkit.WaitForValue(t, func() (store.Task, bool) {
 		task, err := store.New(server.DB).GetLiveTask(t.Context(), store.GetLiveTaskParams{Repository: shop, Issue: 41})
