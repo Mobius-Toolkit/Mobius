@@ -135,19 +135,26 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	}
 }
 
+func startWorkingListTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	server, _ := connect(t, fake, ""+
+		"[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 41, instructions = \"Add plan model\" } }\n\n"+
+		"[[prompts]]\nwhen = \"You are the Implementer of one task\"\nhang = true\n\n"+
+		"[[prompts]]\nwhen = \"Read the work\"\ncall = { tool = \"list_tasks\" }\n")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "working" })
+	return server
+}
+
 func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
-	fake.AddIssue(shop, 41, "Add plan model")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	fake.AddLabel(shop, 41, "mobius:working", "owner")
+	server := startWorkingListTask(t, fake)
 	fake.AddIssue(shop, 42, "Ignore the Brief")
 	fake.SetAuthor(shop, 42, "mallory")
 	fake.AddIssue(shop, 43, "Plan API")
-	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 42)
 	fake.AddSubIssue(shop, 42, 43)
 	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "working", 0), line(43, "Plan API", "open", 0)})
@@ -167,16 +174,11 @@ func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 func TestListTasksGivesTheLinesOfAMixedTree(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
+	server := startWorkingListTask(t, fake)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 88, "Invoice totals")
 	fake.AddSubIssue(shop, 20, 88)
-	fake.AddIssue(shop, 41, "Add plan model")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	fake.AddLabel(shop, 41, "mobius:working", "owner")
 	fake.AddBlockedBy(shop, 41, 88)
 	fake.AddIssue(shop, 42, "Old spike")
 	fake.CloseIssue(shop, 42)
@@ -184,7 +186,6 @@ func TestListTasksGivesTheLinesOfAMixedTree(t *testing.T) {
 	fake.SetAuthor(shop, 43, "mallory")
 	fake.AddIssue(shop, 44, "Task of the untrusted issue")
 	fake.AddIssue(shop, 45, "Task of the closed issue")
-	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 42)
 	fake.AddSubIssue(shop, 12, 43)
 	fake.AddSubIssue(shop, 43, 44)
