@@ -10,6 +10,9 @@ import { renderBadge, renderStateBadge } from "@/ui/badge";
 import { buttonClass, renderIconButton } from "@/ui/button";
 import {
   arrowLeftIcon,
+  chevronDownIcon,
+  chevronRightIcon,
+  folderIcon,
   messageSquareIcon,
   playIcon,
   settingsIcon,
@@ -22,14 +25,19 @@ import { renderSelectionPopover, Watch } from "@/ui/selection";
 import { renderSwitch } from "@/ui/switch";
 import { Message, toGotComposerMessage, toGotSelectionMessage } from "./message";
 import {
+  groupByProject,
+  isProject,
   openedLine,
+  progressOfProjects,
   reference,
   resumes,
   rowKey,
   rowOf,
   stops,
   withoutClosed,
+  withoutFolded,
   type Model,
+  type Progress,
   type TaskLine,
 } from "./model";
 
@@ -40,6 +48,43 @@ function startLabel(line: TaskLine) {
     return `Resume ${reference(line)}`;
   }
   return `Start ${reference(line)}${line.blockedBy.length > 0 ? " when unblocked" : ""}`;
+}
+
+function renderProject(h: H, model: Model, line: TaskLine, progress: Progress): Html {
+  const folded = model.folded.includes(line.url);
+  return h.keyed("li")(
+    line.url,
+    [
+      h.Class("flex items-center gap-1 pr-2"),
+      h.Style({ paddingLeft: `${0.5 + line.depth * 1.25}rem` }),
+    ],
+    [
+      h.button(
+        [
+          h.Type("button"),
+          h.AriaLabel(`${folded ? "Open" : "Fold"} ${line.title}`),
+          h.AriaExpanded(!folded),
+          h.Class(buttonClass({ variant: "ghost", size: "icon", className: "shrink-0" })),
+          h.OnClick(Message.ToggledProject({ url: line.url })),
+        ],
+        [folded ? chevronRightIcon(h) : chevronDownIcon(h)],
+      ),
+      folderIcon(h, "size-4 shrink-0 text-muted-foreground"),
+      h.a(
+        [
+          h.Href(line.url),
+          h.Attribute("target", "_blank"),
+          h.Attribute("rel", "noreferrer"),
+          h.Class(cn(linkClass, "min-w-0 grow py-2 font-bold wrap-anywhere")),
+        ],
+        [line.title],
+      ),
+      h.span(
+        [h.Class("shrink-0 text-sm text-muted-foreground")],
+        [`${progress.done}/${progress.all}`],
+      ),
+    ],
+  );
 }
 
 function renderEntry(h: H, model: Model, line: TaskLine): Html {
@@ -307,8 +352,12 @@ export const view = defineView<Model, Message>((model, h) => {
     return renderDetail(h, model, openedTask.value);
   }
 
+  const progress = Option.match(model.lines, {
+    onNone: () => new Map<string, Progress>(),
+    onSome: progressOfProjects,
+  });
   const shown = Option.map(model.lines, (lines) =>
-    model.showClosed ? lines : withoutClosed(lines),
+    withoutFolded(groupByProject(model.showClosed ? lines : withoutClosed(lines)), model.folded),
   );
   const closedId = `${model.instance}-closed-tasks`;
   return h.div(
@@ -339,7 +388,11 @@ export const view = defineView<Model, Message>((model, h) => {
         : h.empty,
       h.ul(
         [],
-        Option.getOrElse(shown, () => []).map((line) => renderEntry(h, model, line)),
+        Option.getOrElse(shown, () => []).map((line) =>
+          isProject(line)
+            ? renderProject(h, model, line, progress.get(line.url) ?? { done: 0, all: 0 })
+            : renderEntry(h, model, line),
+        ),
       ),
       Option.match(model.sheet, {
         onNone: () => h.empty,

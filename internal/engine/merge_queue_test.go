@@ -1076,21 +1076,23 @@ func TestMergeQueuePlacesOnBoardTasksAndInboxItems(t *testing.T) {
 
 // heldQueueHead approves the tasks of numbers with a merge level, so that the task of #41 is the head of the merge
 // queue. The default branch moves, so the head updates its branch. The CI of the new head does not complete, so the head
-// goes back to checks. It gives the server, the new head of #41, the id of its CI run and the time that the held clock
-// of the tests starts from.
+// goes back to checks. It approves #41 and waits for its update before it approves the other tasks, because a poll
+// queues the tasks in the order that it reads them, not in the order of their approvals. It gives the server, the new
+// head of #41, the id of its CI run and the time that the held clock of the tests starts from.
 func heldQueueHead(t *testing.T, fake *testkit.FakeGitHub, numbers []int) (*testserver.Server, string, int64, time.Time) {
 	t.Helper()
 	server, _ := queueTasksWith(t, fake, approveAgain(numbers, numbers...)+queueLead, "merge", numbers)
 	commitQueueFiles(fake, numbers...)
 	reached, release := fake.HoldBranchUpdateAnswer()
-	for _, number := range numbers {
-		sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", number))
-	}
+	sendChat(t, server, leadChat, "Approve #41")
 	<-reached
 	newHead := head(t, fake, "mobius/41")
 	ci := fake.AddCheckRun(shop, checkRun("test", newHead, "in_progress", ""))
 	release()
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "checks" })
+	for _, number := range numbers[1:] {
+		sendChat(t, server, leadChat, fmt.Sprintf("Approve #%d", number))
+	}
 	for _, number := range numbers {
 		testkit.WaitFor(t, func() bool { return liveTask(t, server, int64(number)).MergeQueuedAt.Valid })
 	}

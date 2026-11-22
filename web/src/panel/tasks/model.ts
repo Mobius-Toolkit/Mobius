@@ -46,6 +46,7 @@ export const Model = Schema.Struct({
   fallback: Schema.Option(NextSetting),
   error: Schema.String,
   showClosed: Schema.Boolean,
+  folded: Schema.Array(Schema.String),
   rows: Schema.Array(Row),
   sheet: Schema.Option(Setting.Model),
   opened: Schema.Option(TargetTask),
@@ -73,6 +74,7 @@ export function initialModel(options: {
     fallback: Option.none(),
     error: "",
     showClosed: false,
+    folded: [],
     rows: [],
     sheet: Option.none(),
     opened: Option.none(),
@@ -153,4 +155,54 @@ export function withoutClosed(lines: readonly TaskLine[]): TaskLine[] {
     }
   }
   return open;
+}
+
+export const isProject = (line: TaskLine) => line.kind === "project";
+
+const below = (lines: readonly TaskLine[], index: number): TaskLine[] => {
+  const end = lines.findIndex((line, i) => i > index && line.depth <= lines[index].depth);
+  return lines.slice(index + 1, end === -1 ? lines.length : end);
+};
+
+export type Progress = { done: number; all: number };
+
+export function progressOfProjects(lines: readonly TaskLine[]): Map<string, Progress> {
+  const progress = new Map<string, Progress>();
+  lines.forEach((line, index) => {
+    if (isProject(line)) {
+      const tasks = below(lines, index).filter((task) => !isProject(task));
+      progress.set(line.url, {
+        done: tasks.filter((task) => task.state === "closed").length,
+        all: tasks.length,
+      });
+    }
+  });
+  return progress;
+}
+
+export function groupByProject(lines: readonly TaskLine[]): TaskLine[] {
+  const loose: TaskLine[] = [];
+  const blocks: TaskLine[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    if (isProject(lines[index])) {
+      const block = [lines[index], ...below(lines, index)];
+      blocks.push(...block);
+      index += block.length;
+    } else {
+      loose.push(lines[index]);
+      index += 1;
+    }
+  }
+  return [...loose, ...blocks];
+}
+
+export function withoutFolded(lines: readonly TaskLine[], folded: readonly string[]): TaskLine[] {
+  const shown: TaskLine[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    shown.push(lines[index]);
+    index += folded.includes(lines[index].url) ? below(lines, index).length + 1 : 1;
+  }
+  return shown;
 }

@@ -48,6 +48,7 @@ const line = (number: number, overrides: Partial<TaskLine> = {}): TaskLine => ({
   startWait: "",
   depth: 0,
   implementer: null,
+  kind: "task",
   number,
   otherRepository: false,
   repository: "owner/shop",
@@ -445,6 +446,22 @@ describe("the list of the tasks", () => {
       message(Message.ToggledClosed()),
       model((m) => {
         expect(m.showClosed).toBe(false);
+      }),
+    );
+  });
+
+  it("folds a Project and opens it again", () => {
+    const url = "https://github.com/owner/shop/issues/1";
+    story(
+      update,
+      given(createModel()),
+      message(Message.ToggledProject({ url })),
+      model((m) => {
+        expect(m.folded).toEqual([url]);
+      }),
+      message(Message.ToggledProject({ url })),
+      model((m) => {
+        expect(m.folded).toEqual([]);
       }),
     );
   });

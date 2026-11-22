@@ -1338,6 +1338,17 @@ export interface IssueSetting {
 }
 
 /**
+ * Kind is task for a task issue, and project for a Project of the Workstream
+ */
+export type TaskLineKind = typeof TaskLineKind[keyof typeof TaskLineKind];
+
+
+export const TaskLineKind = {
+  task: 'task',
+  project: 'project',
+} as const;
+
+/**
  * Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
  */
 export type TaskLineWait = typeof TaskLineWait[keyof typeof TaskLineWait];
@@ -1371,6 +1382,8 @@ export interface TaskLine {
   depth: number;
   /** Implementer is the own Implementer setting of the task, or null when the task has none */
   implementer: IssueSetting | null;
+  /** Kind is task for a task issue, and project for a Project of the Workstream */
+  kind: TaskLineKind;
   /** Number is the number of the task issue */
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */

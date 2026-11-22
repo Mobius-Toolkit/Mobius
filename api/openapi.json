@@ -12162,6 +12162,14 @@
             ],
             "description": "Implementer is the own Implementer setting of the task, or null when the task has none"
           },
+          "kind": {
+            "type": "string",
+            "description": "Kind is task for a task issue, and project for a Project of the Workstream",
+            "enum": [
+              "task",
+              "project"
+            ]
+          },
           "number": {
             "type": "integer",
             "description": "Number is the number of the task issue"
@@ -12223,6 +12231,7 @@
         "required": [
           "number",
           "title",
+          "kind",
           "state",
           "url",
           "startWait",
