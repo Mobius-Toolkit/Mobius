@@ -520,12 +520,23 @@ func (e *Engine) applyTreeIssueRowChange(ctx context.Context, repository github.
 			return nil
 		}
 		kind := "task"
+		evergreen := false
 		if change.Change == labeledChange {
 			kind = projectKind
+			found, err := e.changeRepository(change.Repository, repository).Issue(ctx, change.Number)
+			if err != nil || found == nil {
+				return err
+			}
+			evergreen = hasLabel(found, evergreenLabel)
 		}
 		e.copyWrite.Lock()
 		var err error
 		changed, err = e.queries.SetIssueKind(ctx, store.SetIssueKindParams{Kind: kind, ID: row.ID})
+		if err == nil && evergreen {
+			var evergreenChanged int64
+			evergreenChanged, err = e.queries.SetIssueEvergreen(ctx, store.SetIssueEvergreenParams{Evergreen: true, ID: row.ID})
+			changed += evergreenChanged
+		}
 		e.copyWrite.Unlock()
 		if err != nil {
 			return err

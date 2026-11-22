@@ -53,6 +53,9 @@ func TestAnUntrustedPersonCannotSetTheLabelEvergreenOfAProject(t *testing.T) {
 	fake.AddLabel(shop, 44, "mobius:project", "owner")
 	fake.AddSubIssue(shop, 12, 44)
 	server := startWithChatLink(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'kind' AND status = 'done' AND number = 44") == 1
+	})
 
 	fake.AddLabel(shop, 44, "mobius:evergreen", "mallory")
 
@@ -142,4 +145,28 @@ func TestTheTaskListOfTheLeadMarksAnEvergreenProject(t *testing.T) {
 	if want := "owner/shop#41 Maintenance (evergreen Project): open\nowner/shop#42 Stats display: open\n"; text != want {
 		t.Errorf("reply = %q, want %q", text, want)
 	}
+}
+
+func TestALabelProjectAfterTheLabelEvergreenAndAnAddAfterARemovalGiveAnEvergreenProject(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startWithChatLink(t, fake)
+	evergreen := func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND kind = 'project' AND evergreen = 1", shop) == 1
+	}
+
+	fake.AddLabel(shop, 41, "mobius:evergreen", "owner")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'evergreen' AND status = 'done' AND number = 41") == 1
+	})
+	fake.AddLabel(shop, 41, "mobius:project", "owner")
+	testkit.WaitFor(t, evergreen)
+
+	fake.RemoveLabel(shop, 41, "mobius:project", "owner")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND kind = 'task' AND evergreen = 0", shop) == 1
+	})
+	fake.AddLabel(shop, 41, "mobius:project", "owner")
+	testkit.WaitFor(t, evergreen)
 }
