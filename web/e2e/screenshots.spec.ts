@@ -1569,7 +1569,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("button", { name: "Chat about #45" }).filter({ visible: true }),
       page.getByRole("link", { name: "Plan limits" }).filter({ visible: true }),
       page.getByText("1/3", { exact: true }).filter({ visible: true }),
-      page.getByText("#92 Show the plan limit in the account menu").filter({ visible: true }),
+      page.getByText("#22 Show the plan limit in the account menu").filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1603,7 +1603,7 @@ test("screenshots", async ({ page }) => {
         .getByRole("button", { name: "Fold Plan limits" })
         .filter({ visible: true })
         .click();
-      await expect(page.getByText("#92 Show the plan limit in the account menu")).toBeHidden();
+      await expect(page.getByText("#22 Show the plan limit in the account menu")).toBeHidden();
       await page
         .getByRole("link", { name: "Plan limits" })
         .filter({ visible: true })
