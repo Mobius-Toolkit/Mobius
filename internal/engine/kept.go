@@ -40,8 +40,10 @@ type keptSession struct {
 	antigravityIdx int64
 	// copiedSkills are the names of the skills that Mobius copied into the Harness process.
 	copiedSkills []string
-	// brief, issue, comments and report are the texts that the session got, so a later short prompt sends only a change.
+	// brief, project, issue, comments and report are the texts that the session got, so a later short prompt sends only a
+	// change. project is the section "# Project", or "".
 	brief    string
+	project  string
 	issue    string
 	comments string
 	// report is the report text that the session knows, from its prompt or from its own submit_report call.

@@ -1490,6 +1490,20 @@ SELECT title FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number)
 -- name: GetIssueText :one
 SELECT title, body, state FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
+-- name: GetIssueProject :one
+-- The Project of an issue is its nearest ancestor with kind = 'project'.
+WITH RECURSIVE ancestors (parent, depth) AS (
+    SELECT t.parent, 1 FROM issues t WHERE t.repository = ? AND t.number = CAST(sqlc.arg(number) AS INTEGER)
+    UNION ALL
+    SELECT i.parent, a.depth + 1 FROM issues i JOIN ancestors a ON i.id = a.parent
+)
+SELECT p.repository, p.number, p.title, p.body
+FROM ancestors a
+JOIN issues p ON p.id = a.parent
+WHERE p.kind = 'project'
+ORDER BY a.depth
+LIMIT 1;
+
 -- name: GetCopiedIssueBody :one
 SELECT body FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
