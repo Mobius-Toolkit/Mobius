@@ -77,17 +77,17 @@ func valueFlag(arg string) (name, value string, inline bool) {
 	return "", "", false
 }
 
-func (a ghArgs) flag(name string) (string, bool) {
+func (a ghArgs) flag(name string) string {
 	values := a.flags[name]
 	if len(values) == 0 {
-		return "", false
+		return ""
 	}
-	return values[len(values)-1], true
+	return values[len(values)-1]
 }
 
 // repository gives the owner/name of the --repo flag, or "" with no flag. The flag can also have a host.
 func (a ghArgs) repository() string {
-	repository, _ := a.flag("repo")
+	repository := a.flag("repo")
 	fields := strings.Split(repository, "/")
 	return strings.Join(fields[max(len(fields)-2, 0):], "/")
 }
@@ -133,7 +133,7 @@ func markBodies(args []string, stdin io.Reader, ghMark GHMark) ([]string, io.Rea
 		case bodyFlag:
 			marked[i] = prefix + WithMark(value, mark)
 		case fileFlag:
-			file, _ := parsed.flag(fileFlag)
+			file := parsed.flag(fileFlag)
 			text, _, err := readBody(file, stdin)
 			if err != nil {
 				return nil, nil, err
