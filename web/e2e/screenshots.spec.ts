@@ -1567,12 +1567,47 @@ test("screenshots", async ({ page }) => {
       page.getByText("waits for Lead").filter({ visible: true }),
       page.getByText(/^paused until Sep 28, 12:00\sPM$/).filter({ visible: true }),
       page.getByRole("button", { name: "Chat about #45" }).filter({ visible: true }),
+      page.getByRole("link", { name: "Plan limits" }).filter({ visible: true }),
+      page.getByText("1/3", { exact: true }).filter({ visible: true }),
+      page.getByText("#22 Show the plan limit in the account menu").filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("link", { name: "Plan limits" })
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-tasks-project-folded",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatTray,
+      chatEnd,
+      page.getByRole("link", { name: "Plan limits" }).filter({ visible: true }),
+      page.getByText("1/3", { exact: true }).filter({ visible: true }),
+      page.getByRole("button", { name: "Open Plan limits" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page
+        .getByRole("button", { name: "Fold Plan limits" })
+        .filter({ visible: true })
+        .click();
+      await expect(page.getByText("#22 Show the plan limit in the account menu")).toBeHidden();
+      await page
+        .getByRole("link", { name: "Plan limits" })
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
     },
   );
   await screenshot(
@@ -2380,6 +2415,7 @@ test("screenshots", async ({ page }) => {
     body.data.push({
       number: 5,
       title: "Pick the apples",
+      kind: "task",
       state: "open",
       depth: 0,
       repository: "plants/orchard",
@@ -2423,6 +2459,7 @@ test("screenshots", async ({ page }) => {
     body.data.push({
       number: 74,
       title: "Prune the hedge",
+      kind: "task",
       state: "working",
       depth: 0,
       repository: "plants/garden",
@@ -2466,6 +2503,7 @@ test("screenshots", async ({ page }) => {
     body.data.push({
       number: 75,
       title: "Deploy the hedge",
+      kind: "task",
       state: "waits for Owner action",
       depth: 0,
       repository: "plants/garden",

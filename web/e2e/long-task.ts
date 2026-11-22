@@ -16,6 +16,7 @@ export async function routeLongTask(page: Page) {
       wait: "",
       depth: 0,
       implementer: null,
+      kind: "task",
       number: 1044,
       otherRepository: false,
       repository: "owner/shop",

@@ -212,6 +212,14 @@ export function update(model: Model, message: Message): UpdateReturn {
     LoadFailed: ({ error }) => ({ model: { ...model, error, pendingOpen: Option.none() } }),
     LoginRequired: () => ({ model, outMessage: OutMessage.LoginRequired() }),
     ToggledClosed: () => ({ model: { ...model, showClosed: !model.showClosed } }),
+    ToggledProject: ({ url }) => ({
+      model: {
+        ...model,
+        folded: model.folded.includes(url)
+          ? model.folded.filter((folded) => folded !== url)
+          : [...model.folded, url],
+      },
+    }),
     ClickedStart: ({ key, line }) => change(model, key, line, startAction(line)),
     ClickedStop: ({ key, line }) => change(model, key, line, "stop"),
     ChangedIssue: ({ key }) => ({

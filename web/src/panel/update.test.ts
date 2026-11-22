@@ -482,6 +482,7 @@ const taskLine = (number: number): TaskLine => ({
   startWait: "",
   depth: 0,
   implementer: null,
+  kind: "task",
   number,
   otherRepository: false,
   repository: "owner/shop",
