@@ -656,7 +656,7 @@ func (e *Engine) sendWorkstream(ctx context.Context, repository github.Repositor
 }
 
 // sendIssue writes the field of the tree issue from issues to the issue on GitHub when GitHub differs: the create, the
-// parent, the blockers, the title, the body, the state or the kind. An issue with no row or no Workstream is refused.
+// parent, the blockers, the title, the body, the state, the kind or the evergreen mark. An issue with no row or no Workstream is refused.
 // A field other than create waits when the row has no number yet.
 func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, change store.OutgoingChange) (bool, error) {
 	row, err := e.queries.GetIssueByID(ctx, change.Issue.Int64)
@@ -683,7 +683,7 @@ func (e *Engine) sendIssue(ctx context.Context, repository github.Repository, ch
 		return e.sendIssueParent(ctx, repository, change, row)
 	case blockersField:
 		return e.sendIssueBlockers(ctx, repository, change, row)
-	case titleField, bodyField, stateField, kindField:
+	case titleField, bodyField, stateField, kindField, evergreenField:
 		return e.sendIssueFields(ctx, repository, change, row, number)
 	}
 	log.Printf("write the %s of %s#%d: unknown issue field", change.Field, change.Repository, number)
@@ -705,6 +705,8 @@ func (e *Engine) sendIssueFields(ctx context.Context, repository github.Reposito
 	switch change.Field {
 	case kindField:
 		return e.sendLabel(ctx, repository, change, issue, projectLabel, row.Kind == projectKind)
+	case evergreenField:
+		return e.sendLabel(ctx, repository, change, issue, evergreenLabel, row.Evergreen)
 	case bodyField:
 		body := e.withChatLink(github.Repository{FullName: row.WorkstreamRepository.String}, row.WorkstreamNumber.Int64, row.Body)
 		if issue.GetBody() != body {

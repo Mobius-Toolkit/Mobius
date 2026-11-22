@@ -1380,6 +1380,8 @@ export interface TaskLine {
   blockedBy: Blocker[];
   /** Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below */
   depth: number;
+  /** Evergreen is true for a Project that has no end */
+  evergreen: boolean;
   /** Implementer is the own Implementer setting of the task, or null when the task has none */
   implementer: IssueSetting | null;
   /** Kind is task for a task issue, and project for a Project of the Workstream */

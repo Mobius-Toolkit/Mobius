@@ -1570,6 +1570,8 @@ test("screenshots", async ({ page }) => {
       page.getByRole("link", { name: "Plan limits" }).filter({ visible: true }),
       page.getByText("1/3", { exact: true }).filter({ visible: true }),
       page.getByText("#22 Show the plan limit in the account menu").filter({ visible: true }),
+      page.getByRole("link", { name: "Maintenance" }).filter({ visible: true }),
+      page.getByText("evergreen", { exact: true }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1578,6 +1580,10 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page
         .getByRole("link", { name: "Plan limits" })
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+      await page
+        .getByRole("link", { name: "Maintenance" })
         .filter({ visible: true })
         .scrollIntoViewIfNeeded();
     },
@@ -2416,6 +2422,7 @@ test("screenshots", async ({ page }) => {
       number: 5,
       title: "Pick the apples",
       kind: "task",
+      evergreen: false,
       state: "open",
       depth: 0,
       repository: "plants/orchard",
@@ -2460,6 +2467,7 @@ test("screenshots", async ({ page }) => {
       number: 74,
       title: "Prune the hedge",
       kind: "task",
+      evergreen: false,
       state: "working",
       depth: 0,
       repository: "plants/garden",
@@ -2504,6 +2512,7 @@ test("screenshots", async ({ page }) => {
       number: 75,
       title: "Deploy the hedge",
       kind: "task",
+      evergreen: false,
       state: "waits for Owner action",
       depth: 0,
       repository: "plants/garden",

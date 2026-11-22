@@ -297,9 +297,10 @@ func (q *Queries) AddCopiedBlockerIssue(ctx context.Context, arg AddCopiedBlocke
 }
 
 const addCopiedIssue = `-- name: AddCopiedIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, triage, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, evergreen, triage, metadata)
 VALUES (?1, CAST(?2 AS INTEGER), ?3, ?4, ?5, ?6,
         ?7, ?8, ?9,
+        ?9 = 'project' AND EXISTS (SELECT 1 FROM json_each(CAST(?10 AS TEXT), '$.labels') l WHERE l.value = 'mobius:evergreen'),
         EXISTS (SELECT 1 FROM json_each(CAST(?10 AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(?10 AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
@@ -307,6 +308,7 @@ ON CONFLICT (repository, number) DO UPDATE SET
     body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
     state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
     kind = CASE WHEN issues.workstream IS NULL THEN excluded.kind ELSE issues.kind END,
+    evergreen = CASE WHEN issues.workstream IS NULL THEN excluded.evergreen ELSE issues.evergreen END,
     author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE
@@ -695,10 +697,10 @@ func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) 
 }
 
 const addIssueToCreate = `-- name: AddIssueToCreate :one
-INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, start_requested_at, start_requested_by, metadata)
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, evergreen, triage, start_requested_at, start_requested_by, metadata)
 VALUES (?1, ?2, ?3, 'open', ?4,
-        ?5, ?6, ?7, CAST(?8 AS BOOLEAN),
-        ?9, ?10, ?11)
+        ?5, ?6, ?7, CAST(?8 AS BOOLEAN), CAST(?9 AS BOOLEAN),
+        ?10, ?11, ?12)
 RETURNING id
 `
 
@@ -710,6 +712,7 @@ type AddIssueToCreateParams struct {
 	Workstream       sql.NullInt64
 	Parent           sql.NullInt64
 	Kind             string
+	Evergreen        bool
 	Triage           bool
 	StartRequestedAt sql.NullString
 	StartRequestedBy string
@@ -726,6 +729,7 @@ func (q *Queries) AddIssueToCreate(ctx context.Context, arg AddIssueToCreatePara
 		arg.Workstream,
 		arg.Parent,
 		arg.Kind,
+		arg.Evergreen,
 		arg.Triage,
 		arg.StartRequestedAt,
 		arg.StartRequestedBy,
@@ -3892,7 +3896,7 @@ func (q *Queries) GetIssueBinding(ctx context.Context, arg GetIssueBindingParams
 }
 
 const getIssueByID = `-- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.evergreen AS BOOLEAN) AS evergreen, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -3909,6 +3913,7 @@ type GetIssueByIDRow struct {
 	Workstream           sql.NullInt64
 	Parent               sql.NullInt64
 	Kind                 string
+	Evergreen            bool
 	Triage               bool
 	Metadata             string
 	WorkstreamRepository sql.NullString
@@ -3928,6 +3933,7 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, 
 		&i.Workstream,
 		&i.Parent,
 		&i.Kind,
+		&i.Evergreen,
 		&i.Triage,
 		&i.Metadata,
 		&i.WorkstreamRepository,
@@ -5387,7 +5393,7 @@ func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
 }
 
 const getTreeIssue = `-- name: GetTreeIssue :one
-SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.kind, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -5406,6 +5412,7 @@ type GetTreeIssueRow struct {
 	Body                 string
 	State                string
 	Workstream           sql.NullInt64
+	Kind                 string
 	Metadata             string
 	WorkstreamRepository sql.NullString
 	WorkstreamNumber     sql.NullInt64
@@ -5421,6 +5428,7 @@ func (q *Queries) GetTreeIssue(ctx context.Context, arg GetTreeIssueParams) (Get
 		&i.Body,
 		&i.State,
 		&i.Workstream,
+		&i.Kind,
 		&i.Metadata,
 		&i.WorkstreamRepository,
 		&i.WorkstreamNumber,
@@ -7035,7 +7043,7 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 }
 
 const listCopiedTree = `-- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, CAST(i.start_requested_at IS NOT NULL AS BOOLEAN) AS start_requested, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.evergreen AS BOOLEAN) AS evergreen, CAST(i.triage AS BOOLEAN) AS triage, CAST(i.start_requested_at IS NOT NULL AS BOOLEAN) AS start_requested, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(?2 AS INTEGER)
@@ -7056,6 +7064,7 @@ type ListCopiedTreeRow struct {
 	State           string
 	Author          string
 	Kind            string
+	Evergreen       bool
 	Triage          bool
 	StartRequested  bool
 	Metadata        string
@@ -7079,6 +7088,7 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 			&i.State,
 			&i.Author,
 			&i.Kind,
+			&i.Evergreen,
 			&i.Triage,
 			&i.StartRequested,
 			&i.Metadata,
@@ -12921,8 +12931,25 @@ func (q *Queries) SetIssueBucket(ctx context.Context, arg SetIssueBucketParams) 
 	return err
 }
 
+const setIssueEvergreen = `-- name: SetIssueEvergreen :execrows
+UPDATE issues SET evergreen = CAST(?1 AS BOOLEAN) WHERE id = ?2 AND evergreen != CAST(?1 AS BOOLEAN)
+`
+
+type SetIssueEvergreenParams struct {
+	Evergreen bool
+	ID        int64
+}
+
+func (q *Queries) SetIssueEvergreen(ctx context.Context, arg SetIssueEvergreenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setIssueEvergreen, arg.Evergreen, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setIssueKind = `-- name: SetIssueKind :execrows
-UPDATE issues SET kind = ?1 WHERE id = ?2 AND kind != ?1
+UPDATE issues SET kind = ?1, evergreen = evergreen AND ?1 = 'project' WHERE id = ?2 AND kind != ?1
 `
 
 type SetIssueKindParams struct {
@@ -12930,6 +12957,7 @@ type SetIssueKindParams struct {
 	ID   int64
 }
 
+// A task is never evergreen.
 func (q *Queries) SetIssueKind(ctx context.Context, arg SetIssueKindParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setIssueKind, arg.Kind, arg.ID)
 	if err != nil {

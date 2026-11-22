@@ -18,6 +18,8 @@ type TaskLine struct {
 	Title string `gork:"title"`
 	// Kind is task for a task issue, and project for a Project of the Workstream
 	Kind string `gork:"kind" validate:"oneof=task project"`
+	// Evergreen is true for a Project that has no end
+	Evergreen bool `gork:"evergreen"`
 	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A Start that waits shows "start waits". A wait of a live task is in wait, not in state.
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
@@ -79,7 +81,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
+		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, Evergreen: line.Evergreen, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
 		if line.Implementer != nil {
 			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
 		}

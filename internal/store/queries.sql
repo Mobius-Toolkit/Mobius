@@ -1145,9 +1145,10 @@ FROM workstreams WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTE
 
 -- The GitHub data of a row is the JSON object $.github of its metadata.
 -- name: AddCopiedIssue :one
-INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, triage, metadata)
+INSERT INTO issues (repository, number, title, body, state, author, workstream, parent, kind, evergreen, triage, metadata)
 VALUES (sqlc.arg(repository), CAST(sqlc.arg(number) AS INTEGER), sqlc.arg(title), sqlc.arg(body), sqlc.arg(state), sqlc.arg(author),
         sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind),
+        sqlc.arg(kind) = 'project' AND EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:evergreen'),
         EXISTS (SELECT 1 FROM json_each(CAST(sqlc.arg(github) AS TEXT), '$.labels') l WHERE l.value = 'mobius:triage'),
         json_object('github', json(CAST(sqlc.arg(github) AS TEXT))))
 ON CONFLICT (repository, number) DO UPDATE SET
@@ -1155,6 +1156,7 @@ ON CONFLICT (repository, number) DO UPDATE SET
     body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
     state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
     kind = CASE WHEN issues.workstream IS NULL THEN excluded.kind ELSE issues.kind END,
+    evergreen = CASE WHEN issues.workstream IS NULL THEN excluded.evergreen ELSE issues.evergreen END,
     author = excluded.author,
     workstream = excluded.workstream,
     parent = CASE
@@ -1312,14 +1314,14 @@ WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg
 SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetTreeIssue :one
-SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.metadata,
+SELECT i.id, i.repository, i.number, i.body, i.state, i.workstream, i.kind, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: GetIssueByID :one
-SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
+SELECT i.id, i.repository, i.number, i.title, i.body, i.state, i.workstream, i.parent, i.kind, CAST(i.evergreen AS BOOLEAN) AS evergreen, CAST(i.triage AS BOOLEAN) AS triage, i.metadata,
        w.repository AS workstream_repository, w.number AS workstream_number
 FROM issues i
 LEFT JOIN workstreams w ON w.id = i.workstream
@@ -1327,9 +1329,9 @@ WHERE i.id = ?;
 
 -- The row has no number until the send of its create writes it.
 -- name: AddIssueToCreate :one
-INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, start_requested_at, start_requested_by, metadata)
+INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, evergreen, triage, start_requested_at, start_requested_by, metadata)
 VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(author),
-        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), CAST(sqlc.arg(triage) AS BOOLEAN),
+        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), CAST(sqlc.arg(evergreen) AS BOOLEAN), CAST(sqlc.arg(triage) AS BOOLEAN),
         sqlc.narg(start_requested_at), sqlc.arg(start_requested_by), sqlc.arg(metadata))
 RETURNING id;
 
@@ -1433,8 +1435,12 @@ UPDATE issues SET start_requested_at = NULL, start_requested_by = ''
 WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER)
   AND (start_requested_at IS NOT NULL OR start_requested_by != '');
 
+-- A task is never evergreen.
 -- name: SetIssueKind :execrows
-UPDATE issues SET kind = sqlc.arg(kind) WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
+UPDATE issues SET kind = sqlc.arg(kind), evergreen = evergreen AND sqlc.arg(kind) = 'project' WHERE id = sqlc.arg(id) AND kind != sqlc.arg(kind);
+
+-- name: SetIssueEvergreen :execrows
+UPDATE issues SET evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN) WHERE id = sqlc.arg(id) AND evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN);
 
 -- name: ListBlockersOfIssue :many
 SELECT bi.id, bi.repository, bi.number, bi.state, bi.metadata
@@ -1461,7 +1467,7 @@ JOIN workstreams w ON w.id = i.workstream
 WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER);
 
 -- name: ListCopiedTree :many
-SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.triage AS BOOLEAN) AS triage, CAST(i.start_requested_at IS NOT NULL AS BOOLEAN) AS start_requested, i.metadata
+SELECT i.id, i.parent, CAST(coalesce(i.number, 0) AS INTEGER) AS number, i.repository AS issue_repository, i.title, i.state, i.author, i.kind, CAST(i.evergreen AS BOOLEAN) AS evergreen, CAST(i.triage AS BOOLEAN) AS triage, CAST(i.start_requested_at IS NOT NULL AS BOOLEAN) AS start_requested, i.metadata
 FROM issues i
 JOIN workstreams w ON w.id = i.workstream
 WHERE w.repository = ? AND w.number = CAST(sqlc.arg(number) AS INTEGER)

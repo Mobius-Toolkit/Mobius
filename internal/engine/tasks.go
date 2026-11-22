@@ -50,7 +50,11 @@ func taskText(workstreamRepository string, lines []TaskLine) string {
 		if line.Wait != "" {
 			wait = fmt.Sprintf(" (wait: %s)", line.Wait)
 		}
-		fmt.Fprintf(&b, "%s#%d %s: %s%s%s\n", line.Repository, line.Number, line.Title, line.State, wait, blockedBy)
+		evergreen := ""
+		if line.Evergreen {
+			evergreen = " (evergreen Project)"
+		}
+		fmt.Fprintf(&b, "%s#%d %s%s: %s%s%s\n", line.Repository, line.Number, line.Title, evergreen, line.State, wait, blockedBy)
 	}
 	return b.String()
 }
@@ -61,6 +65,8 @@ type TaskLine struct {
 	Title  string
 	// Kind is "task" or "project".
 	Kind string
+	// Evergreen is true for a Project that has no end.
+	Evergreen bool
 	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A Start that waits shows "start waits". Wait holds the wait of a live task.
 	State string
 	URL   string
@@ -212,7 +218,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		depth := depths[row.Parent.Int64]
 		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
-			line := TaskLine{Number: row.Number, Title: row.Title, Kind: row.Kind, State: labelState(row.labels), URL: issueLink(issueRepositoryName, row.Number), Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
+			line := TaskLine{Number: row.Number, Title: row.Title, Kind: row.Kind, Evergreen: row.Evergreen, State: labelState(row.labels), URL: issueLink(issueRepositoryName, row.Number), Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {
 				line.State = "closed"
 			} else {
@@ -311,10 +317,10 @@ func (e *Engine) Task(ctx context.Context, repositoryName string, workstream int
 }
 
 // labelState gives the first Mobius label of labels in the order of Labels, with no "mobius:", or open.
-// mobius:ready is an input label with no copy state, so labelState skips it.
+// mobius:ready and mobius:evergreen are no states of a task, so labelState skips them.
 func labelState(labels []string) string {
 	for _, label := range Labels {
-		if label.Name == readyLabel {
+		if label.Name == readyLabel || label.Name == evergreenLabel {
 			continue
 		}
 		if slices.Contains(labels, label.Name) {
