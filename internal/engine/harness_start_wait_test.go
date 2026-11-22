@@ -57,3 +57,18 @@ func TestAFailedStartOfTheHarnessEndsTheWaitForTheStart(t *testing.T) {
 		t.Errorf("session = %+v", session)
 	}
 }
+
+func TestALeadWorksWhileItsHarnessStarts(t *testing.T) {
+	t.Parallel()
+	server, dataDir := connectWith(t, testkit.NewFakeGitHub(t), "[[prompts]]\nhang = true\n", noChange)
+	testkit.InstallFakeAgent(t, dataDir, "session_new_hold = true\n"+options+"[[prompts]]\nhang = true\n")
+
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+
+	lead := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return session.QueueWait.String == "harness_start"
+	})
+	if !isWorking(t, server, lead.ID) {
+		t.Error("the Lead in the start of its Harness does not work")
+	}
+}

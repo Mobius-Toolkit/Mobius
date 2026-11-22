@@ -1190,7 +1190,7 @@ func (e *Engine) working(n Node) bool {
 		e.chatsMu.Lock()
 		defer e.chatsMu.Unlock()
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
-		return ok && c.writing && !session.QueueWait.Valid
+		return ok && c.writing && (!session.QueueWait.Valid || Wait(session.QueueWait.String) == waitHarnessStart)
 	}
 	return !session.QueueWait.Valid || slices.Contains([]Wait{waitLocalCheck, waitInit, waitHarnessStart}, Wait(session.QueueWait.String))
 }
