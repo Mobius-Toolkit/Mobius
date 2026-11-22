@@ -1766,7 +1766,9 @@ export function update(model: Model, message: Message): UpdateReturn {
       const panelMessage = message.message;
       if (
         panelMessage._tag === "AddedSelection" ||
-        (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedTask")
+        (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedItem") ||
+        (panelMessage._tag === "GotRecurringMessage" &&
+          panelMessage.message._tag === "AttachedItem")
       ) {
         return foldPanel({ ...model, mobileTasksOpen: false, briefOpen: false }, panelMessage);
       }

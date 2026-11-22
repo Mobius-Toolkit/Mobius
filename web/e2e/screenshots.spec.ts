@@ -2286,6 +2286,7 @@ test("screenshots", async ({ page }) => {
   };
   const recurringPanel = page.getByRole("tabpanel", { name: "Recurring" });
   const checkRow = recurringPanel.getByRole("listitem").filter({ hasText: "Check the open pull" });
+  const recurringChat = checkRow.getByRole("button", { name: /^Chat about recurring task \d+$/ });
   await screenshot(
     page,
     "chat-recurring",
@@ -2297,6 +2298,7 @@ test("screenshots", async ({ page }) => {
       recurringPanel.getByText("Paused", { exact: true }),
       recurringPanel.getByRole("button", { name: "Resume" }),
       checkRow.getByRole("button", { name: "Run now" }),
+      recurringChat,
     ],
     openRecurring,
   );
@@ -2314,6 +2316,7 @@ test("screenshots", async ({ page }) => {
       recurringPanel.getByText("manual", { exact: true }),
       recurringPanel.getByText("skipped: the earlier event is not delivered yet"),
       recurringPanel.getByText("Sep 24, 08:00 AM"),
+      recurringPanel.getByRole("button", { name: /^Chat about recurring task \d+$/ }),
     ],
     async (device) => {
       await openRecurring(device);
@@ -2338,6 +2341,27 @@ test("screenshots", async ({ page }) => {
       await checkRow.getByRole("button", { name: "Delete" }).click();
     },
     () => page.keyboard.press("Escape"),
+  );
+  const chatComposer = page.getByRole("main").locator("form");
+  await screenshot(
+    page,
+    "chat-recurring-attached",
+    "/workstreams/plants/garden/50",
+    (device) => [
+      ...recurringFrame(device, 50),
+      chatComposer.getByText("Check the open pull requests and tell me which ones wait"),
+      chatComposer.getByText("Cron: 0 8 * * 1-5"),
+      chatComposer.getByRole("button", { name: /^Remove Recurring task \d+$/ }),
+    ],
+    async (device) => {
+      await openRecurring(device);
+      await expect(chatComposer.getByLabel("Message to the Lead")).toBeEditable();
+      await recurringChat.click();
+    },
+    async () => {
+      await page.evaluate(clearDrafts);
+      await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+    },
   );
   await screenshot(
     page,

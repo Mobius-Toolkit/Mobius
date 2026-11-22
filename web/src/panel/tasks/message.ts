@@ -17,7 +17,7 @@ export const Message = defineMessageUnion({
   ChangedIssue: { key: Schema.String },
   ChangeFailed: { key: Schema.String, error: Schema.String },
   ClickedChat: { key: Schema.String, line: TaskLine },
-  AttachedTask: {},
+  AttachedItem: {},
   AttachFailed: { key: Schema.String, error: Schema.String },
   ClickedSetting: { line: TaskLine },
   GotSettingMessage: { message: Setting.Message },

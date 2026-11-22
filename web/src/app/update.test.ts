@@ -8,6 +8,7 @@ import { Message as SwitchesMessage } from "@/settings/switches/message";
 import { Message as ChatMessage } from "@/chat/message";
 import { Message as PanelMessage } from "@/panel/message";
 import { Message as WorkstreamSetupMessage } from "@/workstreamSetup/message";
+import { Message as RecurringMessage } from "@/panel/recurring/message";
 import { Message as TasksMessage } from "@/panel/tasks/message";
 import { Message as SelectionMessage } from "@/ui/selection";
 import {
@@ -302,7 +303,22 @@ describe("organization switch update logic", () => {
       given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
       message(
         Message.GotPanelMessage({
-          message: PanelMessage.GotTasksMessage({ message: TasksMessage.AttachedTask() }),
+          message: PanelMessage.GotTasksMessage({ message: TasksMessage.AttachedItem() }),
+        }),
+      ),
+      model((m) => {
+        expect(m.mobileTasksOpen).toBe(false);
+      }),
+    );
+  });
+
+  it("closes the Tasks sheet after a recurring task reaches the draft", () => {
+    story(
+      update,
+      given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
+      message(
+        Message.GotPanelMessage({
+          message: PanelMessage.GotRecurringMessage({ message: RecurringMessage.AttachedItem() }),
         }),
       ),
       model((m) => {

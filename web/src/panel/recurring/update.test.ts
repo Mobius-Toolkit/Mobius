@@ -9,6 +9,7 @@ import {
   model,
   story,
 } from "foldkit/story";
+import { AttachInboxItem } from "@/panel/attach";
 import { DeleteTask, OpenTask, RestoreScroll, RunTask, SetPaused, ShowNotice } from "./commands";
 import { Message, OutMessage } from "./message";
 import { initialModel, type Model, type RecurringTask } from "./model";
@@ -309,6 +310,48 @@ describe("the delete", () => {
         expect(m.opened).toEqual(Option.some(1));
       }),
       StoryCommand.expectNone(),
+    );
+  });
+});
+
+describe("Chat about a recurring task", () => {
+  it("attaches the task to the draft of the Lead chat, and tells the host after the write", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedChat({ task: first })),
+      StoryCommand.expectExact(
+        AttachInboxItem({
+          key: "recurring-task:1",
+          draftKey: "chatDraft:owner/owner/shop/12",
+          item: {
+            id: "recurring-task:1",
+            reference: "Recurring task 1",
+            title: "Check the open pull requests",
+            reason: "Cron: 0 8 * * 1-5",
+            link: "",
+          },
+        }),
+      ),
+      StoryCommand.resolve(AttachInboxItem, Message.AttachedItem()),
+      expectOutMessage(OutMessage.ItemAttached()),
+    );
+  });
+
+  it("shows a notice when the write fails", () => {
+    story(
+      update,
+      given(createModel()),
+      message(Message.ClickedChat({ task: second })),
+      StoryCommand.resolve(
+        AttachInboxItem,
+        Message.AttachFailed({ key: "recurring-task:2", error: "storage is full" }),
+      ),
+      StoryCommand.expectExact(
+        ShowNotice({ text: "The recurring task did not attach: storage is full" }),
+      ),
+      StoryCommand.resolve(ShowNotice, Message.CompletedShowNotice()),
+      expectNoOutMessage(),
     );
   });
 });
