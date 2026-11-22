@@ -11,12 +11,12 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-func callCreateRecurringIn(when, expression, text string, project int) string {
-	return callRecurring(when, "create_recurring_task", fmt.Sprintf("{ cron = %q, text = %q, project = %d }", expression, text, project))
+func callCreateRecurringIn(when string, project int) string {
+	return callRecurring(when, "create_recurring_task", fmt.Sprintf("{ cron = %q, text = %q, project = %d }", weekdays, planCheck, project))
 }
 
-func callUpdateRecurringIn(when string, id int, expression, text string, project int) string {
-	return callRecurring(when, "update_recurring_task", fmt.Sprintf("{ id = %d, cron = %q, text = %q, project = %d }", id, expression, text, project))
+func callUpdateRecurringIn(when string, id, project int) string {
+	return callRecurring(when, "update_recurring_task", fmt.Sprintf("{ id = %d, cron = %q, text = %q, project = %d }", id, weekdays, planCheck, project))
 }
 
 // addProject adds the Project number below the Workstream owner/shop#12 on the fake GitHub, and waits until the local
@@ -34,7 +34,7 @@ func addProject(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHu
 func TestTheLeadCreatesARecurringTaskInAProjectAndTheApprovalNamesTheProject(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callCreateRecurringIn("Add it.", weekdays, planCheck, 41)+seenScript)
+	server, _ := connect(t, fake, approvalSeen+callCreateRecurringIn("Add it.", 41)+seenScript)
 	setNow(server, friday)
 	addProject(t, server, fake, 41, "Stats display")
 
@@ -61,7 +61,7 @@ func TestTheLeadCreatesARecurringTaskInAProjectAndTheApprovalNamesTheProject(t *
 func TestAnUpdateOfARecurringTaskSetsItsProjectAndAnUpdateWithNoProjectClearsIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callUpdateRecurringIn("Change 1.", 1, weekdays, planCheck, 41)+callUpdateRecurring("Change 2.", 2, weekdays, planCheck)+seenScript)
+	server, _ := connect(t, fake, approvalSeen+callUpdateRecurringIn("Change 1.", 1, 41)+callUpdateRecurring("Change 2.", 2, weekdays, planCheck)+seenScript)
 	setNow(server, friday)
 	addProject(t, server, fake, 41, "Stats display")
 	addRecurringTask(t, server, hourly, planCheck)
@@ -87,9 +87,9 @@ func TestAnUpdateOfARecurringTaskSetsItsProjectAndAnUpdateWithNoProjectClearsIt(
 func TestARecurringTaskToolCallWithANumberThatIsNotAnOpenProjectOfTheWorkstreamAddsNoPendingAction(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, callCreateRecurringIn("Add 1.", weekdays, planCheck, 43)+callCreateRecurringIn("Add 2.", weekdays, planCheck, 99)+
-		callUpdateRecurringIn("Change 1.", 1, weekdays, planCheck, 42)+callCreateRecurringIn("Add 3.", weekdays, planCheck, 12)+
-		callCreateRecurringIn("Add 4.", weekdays, planCheck, 51)+callCreateRecurringIn("Add 5.", weekdays, planCheck, -1)+seenScript)
+	server, _ := connect(t, fake, callCreateRecurringIn("Add 1.", 43)+callCreateRecurringIn("Add 2.", 99)+
+		callUpdateRecurringIn("Change 1.", 1, 42)+callCreateRecurringIn("Add 3.", 12)+
+		callCreateRecurringIn("Add 4.", 51)+callCreateRecurringIn("Add 5.", -1)+seenScript)
 	setNow(server, friday)
 	addRecurringTask(t, server, hourly, planCheck)
 	addProject(t, server, fake, 42, "Old display")
