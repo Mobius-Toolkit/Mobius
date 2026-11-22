@@ -1438,6 +1438,7 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 	}
 	var parent sql.NullInt64
 	place := "directly below the Workstream issue"
+	advice := "If an Implementer works on the task, tell it with send_message that the task is no longer in a Project."
 	if input.Project > 0 {
 		at := slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool {
 			return row.Number == input.Project && strings.EqualFold(row.IssueRepository, c.repository) && row.Kind == projectKind && row.State == "open"
@@ -1447,6 +1448,7 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 		}
 		parent = sql.NullInt64{Int64: tree[at].ID, Valid: true}
 		place = fmt.Sprintf("below the Project %s#%d", c.repository, input.Project)
+		advice = "If an Implementer works on the task, send the Project body with send_message."
 	}
 	if task.Parent == parent {
 		return fmt.Sprintf("%s#%d is already %s. Mobius changed nothing.", repository.FullName, input.N, place), nil
@@ -1461,6 +1463,9 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 		if err := q.SetIssueParentAndWorkstream(ctx, store.SetIssueParentAndWorkstreamParams{Workstream: sql.NullInt64{Int64: workstream, Valid: true}, Parent: parent, ID: task.ID}); err != nil {
 			return err
 		}
+		if err := q.SetIssueBucket(ctx, store.SetIssueBucketParams{Bucket: 0, ID: task.ID}); err != nil {
+			return err
+		}
 		changeID, err = addIssueChange(ctx, q, repository.FullName, input.N, task.ID, parentField)
 		return err
 	})
@@ -1473,8 +1478,8 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 		return "", err
 	}
 	return e.sentOrLater(ctx, changeID,
-		fmt.Sprintf("Moved %s#%d %s. A running task continues. If an Implementer works on the task, send the Project body with send_message.", repository.FullName, input.N, place),
-		fmt.Sprintf("Mobius moves %s#%d %s on GitHub later. A running task continues. If an Implementer works on the task, send the Project body with send_message.", repository.FullName, input.N, place),
+		fmt.Sprintf("Moved %s#%d %s. A running task continues. %s", repository.FullName, input.N, place, advice),
+		fmt.Sprintf("Mobius moves %s#%d %s on GitHub later. A running task continues. %s", repository.FullName, input.N, place, advice),
 	)
 }
 

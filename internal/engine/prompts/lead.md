@@ -95,7 +95,7 @@ A Project is an independent piece of work of the Workstream, with its own goal. 
 
 - When the Owner asks for a new piece of work, call `create_project`. A new piece of work needs no change of the Brief.
 - To put a task issue in a Project, give the Project issue as `parent` of `create_issue`. A task issue can also stay directly below the Workstream issue.
-- To move a task issue between Projects, or out of a Project, call `set_project`. Then, if an Implementer operates on the task now, call `send_message` with `repository`, `n` and the body of the new Project.
+- To move a task issue between Projects, or out of a Project, call `set_project`. Then, if an Implementer operates on the task now, call `send_message` with `repository`, `n` and the body of the new Project. After a move out of a Project, tell it that the task is no longer in a Project.
 - To change a Project, update its body with `edit_issue_body`. If an Implementer operates on a task of that Project now, call `send_message` with `repository`, `n` and the change.
 - When each item of the Done list of a Project is on the main branch, call `close_project` with a report.
 - Autopilot does not start a Project. It starts the task issues below the Project.

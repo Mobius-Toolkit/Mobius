@@ -217,7 +217,7 @@ func TestSetProjectMovesATaskIntoAProjectToAnotherProjectAndOutOfAProject(t *tes
 	}{
 		{"into a Project", 12, 41, 41, "Moved owner/shop#43 below the Project owner/shop#41. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
 		{"to another Project", 41, 42, 42, "Moved owner/shop#43 below the Project owner/shop#42. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
-		{"out of a Project", 41, 0, 12, "Moved owner/shop#43 directly below the Workstream issue. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
+		{"out of a Project", 41, 0, 12, "Moved owner/shop#43 directly below the Workstream issue. A running task continues. If an Implementer works on the task, tell it with send_message that the task is no longer in a Project."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -314,5 +314,29 @@ func TestSetProjectRefusesAWorkstreamIssueAProjectAnIssueOfAnotherWorkstreamAndA
 	}
 	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'parent'"); got != 0 {
 		t.Errorf("parent changes = %d", got)
+	}
+}
+
+func TestSetProjectClearsTheBucketOfATaskThatWasBelowABucket(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, setProject(43, 41))
+	fake.AddIssue(shop, 90, "Bucket 1 of #12")
+	fake.AddLabel(shop, 90, "mobius:bucket", "owner")
+	fake.AddSubIssue(shop, 12, 90)
+	addProjectTree(fake, 90)
+	waitForProjectTree(t, server)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 43 AND json_extract(metadata, '$.github.bucket') = 90", shop) == 1
+	})
+
+	run(t, server, leadSpec(t), "Move 43 to 41")
+
+	waitForPolls(t, fake)
+	if got := countRows(t, server, "SELECT count(*) FROM issues i WHERE i.repository = ? AND i.number = 43 AND json_extract(i.metadata, '$.github.bucket') IS NULL AND (SELECT p.number FROM issues p WHERE p.id = i.parent) = 41", shop); got != 1 {
+		t.Errorf("rows of #43 with no bucket below #41 = %d", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 90); len(got) != 0 {
+		t.Errorf("sub-issues of the bucket = %v", got)
 	}
 }
