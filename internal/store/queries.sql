@@ -1807,11 +1807,15 @@ UPDATE init_failures SET issue_row = ? WHERE id = ?;
 -- name: EndInitFailure :exec
 UPDATE init_failures SET ended_at = ? WHERE id = ?;
 
--- name: AddOwnerAnswer :exec
-INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?);
+-- name: SetAnswerComment :exec
+UPDATE inbox_items SET metadata = json_set(metadata, '$.github.answer', CAST(sqlc.arg(comment) AS INTEGER)) WHERE id = sqlc.arg(id);
 
--- name: IsOwnerAnswer :one
-SELECT EXISTS (SELECT 1 FROM owner_answers WHERE repository = ? AND comment_id = ?);
+-- name: IsAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items
+    WHERE repository = sqlc.arg(repository) AND issue = CAST(sqlc.arg(issue) AS INTEGER)
+        AND json_extract(metadata, '$.github.answer') = CAST(sqlc.arg(comment) AS INTEGER)
+);
 
 -- name: SetTaskBreakWaitHead :exec
 UPDATE tasks SET break_wait_head = ? WHERE id = ?;

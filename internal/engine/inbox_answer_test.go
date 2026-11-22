@@ -32,6 +32,28 @@ func answer(t *testing.T, server *testserver.Server, id int64, text string) stri
 	return result.Data.URL
 }
 
+// answerCommentIDs gives $.github.answer of each Inbox item that has one.
+func answerCommentIDs(t *testing.T, server *testserver.Server) []int64 {
+	t.Helper()
+	rows, err := server.DB.Query(`SELECT json_extract(metadata, '$.github.answer') FROM inbox_items WHERE json_extract(metadata, '$.github.answer') IS NOT NULL ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return ids
+}
+
 func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEvent(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -54,6 +76,10 @@ func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEve
 	}
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
 	waitForNoItem(t, server, "question")
+	ids := fake.CommentIDs(shop, 41)
+	if got := answerCommentIDs(t, server); len(ids) != 2 || !slices.Equal(got, []int64{ids[1]}) {
+		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	}
 }
 
 func TestACommentOfTheLeadWithGhOnTheIssueOfAQuestionIsNoAnswerAndAnAnswerFromTheInboxIs(t *testing.T) {
