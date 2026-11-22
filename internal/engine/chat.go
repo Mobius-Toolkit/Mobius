@@ -2172,7 +2172,11 @@ func recurringText(tasks []RecurringTask) string {
 				last += " (" + run.Reason + ")"
 			}
 		}
-		fmt.Fprintf(&b, "- %d: `%s`, %s, %s, %q\n", task.ID, task.Cron, next, last, task.Text)
+		project := ""
+		if task.Project != 0 {
+			project = projectName(task.Project, task.ProjectTitle) + ", "
+		}
+		fmt.Fprintf(&b, "- %d: `%s`, %s, %s, %s%q\n", task.ID, task.Cron, next, last, project, task.Text)
 	}
 	return b.String()
 }

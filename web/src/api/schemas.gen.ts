@@ -2274,6 +2274,8 @@ export const ListRecurringTasksResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
   "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
   "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "project": S.NullOr(S.Number).annotate({ description: 'Project is the number of the Project of the task, or null for a task with no Project' }),
+  "projectTitle": S.NullOr(S.String).annotate({ description: 'ProjectTitle is the title of the Project of the task, or null for a task with no Project' }),
   "runs": S.Array(S.Struct({
   "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
   "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),
@@ -2316,6 +2318,8 @@ export const SetRecurringTaskPausedResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
   "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
   "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "project": S.NullOr(S.Number).annotate({ description: 'Project is the number of the Project of the task, or null for a task with no Project' }),
+  "projectTitle": S.NullOr(S.String).annotate({ description: 'ProjectTitle is the title of the Project of the task, or null for a task with no Project' }),
   "runs": S.Array(S.Struct({
   "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
   "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),
@@ -2342,6 +2346,8 @@ export const RunRecurringTaskResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the recurring task' }),
   "next": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'Next is the next time of the task, or null for a paused task' }),
   "paused": S.Boolean.annotate({ description: 'Paused is true when the task gives no event' }),
+  "project": S.NullOr(S.Number).annotate({ description: 'Project is the number of the Project of the task, or null for a task with no Project' }),
+  "projectTitle": S.NullOr(S.String).annotate({ description: 'ProjectTitle is the title of the Project of the task, or null for a task with no Project' }),
   "runs": S.Array(S.Struct({
   "reason": S.String.annotate({ description: 'Reason is the reason of a skipped time, or empty' }),
   "result": S.Literals(['event', 'skipped', 'manual']).annotate({ description: 'Result is event when the Lead got an event, manual when the Owner ran the task now, or skipped' }),

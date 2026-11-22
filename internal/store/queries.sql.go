@@ -1018,9 +1018,9 @@ func (q *Queries) AddPendingBucket(ctx context.Context, arg AddPendingBucketPara
 }
 
 const addRecurringTask = `-- name: AddRecurringTask :one
-INSERT INTO recurring_tasks (repository, workstream, cron, text, checked_at)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+INSERT INTO recurring_tasks (repository, workstream, cron, text, project, checked_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event, project
 `
 
 type AddRecurringTaskParams struct {
@@ -1028,6 +1028,7 @@ type AddRecurringTaskParams struct {
 	Workstream int64
 	Cron       string
 	Text       string
+	Project    sql.NullInt64
 	CheckedAt  string
 }
 
@@ -1037,6 +1038,7 @@ func (q *Queries) AddRecurringTask(ctx context.Context, arg AddRecurringTaskPara
 		arg.Workstream,
 		arg.Cron,
 		arg.Text,
+		arg.Project,
 		arg.CheckedAt,
 	)
 	var i RecurringTask
@@ -1049,6 +1051,7 @@ func (q *Queries) AddRecurringTask(ctx context.Context, arg AddRecurringTaskPara
 		&i.Paused,
 		&i.CheckedAt,
 		&i.Event,
+		&i.Project,
 	)
 	return i, err
 }
@@ -5199,7 +5202,7 @@ func (q *Queries) GetQuestionByChatMessage(ctx context.Context, chatMessage sql.
 }
 
 const getRecurringTask = `-- name: GetRecurringTask :one
-SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
+SELECT id, repository, workstream, cron, text, paused, checked_at, event, project FROM recurring_tasks
 WHERE id = ? AND repository = ? AND workstream = ?
 `
 
@@ -5221,6 +5224,7 @@ func (q *Queries) GetRecurringTask(ctx context.Context, arg GetRecurringTaskPara
 		&i.Paused,
 		&i.CheckedAt,
 		&i.Event,
+		&i.Project,
 	)
 	return i, err
 }
@@ -6268,7 +6272,7 @@ func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error
 }
 
 const listAllRecurringTasks = `-- name: ListAllRecurringTasks :many
-SELECT t.id, t.repository, t.workstream, t.cron, t.text, t.paused, t.checked_at, t.event FROM recurring_tasks t
+SELECT t.id, t.repository, t.workstream, t.cron, t.text, t.paused, t.checked_at, t.event, t.project FROM recurring_tasks t
 JOIN workstreams w ON w.repository = t.repository AND w.number = t.workstream AND w.state = 'open'
 WHERE t.paused = 0
 ORDER BY t.id
@@ -6292,6 +6296,7 @@ func (q *Queries) ListAllRecurringTasks(ctx context.Context) ([]RecurringTask, e
 			&i.Paused,
 			&i.CheckedAt,
 			&i.Event,
+			&i.Project,
 		); err != nil {
 			return nil, err
 		}
@@ -9978,6 +9983,46 @@ func (q *Queries) ListPendingParentRefs(ctx context.Context) ([]ListPendingParen
 	return items, nil
 }
 
+const listProjectRecurringTasks = `-- name: ListProjectRecurringTasks :many
+SELECT id, text FROM recurring_tasks
+WHERE repository = ? AND workstream = ? AND project = ?
+ORDER BY id
+`
+
+type ListProjectRecurringTasksParams struct {
+	Repository string
+	Workstream int64
+	Project    sql.NullInt64
+}
+
+type ListProjectRecurringTasksRow struct {
+	ID   int64
+	Text string
+}
+
+func (q *Queries) ListProjectRecurringTasks(ctx context.Context, arg ListProjectRecurringTasksParams) ([]ListProjectRecurringTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProjectRecurringTasks, arg.Repository, arg.Workstream, arg.Project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProjectRecurringTasksRow
+	for rows.Next() {
+		var i ListProjectRecurringTasksRow
+		if err := rows.Scan(&i.ID, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedTasks = `-- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
   SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
@@ -10144,7 +10189,7 @@ func (q *Queries) ListRecurringTaskRuns(ctx context.Context, recurringTask int64
 }
 
 const listRecurringTasks = `-- name: ListRecurringTasks :many
-SELECT id, repository, workstream, cron, text, paused, checked_at, event FROM recurring_tasks
+SELECT id, repository, workstream, cron, text, paused, checked_at, event, project FROM recurring_tasks
 WHERE repository = ? AND workstream = ?
 ORDER BY id
 `
@@ -10172,6 +10217,7 @@ func (q *Queries) ListRecurringTasks(ctx context.Context, arg ListRecurringTasks
 			&i.Paused,
 			&i.CheckedAt,
 			&i.Event,
+			&i.Project,
 		); err != nil {
 			return nil, err
 		}
@@ -13316,7 +13362,7 @@ const setRecurringTaskPaused = `-- name: SetRecurringTaskPaused :one
 UPDATE recurring_tasks
 SET paused = CAST(?1 AS BOOLEAN), checked_at = ?2
 WHERE id = ?3 AND repository = ?4 AND workstream = ?5
-RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event, project
 `
 
 type SetRecurringTaskPausedParams struct {
@@ -13346,6 +13392,7 @@ func (q *Queries) SetRecurringTaskPaused(ctx context.Context, arg SetRecurringTa
 		&i.Paused,
 		&i.CheckedAt,
 		&i.Event,
+		&i.Project,
 	)
 	return i, err
 }
@@ -14340,15 +14387,16 @@ func (q *Queries) UpdateMcpServer(ctx context.Context, arg UpdateMcpServerParams
 const updateRecurringTask = `-- name: UpdateRecurringTask :one
 UPDATE recurring_tasks
 SET checked_at = CASE WHEN cron != ?1 THEN ?2 ELSE checked_at END,
-    cron = ?1, text = ?3
-WHERE id = ?4 AND repository = ?5 AND workstream = ?6
-RETURNING id, repository, workstream, cron, text, paused, checked_at, event
+    cron = ?1, text = ?3, project = ?4
+WHERE id = ?5 AND repository = ?6 AND workstream = ?7
+RETURNING id, repository, workstream, cron, text, paused, checked_at, event, project
 `
 
 type UpdateRecurringTaskParams struct {
 	Cron       string
 	CheckedAt  string
 	Text       string
+	Project    sql.NullInt64
 	ID         int64
 	Repository string
 	Workstream int64
@@ -14360,6 +14408,7 @@ func (q *Queries) UpdateRecurringTask(ctx context.Context, arg UpdateRecurringTa
 		arg.Cron,
 		arg.CheckedAt,
 		arg.Text,
+		arg.Project,
 		arg.ID,
 		arg.Repository,
 		arg.Workstream,
@@ -14374,6 +14423,7 @@ func (q *Queries) UpdateRecurringTask(ctx context.Context, arg UpdateRecurringTa
 		&i.Paused,
 		&i.CheckedAt,
 		&i.Event,
+		&i.Project,
 	)
 	return i, err
 }

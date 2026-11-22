@@ -462,6 +462,14 @@ func (g *FakeGitHub) RefuseJobLogs(status int) {
 	g.jobLogRefusal = status
 }
 
+// RefuseJobLogDownloads makes the download of each job log give the status, while the link to the log works. The body is
+// the answer of the blob host of GitHub for a log that it does not have. The status 0 makes the download work.
+func (g *FakeGitHub) RefuseJobLogDownloads(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.jobLogDownloadRefusal = status
+}
+
 // WorkflowRunAttempt gives the number of the attempt of the workflow run id.
 func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	g.mu.Lock()
@@ -1017,6 +1025,10 @@ func (g *FakeGitHub) jobLogLink(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.jobLogDownloadRefusal != 0 {
+		http.Error(w, "The specified blob does not exist.", g.jobLogDownloadRefusal)
+		return
+	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	log, ok := g.jobLogs[id]
 	if !ok {

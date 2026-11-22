@@ -222,7 +222,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.createProject),
 			tool(e, c, "close_project",
-				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, and an evergreen Project.",
+				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, a Project with a recurring task, and an evergreen Project.",
 				map[string]any{
 					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Project issue, in the repository of the Workstream."},
 					"report": map[string]any{"type": "string", "minLength": 1, "description": "The report for the people on the issue: what the Project did, and where each item of its Done list is on the main branch."},
@@ -957,14 +957,16 @@ type editBriefInput struct {
 }
 
 type createRecurringInput struct {
-	Cron string `json:"cron"`
-	Text string `json:"text"`
+	Cron    string `json:"cron"`
+	Text    string `json:"text"`
+	Project int64  `json:"project"`
 }
 
 type updateRecurringInput struct {
-	ID   int64  `json:"id"`
-	Cron string `json:"cron"`
-	Text string `json:"text"`
+	ID      int64  `json:"id"`
+	Cron    string `json:"cron"`
+	Text    string `json:"text"`
+	Project int64  `json:"project"`
 }
 
 type deleteRecurringInput struct {
@@ -2463,6 +2465,28 @@ func (e *Engine) recurringTimes(expression string) (string, error) {
 	return strings.Join(texts, ", "), nil
 }
 
+// recurringProject refuses a project that is not 0 and not an open Project of the Workstream of c. For a Project, it
+// gives " in the Project #n title". For 0, it gives an empty text.
+func (e *Engine) recurringProject(ctx context.Context, c caller, project int64) (string, error) {
+	if project == 0 {
+		return "", nil
+	}
+	if project < 0 {
+		return "", refuse("project must be 1 or more.")
+	}
+	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: c.repository, Number: c.workstream})
+	if err != nil {
+		return "", err
+	}
+	at := slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool {
+		return row.Number == project && row.Kind == projectKind && row.State == "open" && strings.EqualFold(row.IssueRepository, c.repository)
+	})
+	if at < 0 {
+		return "", refuse("%s#%d is not an open Project of this Workstream.", c.repository, project)
+	}
+	return " in the " + projectName(project, tree[at].Title), nil
+}
+
 func checkCreateRecurring(_ caller, input createRecurringInput) error {
 	return checkRecurringTask(input.Cron, input.Text)
 }
@@ -2482,7 +2506,10 @@ func checkDeleteRecurring(_ caller, input deleteRecurringInput) error {
 }
 
 func (e *Engine) createRecurringTask(ctx context.Context, c caller, repository github.Repository, input createRecurringInput) (string, error) {
-	task, err := e.AddRecurringTask(ctx, repository.FullName, c.workstream, input.Cron, input.Text)
+	if _, err := e.recurringProject(ctx, c, input.Project); err != nil {
+		return "", err
+	}
+	task, err := e.AddRecurringTask(ctx, repository.FullName, c.workstream, input.Cron, input.Text, input.Project)
 	if err != nil {
 		return "", err
 	}
@@ -2490,7 +2517,10 @@ func (e *Engine) createRecurringTask(ctx context.Context, c caller, repository g
 }
 
 func (e *Engine) updateRecurringTask(ctx context.Context, c caller, repository github.Repository, input updateRecurringInput) (string, error) {
-	task, err := e.UpdateRecurringTask(ctx, repository.FullName, c.workstream, input.ID, input.Cron, input.Text)
+	if _, err := e.recurringProject(ctx, c, input.Project); err != nil {
+		return "", err
+	}
+	task, err := e.UpdateRecurringTask(ctx, repository.FullName, c.workstream, input.ID, input.Cron, input.Text, input.Project)
 	if err != nil {
 		return "", err
 	}

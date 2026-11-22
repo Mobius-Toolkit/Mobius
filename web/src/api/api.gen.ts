@@ -1920,6 +1920,16 @@ export interface RecurringTask {
   next: string | null;
   /** Paused is true when the task gives no event */
   paused: boolean;
+  /**
+     * Project is the number of the Project of the task, or null for a task with no Project
+     * @nullable
+     */
+  project: number | null;
+  /**
+     * ProjectTitle is the title of the Project of the task, or null for a task with no Project
+     * @nullable
+     */
+  projectTitle: string | null;
   /** Runs are the last 20 times of the task, newest first */
   runs: RecurringTaskRun[];
   /** Text is the text that the Lead gets at each time */

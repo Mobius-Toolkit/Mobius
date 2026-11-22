@@ -2328,13 +2328,18 @@ DELETE FROM tool_auto_upgrades WHERE package = ?;
 UPDATE tool_auto_upgrades SET failed_version = ? WHERE package = ?;
 
 -- name: AddRecurringTask :one
-INSERT INTO recurring_tasks (repository, workstream, cron, text, checked_at)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO recurring_tasks (repository, workstream, cron, text, project, checked_at)
+VALUES (sqlc.arg(repository), sqlc.arg(workstream), sqlc.arg(cron), sqlc.arg(text), sqlc.narg(project), sqlc.arg(checked_at))
 RETURNING *;
 
 -- name: ListRecurringTasks :many
 SELECT * FROM recurring_tasks
 WHERE repository = ? AND workstream = ?
+ORDER BY id;
+
+-- name: ListProjectRecurringTasks :many
+SELECT id, text FROM recurring_tasks
+WHERE repository = ? AND workstream = ? AND project = ?
 ORDER BY id;
 
 -- name: GetRecurringTask :one
@@ -2356,7 +2361,7 @@ ORDER BY t.id;
 -- name: UpdateRecurringTask :one
 UPDATE recurring_tasks
 SET checked_at = CASE WHEN cron != sqlc.arg(cron) THEN sqlc.arg(checked_at) ELSE checked_at END,
-    cron = sqlc.arg(cron), text = sqlc.arg(text)
+    cron = sqlc.arg(cron), text = sqlc.arg(text), project = sqlc.narg(project)
 WHERE id = sqlc.arg(id) AND repository = sqlc.arg(repository) AND workstream = sqlc.arg(workstream)
 RETURNING *;
 

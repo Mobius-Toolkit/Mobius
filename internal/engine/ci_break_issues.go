@@ -33,7 +33,8 @@ func refusedByGitHub(err error) bool {
 // organization with no open maintenance Workstream, or with no issue repository that Mobius can find, gets no issue,
 // and the next poll tries again. The issue of a flaky break has mobius:ready, so the usual task flow starts
 // it. A hard break gets no label. The issue is a row of issues, and its create goes to GitHub as an outgoing change: the
-// break keeps the id of the row until the send stores the number.
+// break keeps the id of the row until the send stores the number. A break whose issue fails gets a log line, and the
+// next poll tries it again. It does not stop the other breaks or the poll.
 func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repository) error {
 	breaks, err := e.queries.ListCIBreaksWithoutIssue(ctx, repository.FullName)
 	if err != nil || len(breaks) == 0 {
@@ -49,7 +50,7 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 	}
 	for _, ciBreak := range breaks {
 		if err := e.createCIBreakIssue(ctx, repository, workstream, ciBreak); err != nil {
-			return err
+			log.Printf("create the issue of the CI break %d of %s: %v", ciBreak.ID, repository.FullName, err)
 		}
 	}
 	return nil

@@ -431,6 +431,9 @@ func TestTheSendOfTheUICloseAddsNoIncomingChange(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.CloseIssue(shop, 41)
+	// A later issue puts the cursor of the first poll after the close of #41. Else a poll that lists #41 while it is in
+	// the tree reads the close by the owner as a new change of a person.
+	fake.AddIssue(shop, 99, "Fix the footer")
 	server := startCopied(t, fake)
 
 	if status, text := complete(t, server, 12); status != http.StatusNoContent {

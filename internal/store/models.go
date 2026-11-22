@@ -345,6 +345,7 @@ type RecurringTask struct {
 	Paused     int64
 	CheckedAt  string
 	Event      sql.NullInt64
+	Project    sql.NullInt64
 }
 
 type RecurringTaskRun struct {

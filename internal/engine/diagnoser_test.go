@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -352,5 +353,31 @@ func TestADiagnoserThatReportsAFailureAgainAfterTheWaitPromptSavesOnePlace(t *te
 	}
 	if n := rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE reasons LIKE '%TestPlan%TestPlan%'"); n != 0 {
 		t.Errorf("diagnoses with a repeated reason = %d", n)
+	}
+}
+
+func TestADiagnoserContinuesWithNoLogOfAJobWhoseLogDownloadGives404(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStarts, findsNothing)
+	sha := approvalHead(t, server, fake)
+	fake.RefuseJobLogDownloads(http.StatusNotFound)
+
+	id := failActions(fake, sha)
+
+	round := roundPrompt(t, server)
+	if !strings.Contains(round, "Check run \"build\"") {
+		t.Errorf("round = %s", round)
+	}
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := diagnoserSessions(t, server)
+		return sessions, len(sessions) == 1 && len(promptTexts(t, server, sessions[0].ID)) == 1
+	})
+	prompt := promptTexts(t, server, sessions[0].ID)[0]
+	if want := fmt.Sprintf("- Job \"build\"\n  Link: https://github.com/owner/shop/runs/%d\n", id); !strings.Contains(prompt, want) {
+		t.Errorf("%q is not in %s", want, prompt)
+	}
+	if strings.Contains(prompt, "Log file:") {
+		t.Errorf("prompt = %s", prompt)
 	}
 }
