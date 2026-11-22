@@ -482,6 +482,7 @@ func TestAFailedBreakDoesNotStopThePollAndTheNextPollCreatesItsIssue(t *testing.
 	fake.RefuseJobLogDownloads(http.StatusInternalServerError)
 	touch(t, gate)
 	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ended_at <> ''") == 1 })
+	waitForPolls(t, fake)
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
