@@ -578,12 +578,13 @@ func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
 	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
 		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"}) &&
-			doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 && outgoingChanges(t, server, "pending") == 0
+			doneChangesOfPersons(t, server) == 2 && incomingChanges(t, server, "pending") == 0 &&
+			countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE status = 'pending' AND (COALESCE(number, 0) <> 52 OR field <> 'comment')") == 0
 	})
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
 
-	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 && len(triagerTurns(t, server)) == 0 })
 	proposal := triagerComment(52, `Create the Workstream "Loyalty points" for this issue.`)
 	if slices.Contains(fake.Comments(shop, 52), proposal) {
 		t.Error("the proposal is on the issue")
