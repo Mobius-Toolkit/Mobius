@@ -1329,7 +1329,7 @@ WHERE i.id = ?;
 -- name: AddIssueToCreate :one
 INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, start_requested_at, start_requested_by, metadata)
 VALUES (sqlc.arg(repository), sqlc.arg(title), sqlc.arg(body), 'open', sqlc.arg(author),
-        sqlc.arg(workstream), sqlc.arg(parent), 'task', CAST(sqlc.arg(triage) AS BOOLEAN),
+        sqlc.arg(workstream), sqlc.arg(parent), sqlc.arg(kind), CAST(sqlc.arg(triage) AS BOOLEAN),
         sqlc.narg(start_requested_at), sqlc.arg(start_requested_by), sqlc.arg(metadata))
 RETURNING id;
 

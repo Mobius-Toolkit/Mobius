@@ -116,6 +116,7 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 			Author:           appLogin(repository.AppSlug),
 			Workstream:       sql.NullInt64{Int64: workstreamID, Valid: true},
 			Parent:           parentID,
+			Kind:             issueKind(labels),
 			Triage:           curator,
 			StartRequestedAt: startAt,
 			StartRequestedBy: startBy,
