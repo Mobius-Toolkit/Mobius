@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
+import { routeLongNameOfPaused } from "./agents.js";
 import { cancelDrain } from "./upgrade.js";
 
 test.beforeEach(async ({ page }) => {
@@ -32,6 +33,73 @@ test("the Agents page shows the state of each agent with a queue reason", async 
   const running = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
   await expect(running.locator("span.rounded-full")).toHaveClass(/bg-green-600/);
   await expect(running.getByText("queued")).toBeHidden();
+});
+
+test("the Agents page shows the Harness, the repository and the start time of an agent in two lines, with no role", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/agents");
+  const card = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
+  await expect(card.getByText("devin · swe-1.5 · high", { exact: true })).toBeVisible();
+  await expect(card.getByText(/^owner\/shop · Sep \d+, \d\d:\d\d [AP]M$/)).toBeVisible();
+  await expect(card.getByText("implementer ·")).toHaveCount(0);
+  await expect(card.getByText("owner ·")).toHaveCount(0);
+});
+
+test("the Agents page shows the organization of an agent that has no repository to show", async ({
+  page,
+}) => {
+  await page.route("**/api/agents", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const group of body.data.groups) {
+      for (const row of group.agents) {
+        if (row.agent.issue === 41) {
+          row.agent.workstream = 0;
+          row.agent.issue = null;
+        }
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/agents");
+  const card = page.getByRole("main").getByRole("button", { name: /Pull request #44/ });
+  await expect(card.getByText(/^owner · Sep \d+, \d\d:\d\d [AP]M$/)).toBeVisible();
+  await expect(card.getByText("owner/shop")).toHaveCount(0);
+});
+
+test("on a phone, a card of the Agents page puts a long badge under the name and a short badge in the first line", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await routeLongNameOfPaused(page);
+  await page.goto("/agents");
+  const main = page.getByRole("main");
+  const long = main.getByRole("button", { name: /Ticket #45 Pick the plan limits/ });
+  const longName = long.getByText("implementer of the shop plans");
+  const longBadge = long.getByText(/^paused until Sep 28, 12:00\sPM$/);
+  await expect(longBadge).toBeVisible();
+  const [nameBox, badgeBox, harnessBox, cardBox] = [
+    await boxOf(longName),
+    await boxOf(longBadge),
+    await boxOf(long.getByText("antigravity · sonnet")),
+    await boxOf(long),
+  ];
+  expect(badgeBox.y).toBeGreaterThanOrEqual(nameBox.y + nameBox.height);
+  expect(badgeBox.x).toBe(harnessBox.x);
+  expect(harnessBox.x).toBe(cardBox.x + 16);
+  expect(await long.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
+  const short = main.getByRole("button", { name: /Ticket #42 Let customers change plans/ });
+  const [shortNameBox, shortBadgeBox] = [
+    await boxOf(short.getByText("implementer", { exact: true })),
+    await boxOf(short.getByText("queued", { exact: true })),
+  ];
+  expect(shortBadgeBox.y).toBeLessThan(shortNameBox.y + shortNameBox.height);
 });
 
 test("a task that waits for a Harness pause shows the same badge on the Tasks board, in the Workstream tree and on the Agents page", async ({
@@ -193,9 +261,13 @@ test("the Agents tab of a Workstream names the issue of an agent with a link, an
   await page.goto("/workstreams/owner/shop/12");
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const panel = page.getByRole("complementary");
-  const entry = panel.getByRole("listitem").filter({ hasText: /^Implementer #41 Add plan model/ });
-  await expect(entry.getByText("Implementer #41 Add plan model")).toBeVisible();
-  const link = entry.getByRole("link", { name: "#41" });
+  const link = panel.getByRole("link", { name: "#41" });
+  const entry = panel
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("link", { name: "#41" }) });
+  await expect(entry.getByText("Implementer", { exact: true })).toBeVisible();
+  await expect(entry.getByText("Add plan model", { exact: true })).toBeVisible();
+  await expect(entry.getByText("devin · swe-1.5 · high", { exact: true })).toBeVisible();
   await expect(link).toHaveAttribute("href", "https://github.com/owner/shop/issues/41");
   await expect(link).toHaveAttribute("target", "_blank");
   await link.click({ trial: true });
@@ -224,7 +296,7 @@ test("the Agents tab of a Workstream keeps a long issue title on one line on a p
   await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
   const entry = page
     .getByRole("listitem")
-    .filter({ hasText: /^Implementer #41 Read the pull request/ })
+    .filter({ hasText: /Read the pull request/ })
     .filter({ visible: true });
   const issueTitle = entry.getByText(title, { exact: true });
   await expect(issueTitle).toBeVisible();

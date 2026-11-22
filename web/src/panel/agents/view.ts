@@ -46,7 +46,7 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
     .join(" ");
   return h.keyed("li")(
     String(agent.id),
-    [h.Class("relative flex items-center gap-3 rounded-lg p-2 hover:bg-muted")],
+    [h.Class("relative grid gap-0.5 rounded-lg p-2 hover:bg-muted")],
     [
       h.button(
         [
@@ -58,47 +58,55 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
         [],
       ),
       h.span(
-        [
-          h.Class(
-            cn(
-              "size-2 shrink-0 rounded-full",
-              agent.endedAt ? "border border-muted-foreground" : waitDot(agent.wait),
-            ),
-          ),
-        ],
-        [],
-      ),
-      h.span(
-        [h.Class("grid min-w-0 grow gap-0.5")],
+        [h.Class("flex flex-wrap items-center gap-x-2 gap-y-0.5")],
         [
           h.span(
-            [h.Class("flex min-w-0 gap-1")],
+            [h.Class("flex min-w-0 grow items-center gap-2")],
             [
-              h.span([h.Class("shrink-0 font-medium")], [name]),
-              ...(agent.title ? [" ", h.span([h.Class("shrink-0")], [agent.title])] : []),
-              ...(issue === null
-                ? []
-                : [
-                    " ",
-                    h.a(
-                      [
-                        h.Href(`https://github.com/${agent.repository}/issues/${issue}`),
-                        h.Attribute("target", "_blank"),
-                        h.Attribute("rel", "noreferrer"),
-                        h.Class("relative z-10 shrink-0 underline"),
-                      ],
-                      [reference],
+              h.span(
+                [
+                  h.Class(
+                    cn(
+                      "size-2 shrink-0 rounded-full",
+                      agent.endedAt ? "border border-muted-foreground" : waitDot(agent.wait),
                     ),
-                  ]),
-              ...(agent.issueTitle === null
-                ? []
-                : [" ", h.span([h.Class("truncate")], [agent.issueTitle])]),
+                  ),
+                ],
+                [],
+              ),
+              h.span(
+                [h.Class("min-w-0 wrap-anywhere")],
+                [
+                  h.span([h.Class("font-medium")], [name]),
+                  ...(agent.title ? [` ${agent.title}`] : []),
+                ],
+              ),
             ],
           ),
-          h.span([h.Class("text-sm text-muted-foreground")], [`${bindingText(agent)} · ${detail}`]),
+          renderStateBadge(h, { ...agent, state: endedState(agent) }),
         ],
       ),
-      renderStateBadge(h, { ...agent, state: endedState(agent) }),
+      h.span([h.Class("text-sm text-muted-foreground")], [bindingText(agent)]),
+      issue === null
+        ? h.empty
+        : h.span(
+            [h.Class("flex min-w-0 gap-1 text-sm")],
+            [
+              h.a(
+                [
+                  h.Href(`https://github.com/${agent.repository}/issues/${issue}`),
+                  h.Attribute("target", "_blank"),
+                  h.Attribute("rel", "noreferrer"),
+                  h.Class("relative z-10 shrink-0 underline"),
+                ],
+                [reference],
+              ),
+              ...(agent.issueTitle === null
+                ? []
+                : [h.span([h.Class("truncate text-muted-foreground")], [agent.issueTitle])]),
+            ],
+          ),
+      h.span([h.Class("text-sm wrap-anywhere text-muted-foreground")], [detail]),
     ],
   );
 }

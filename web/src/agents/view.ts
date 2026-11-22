@@ -1,7 +1,7 @@
-import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { queueDetail } from "@/lib/agents";
+import { bindingText } from "@/lib/harness";
 import { waitDot } from "@/lib/state";
 import { dayClock } from "@/lib/time";
 import * as Transcript from "@/transcript/view";
@@ -14,17 +14,15 @@ import type { ActiveAgent, ActiveAgents } from "./schemas";
 
 type H = HtmlBuilder<Message>;
 
-const rowClass = "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2";
-
 const numbered = (number: number, title?: string | null) =>
   title ? `#${number} ${title}` : `#${number}`;
 
 function renderRow(h: H, row: ActiveAgent): Html {
   const agent = row.agent;
+  const shownRepository = agent.workstream !== 0 || agent.issue != null;
   const details = [
-    agent.role,
-    agent.organization,
-    (agent.workstream !== 0 || agent.issue != null) && agent.repository,
+    !shownRepository && agent.organization,
+    shownRepository && agent.repository,
     dayClock(agent.startedAt),
     queueDetail(agent),
   ]
@@ -37,38 +35,49 @@ function renderRow(h: H, row: ActiveAgent): Html {
       h.button(
         [
           h.Type("button"),
-          h.Class(cn(rowClass, "w-full gap-3 text-left hover:bg-muted")),
+          h.Class("grid min-h-11 w-full gap-0.5 px-4 py-2 text-left hover:bg-muted md:px-2"),
           h.OnClick(Message.OpenedAgent({ agent })),
         ],
         [
-          h.span([h.Class(`size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)], []),
           h.span(
-            [h.Class("grid min-w-0 grow gap-0.5")],
+            [h.Class("flex items-start gap-2")],
             [
-              h.span([], [`${agent.name} ${agent.title}`]),
-              h.span([h.Class("text-sm text-muted-foreground")], [details]),
-              agent.workstream !== 0
-                ? h.span(
-                    [h.Class("truncate text-sm text-muted-foreground")],
-                    [`Workstream ${numbered(agent.workstream, row.workstreamTitle)}`],
-                  )
-                : h.empty,
-              agent.issue != null
-                ? h.span(
-                    [h.Class("truncate text-sm text-muted-foreground")],
-                    [`Ticket ${numbered(agent.issue, row.issueTitle)}`],
-                  )
-                : h.empty,
-              row.pullRequest != null
-                ? h.span(
-                    [h.Class("text-sm text-muted-foreground")],
-                    [`Pull request #${row.pullRequest}`],
-                  )
-                : h.empty,
+              h.span(
+                [h.Class("flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-0.5")],
+                [
+                  h.span(
+                    [h.Class("flex min-w-0 grow items-center gap-2")],
+                    [
+                      h.span([h.Class(`size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)], []),
+                      h.span([h.Class("min-w-0 wrap-anywhere")], [`${agent.name} ${agent.title}`]),
+                    ],
+                  ),
+                  renderStateBadge(h, { ...agent, state: "" }),
+                ],
+              ),
+              chevronRightIcon(h, "mt-1 size-4 shrink-0"),
             ],
           ),
-          renderStateBadge(h, { ...agent, state: "" }),
-          chevronRightIcon(h, "size-4 shrink-0"),
+          h.span([h.Class("text-sm text-muted-foreground")], [bindingText(agent)]),
+          h.span([h.Class("text-sm wrap-anywhere text-muted-foreground")], [details]),
+          agent.workstream !== 0
+            ? h.span(
+                [h.Class("truncate text-sm text-muted-foreground")],
+                [`Workstream ${numbered(agent.workstream, row.workstreamTitle)}`],
+              )
+            : h.empty,
+          agent.issue != null
+            ? h.span(
+                [h.Class("truncate text-sm text-muted-foreground")],
+                [`Ticket ${numbered(agent.issue, row.issueTitle)}`],
+              )
+            : h.empty,
+          row.pullRequest != null
+            ? h.span(
+                [h.Class("text-sm text-muted-foreground")],
+                [`Pull request #${row.pullRequest}`],
+              )
+            : h.empty,
         ],
       ),
     ],
