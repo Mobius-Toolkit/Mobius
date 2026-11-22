@@ -66,8 +66,10 @@ type job struct {
 	reused bool
 	// items is the text of the open items of a fix round, or "".
 	items string
-	// brief, issueBody, comments and report are the texts that the session got, for the short prompt of a later round.
+	// brief, project, issueBody, comments and report are the texts that the session got, for the short prompt of a later
+	// round. project is the section "# Project", or "".
 	brief     string
+	project   string
 	issueBody string
 	comments  string
 	report    string
@@ -146,6 +148,10 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
+	project, err := e.workstreamProject(ctx, task)
+	if err != nil {
+		return "", err
+	}
 	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return "", err
@@ -179,8 +185,9 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 		title:       issue.GetTitle(),
 		branch:      task.Branch.String,
 		pullRequest: pullRequest,
-		prompt:      fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n%s\n# Lead instructions\n\n%s", implementerPrompt, sections, brief, text, instructions),
+		prompt:      fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n%s# Issue\n\n%s\n# Lead instructions\n\n%s", implementerPrompt, sections, brief, project, text, instructions),
 		brief:       brief,
+		project:     project,
 		issueBody:   issue.GetBody(),
 		parent:      parent,
 	}
@@ -718,6 +725,10 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
+	project, err := e.workstreamProject(ctx, r.task)
+	if err != nil {
+		return err
+	}
 	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
@@ -757,11 +768,12 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		title:       r.title,
 		branch:      r.task.Branch.String,
 		pullRequest: r.pullRequest,
-		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n%s# Open items\n%s",
-			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, reportPrompt(r.task.Report), r.items),
+		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n%s# Issue\n\n#%d %s\n\n%s\n\n%s\n%s# Open items\n%s",
+			implementerPrompt, sections, brief, project, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, reportPrompt(r.task.Report), r.items),
 		cont:        true,
 		items:       r.items,
 		brief:       brief,
+		project:     project,
 		issueBody:   issue.GetBody(),
 		comments:    comments,
 		report:      r.task.Report,
@@ -812,6 +824,10 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
+	project, err := e.workstreamProject(ctx, task)
+	if err != nil {
+		return err
+	}
 	sections, _, err := e.repositorySections(ctx, repository, ImplementerRole)
 	if err != nil {
 		return err
@@ -851,9 +867,10 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		branch:        task.Branch.String,
 		pullRequest:   pullRequest,
 		conflictRound: true,
-		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n# Base branch\n\norigin/%s\n\nMerge the base branch and remove the conflicts. Make no other change.",
-			implementerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), comments, repository.DefaultBranch),
+		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n%s# Issue\n\n#%d %s\n\n%s\n\n%s\n# Base branch\n\norigin/%s\n\nMerge the base branch and remove the conflicts. Make no other change.",
+			implementerPrompt, sections, brief, project, task.Issue, issue.GetTitle(), issue.GetBody(), comments, repository.DefaultBranch),
 		brief:     brief,
+		project:   project,
 		issueBody: issue.GetBody(),
 		parent:    parent,
 	}
@@ -1137,7 +1154,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 }
 
 // shortPrompt gives the first prompt of a round that continues the kept session. It has only the open items, and the
-// Brief, the issue, the pull request comments or the report when they changed since the earlier round.
+// Brief, the Project, the issue, the pull request comments or the report when they changed since the earlier round.
 func shortPrompt(j job, kept *keptSession) string {
 	var text strings.Builder
 	text.WriteString("# Open items\n")
@@ -1145,6 +1162,9 @@ func shortPrompt(j job, kept *keptSession) string {
 	text.WriteString("\nIf your change makes your report wrong, call `submit_report` with the full new report.\n")
 	if j.brief != kept.brief {
 		fmt.Fprintf(&text, "\n# Brief\n\n%s\n\nThis Brief replaces the Brief that the earlier round read.\n", j.brief)
+	}
+	if j.project != "" && j.project != kept.project {
+		fmt.Fprintf(&text, "\n%sThis Project replaces the Project that the earlier round read.\n", j.project)
 	}
 	if j.issueBody != kept.issue {
 		fmt.Fprintf(&text, "\n# Issue\n\n#%d %s\n\n%s\n\nThis issue text replaces the issue text that the earlier round read.\n", j.task.Issue, j.title, j.issueBody)
@@ -1162,7 +1182,7 @@ func shortPrompt(j job, kept *keptSession) string {
 // row ends as each other, so a kept session holds no slot. The keep runs before end frees the drain count, because a
 // drain that completes in between lets the restart leave the Harness process behind.
 func (e *Engine) keepImplementer(ctx context.Context, a *Agent, task store.Task, j *job) error {
-	k := &keptSession{row: a.id, binding: a.binding, level: a.level, keptAt: e.timeNow(), brief: j.brief, issue: j.issueBody, comments: j.comments}
+	k := &keptSession{row: a.id, binding: a.binding, level: a.level, keptAt: e.timeNow(), brief: j.brief, project: j.project, issue: j.issueBody, comments: j.comments}
 	err := a.end(ctx, string(done), func() {
 		a.mu.Lock()
 		k.costTotal, k.costBase = a.costTotal, a.costBase
@@ -1877,6 +1897,19 @@ func (e *Engine) postReplies(ctx context.Context, a *Agent, repository github.Re
 func (e *Engine) workstreamBrief(ctx context.Context, task store.Task) (string, error) {
 	row, err := e.brief(ctx, task.WorkstreamRepository, task.Workstream)
 	return row.Body, err
+}
+
+// workstreamProject gives the section "# Project" with the title and the body of the nearest ancestor Project of the
+// task issue, and a blank line after it. It gives "" when the task has no Project.
+func (e *Engine) workstreamProject(ctx context.Context, task store.Task) (string, error) {
+	row, err := e.queries.GetIssueProject(ctx, store.GetIssueProjectParams{Repository: task.Repository, Number: task.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("# Project\n\n%s#%d %s\n\n%s\n\n", row.Repository, row.Number.Int64, row.Title, row.Body), nil
 }
 
 // existingIssue gives the issue number, or a refusal when it does not exist. The title and the body are the text of

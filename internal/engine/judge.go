@@ -464,11 +464,15 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 	if err != nil {
 		return err
 	}
+	project, err := e.workstreamProject(ctx, j.task)
+	if err != nil {
+		return err
+	}
 	var items strings.Builder
 	for _, item := range j.items {
 		items.WriteString(item.text)
 	}
-	prompt := fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Items\n%s", judgePrompt, sections, brief, j.task.Issue, j.title, j.body, items.String())
+	prompt := fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n%s# Issue\n\n#%d %s\n\n%s\n\n# Items\n%s", judgePrompt, sections, brief, project, j.task.Issue, j.title, j.body, items.String())
 	if err := a.waitForPause(ctx, nil); err != nil {
 		return err
 	}
