@@ -159,7 +159,6 @@ export function withoutClosed(lines: readonly TaskLine[]): TaskLine[] {
 
 export const isProject = (line: TaskLine) => line.kind === "project";
 
-// The lines after index that are below the line at index.
 const below = (lines: readonly TaskLine[], index: number): TaskLine[] => {
   const end = lines.findIndex((line, i) => i > index && line.depth <= lines[index].depth);
   return lines.slice(index + 1, end === -1 ? lines.length : end);
@@ -167,7 +166,6 @@ const below = (lines: readonly TaskLine[], index: number): TaskLine[] => {
 
 export type Progress = { done: number; all: number };
 
-// The count of the task lines below each Project at each depth, by the URL of the Project.
 export function progressOfProjects(lines: readonly TaskLine[]): Map<string, Progress> {
   const progress = new Map<string, Progress>();
   lines.forEach((line, index) => {
@@ -182,7 +180,6 @@ export function progressOfProjects(lines: readonly TaskLine[]): Map<string, Prog
   return progress;
 }
 
-// Puts the lines that have no Project ancestor first. Then each outer Project follows with its lines.
 export function groupByProject(lines: readonly TaskLine[]): TaskLine[] {
   const loose: TaskLine[] = [];
   const blocks: TaskLine[] = [];
@@ -200,7 +197,6 @@ export function groupByProject(lines: readonly TaskLine[]): TaskLine[] {
   return [...loose, ...blocks];
 }
 
-// Removes the lines below the folded Projects.
 export function withoutFolded(lines: readonly TaskLine[], folded: readonly string[]): TaskLine[] {
   const shown: TaskLine[] = [];
   let index = 0;
