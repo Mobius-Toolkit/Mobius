@@ -91,6 +91,10 @@ when = "# Issue\n\nowner/shop#72 "
 reply = ["Proposal: a message to the Lead of #12."]
 
 [[prompts]]
+when = "# Issue\n\nowner/shop#73 "
+reply = ["Proposal: a message to the Lead of #12."]
+
+[[prompts]]
 when = "# Issue\n\nowner/shop#63 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds live?" } }
 
@@ -1024,6 +1028,35 @@ func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadO
 	waitForPolls(t, fake)
 	if events := leadEvents(t, server); len(events) != 1 {
 		t.Errorf("events = %v", events)
+	}
+}
+
+func TestAnApprovedMessageOfTheTriagerThatRunsTheEndTwiceForTheSameActionPostsOneEndComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 73, "Add refunds", "Refund each order.", "owner")
+	proposal := triagerComment(73, "Proposal: a message to the Lead of #12.")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 73), proposal) })
+	fake.AddComment(shop, 73, "owner", "Send it to the Lead.")
+	action := waitForActions(t, server, 1)[0]
+	fake.FailClose(shop, 73)
+	link := triagerComment(73, "The triage ends. The Workstream is https://github.com/owner/shop/issues/12")
+	if failed := decided(t, server, action.ID, "approve", ""); failed.State != "pending" {
+		t.Fatalf("action = %+v", failed)
+	}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 73), link) })
+	fake.AllowClose(shop, 73)
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" {
+		t.Errorf("action = %+v", done)
+	}
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 73); return state == "closed" })
+	waitForPolls(t, fake)
+	if got := slices.DeleteFunc(fake.Comments(shop, 73), func(comment testkit.Comment) bool { return comment.Body != link.Body }); len(got) != 1 {
+		t.Errorf("comments with the link = %v", got)
 	}
 }
 

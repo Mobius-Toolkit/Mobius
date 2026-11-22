@@ -286,7 +286,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return fail(err)
 	}
 	comments = e.trustedComments(repository, comments)
-	over, err := e.closeEndedTriage(ctx, repository, number, comments)
+	over, err := e.closeEndedTriage(ctx, repository, number)
 	if err != nil {
 		return fail(err)
 	}
@@ -326,11 +326,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil || !triaging {
 		return err
 	}
-	comments, err = repository.Comments(ctx, number)
-	if err != nil {
-		return err
-	}
-	over, err = e.closeEndedTriage(ctx, repository, number, e.trustedComments(repository, comments))
+	over, err = e.closeEndedTriage(ctx, repository, number)
 	if err != nil || over || empty(text) {
 		return err
 	}
@@ -351,18 +347,16 @@ func (e *Engine) trustedComments(repository github.Repository, comments []*gh.Is
 	})
 }
 
-// closeEndedTriage closes the issue number as completed when the Mobius App commented that the triage ends and nobody
-// reopened the issue after that comment, and tells if it did. A close that failed after that comment stays open until
-// this step runs.
-func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (bool, error) {
-	var ended time.Time
-	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), triageEndText) && comment.GetCreatedAt().After(ended) {
-			ended = comment.GetCreatedAt().Time
-		}
+// closeEndedTriage closes the issue number as completed when its triage ended and nobody reopened the issue after the
+// end, and tells if it did. A close that failed at the end stays open until this step runs.
+func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Repository, number int64) (bool, error) {
+	endedAt, err := e.queries.GetIssueTriageEndedAt(ctx, store.GetIssueTriageEndedAtParams{Repository: repository.FullName, Number: number})
+	if err != nil || !endedAt.Valid {
+		return false, err
 	}
-	if ended.IsZero() {
-		return false, nil
+	ended, err := time.Parse(time.RFC3339Nano, endedAt.String)
+	if err != nil {
+		return false, err
 	}
 	events, err := repository.IssueEvents(ctx, number)
 	if err != nil {
