@@ -11447,6 +11447,20 @@
             "type": "boolean",
             "description": "Paused is true when the task gives no event"
           },
+          "project": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Project is the number of the Project of the task, or null for a task with no Project"
+          },
+          "projectTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ProjectTitle is the title of the Project of the task, or null for a task with no Project"
+          },
           "runs": {
             "type": "array",
             "title": "[]RecurringTaskRun",
@@ -11464,6 +11478,8 @@
           "id",
           "cron",
           "text",
+          "project",
+          "projectTitle",
           "paused",
           "next",
           "runs"

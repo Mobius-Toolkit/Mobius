@@ -53,15 +53,17 @@ func (c *CronError) Error() string {
 
 func (c *CronError) Unwrap() error { return c.Err }
 
-// RecurringTask is a recurring task of a Workstream. Next is the zero time for a paused task. Runs are the newest
-// first.
+// RecurringTask is a recurring task of a Workstream. Project is the number of its Project, or 0 for a task with no
+// Project. Next is the zero time for a paused task. Runs are the newest first.
 type RecurringTask struct {
-	ID     int64
-	Cron   string
-	Text   string
-	Paused bool
-	Next   time.Time
-	Runs   []RecurringTaskRun
+	ID           int64
+	Cron         string
+	Text         string
+	Project      int64
+	ProjectTitle string
+	Paused       bool
+	Next         time.Time
+	Runs         []RecurringTaskRun
 }
 
 // RecurringTaskRun is a time of a recurring task that gave an event or was skipped.
@@ -129,6 +131,14 @@ func (e *Engine) RecurringTasks(ctx context.Context, repository string, workstre
 
 func (e *Engine) recurringTask(ctx context.Context, row store.RecurringTask) (RecurringTask, error) {
 	task := RecurringTask{ID: row.ID, Cron: row.Cron, Text: row.Text, Paused: row.Paused != 0}
+	if row.Project.Valid {
+		title, err := e.projectTitle(ctx, row.Repository, row.Project.Int64)
+		if err != nil {
+			return RecurringTask{}, err
+		}
+		task.Project = row.Project.Int64
+		task.ProjectTitle = title
+	}
 	if !task.Paused {
 		next, err := nextCronTime(row.Cron, e.timeNow())
 		if err != nil {
@@ -150,6 +160,36 @@ func (e *Engine) recurringTask(ctx context.Context, row store.RecurringTask) (Re
 	return task, nil
 }
 
+// projectTitle gives the title of the issue n of repository in the local copy, or an empty title when the copy has no
+// such issue.
+func (e *Engine) projectTitle(ctx context.Context, repository string, n int64) (string, error) {
+	title, err := e.queries.GetCopiedIssueTitle(ctx, store.GetCopiedIssueTitleParams{Repository: repository, Number: n})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return title, err
+}
+
+// projectName gives "Project #n title" for a Project number, or an empty text for a task with no Project.
+func projectName(n int64, title string) string {
+	if n == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("Project #%d %s", n, title))
+}
+
+// inProject gives " in the Project #n title" for a recurring task with a Project, or an empty text.
+func (e *Engine) inProject(ctx context.Context, row store.RecurringTask) (string, error) {
+	if !row.Project.Valid {
+		return "", nil
+	}
+	title, err := e.projectTitle(ctx, row.Repository, row.Project.Int64)
+	if err != nil {
+		return "", err
+	}
+	return " in the " + projectName(row.Project.Int64, title), nil
+}
+
 func checkRecurringTask(expression, text string) error {
 	if _, err := parseCron(expression); err != nil {
 		return err
@@ -161,8 +201,8 @@ func checkRecurringTask(expression, text string) error {
 }
 
 // AddRecurringTask adds a recurring task to an open Workstream of the local copy. Its first time is the first cron
-// time after now.
-func (e *Engine) AddRecurringTask(ctx context.Context, repository string, workstream int64, expression, text string) (RecurringTask, error) {
+// time after now. A project of 0 gives a task with no Project.
+func (e *Engine) AddRecurringTask(ctx context.Context, repository string, workstream int64, expression, text string, project int64) (RecurringTask, error) {
 	if err := checkRecurringTask(expression, text); err != nil {
 		return RecurringTask{}, err
 	}
@@ -178,6 +218,7 @@ func (e *Engine) AddRecurringTask(ctx context.Context, repository string, workst
 		Workstream: workstream,
 		Cron:       expression,
 		Text:       text,
+		Project:    sql.NullInt64{Int64: project, Valid: project != 0},
 		CheckedAt:  e.timeNow().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
@@ -191,9 +232,9 @@ func (e *Engine) publishRecurring(repository string, workstream int64) {
 	e.publish(Change{RecurringTasks: &RecurringChange{Repository: repository, Number: workstream}})
 }
 
-// UpdateRecurringTask changes the cron expression and the text of a recurring task. A new cron expression gives no
-// event for a time before the change.
-func (e *Engine) UpdateRecurringTask(ctx context.Context, repository string, workstream, id int64, expression, text string) (RecurringTask, error) {
+// UpdateRecurringTask changes the cron expression, the text and the Project of a recurring task. A project of 0 gives
+// a task with no Project. A new cron expression gives no event for a time before the change.
+func (e *Engine) UpdateRecurringTask(ctx context.Context, repository string, workstream, id int64, expression, text string, project int64) (RecurringTask, error) {
 	if err := checkRecurringTask(expression, text); err != nil {
 		return RecurringTask{}, err
 	}
@@ -201,6 +242,7 @@ func (e *Engine) UpdateRecurringTask(ctx context.Context, repository string, wor
 		Cron:       expression,
 		CheckedAt:  e.timeNow().UTC().Format(time.RFC3339Nano),
 		Text:       text,
+		Project:    sql.NullInt64{Int64: project, Valid: project != 0},
 		ID:         id,
 		Repository: repository,
 		Workstream: workstream,
@@ -313,7 +355,11 @@ func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, w
 	}
 	t := e.timeNow()
 	at := t.UTC().Format(time.RFC3339Nano)
-	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s` by hand:\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, quote(row.Text))
+	in, err := e.inProject(ctx, row)
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s`%s by hand:\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, in, quote(row.Text))
 	eventID, err := e.addLeadEventAt(ctx, repository, workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 	if eventID == 0 {
 		return RecurringTask{}, err
@@ -409,7 +455,11 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		if err != nil || !unchanged {
 			return err
 		}
-		text := fmt.Sprintf("%s recurring task %d `%s`:\n\n%s", t.UTC().Format(timeFormat), task.ID, task.Cron, quote(task.Text))
+		in, err := e.inProject(ctx, task)
+		if err != nil {
+			return err
+		}
+		text := fmt.Sprintf("%s recurring task %d `%s`%s:\n\n%s", t.UTC().Format(timeFormat), task.ID, task.Cron, in, quote(task.Text))
 		id, err := e.addLeadEventAt(ctx, task.Repository, task.Workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 		if id == 0 {
 			return err

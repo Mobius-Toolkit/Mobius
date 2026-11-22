@@ -95,6 +95,9 @@ function renderControls(h: H, model: Model, task: RecurringTask): Html {
 const scheduleText = (task: RecurringTask) =>
   task.next === null ? task.cron : `${task.cron} · Next ${dayClock(task.next)}`;
 
+const projectText = (task: RecurringTask) =>
+  task.project === null ? "" : `Project #${task.project} ${task.projectTitle ?? ""}`.trim();
+
 function renderTask(h: H, model: Model, task: RecurringTask): Html {
   const last = task.runs[0];
   return h.keyed("li")(
@@ -117,6 +120,9 @@ function renderTask(h: H, model: Model, task: RecurringTask): Html {
             ],
           ),
           h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [scheduleText(task)]),
+          task.project === null
+            ? h.empty
+            : h.span([h.Class("text-sm text-muted-foreground wrap-anywhere")], [projectText(task)]),
           last
             ? h.span(
                 [h.Class("text-sm text-muted-foreground wrap-anywhere")],
@@ -149,6 +155,9 @@ function renderSubpage(h: H, model: Model, task: RecurringTask): Html {
         ],
       ),
       h.p([h.Class("px-2 text-sm text-muted-foreground wrap-anywhere")], [scheduleText(task)]),
+      task.project === null
+        ? h.empty
+        : h.p([h.Class("px-2 text-sm text-muted-foreground wrap-anywhere")], [projectText(task)]),
       renderControls(h, model, task),
       renderHistory(h, task),
     ],

@@ -261,12 +261,12 @@ func TestTheLeadToolsOfRecurringTasksPublishTheChange(t *testing.T) {
 	defer stop()
 	isChange := func(change engine.Change) bool { return change.RecurringTasks != nil }
 
-	task, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, weekdays, weekdaysText)
+	task, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, weekdays, weekdaysText, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitForChange(t, changes, isChange)
-	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, planCheck); err != nil {
+	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, planCheck, 0); err != nil {
 		t.Fatal(err)
 	}
 	waitForChange(t, changes, isChange)
