@@ -1,5 +1,7 @@
 import { Option } from "effect";
 import * as Update from "foldkit/update";
+import { chatDraftKey } from "@/lib/draft";
+import { AttachInboxItem } from "@/panel/attach";
 import {
   DeleteTask,
   FetchTasks,
@@ -10,7 +12,7 @@ import {
   ShowNotice,
 } from "./commands";
 import { Message, OutMessage } from "./message";
-import type { Model } from "./model";
+import { recurringItem, type Model } from "./model";
 
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
@@ -101,6 +103,24 @@ export function update(model: Model, message: Message): UpdateReturn {
       },
     }),
     PauseFailed: ({ id }) => ({ model: idle(model, id) }),
+    ClickedChat: ({ task }) => {
+      const item = recurringItem(task);
+      return {
+        model,
+        commands: [
+          AttachInboxItem({
+            key: item.id,
+            draftKey: chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number),
+            item,
+          }),
+        ],
+      };
+    },
+    AttachedItem: () => ({ model, outMessage: OutMessage.ItemAttached() }),
+    AttachFailed: ({ error }) => ({
+      model,
+      commands: [ShowNotice({ text: `The recurring task did not attach: ${error}` })],
+    }),
     ClickedDelete: ({ id, text }) => ({
       model: { ...model, deletion: Option.some({ id, text, busy: false }) },
     }),

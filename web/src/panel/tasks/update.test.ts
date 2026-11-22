@@ -14,13 +14,13 @@ import { EnqueueMessage, SaveDraftInboxItems, SaveDraftText } from "@/composer/c
 import * as ComposerFixture from "@/composer/fixtures";
 import type { Message as ComposerMessage } from "@/composer/message";
 import { ComposerBehavior } from "@/composer/view";
+import { AttachInboxItem } from "@/panel/attach";
 import { FetchHarnesses } from "@/setting/commands";
 import * as SettingFixture from "@/setting/fixtures";
 import * as Selection from "@/ui/selection";
 import * as SelectionFixture from "@/ui/selection-fixtures";
 import {
   AddSelection,
-  AttachTask,
   ChangeIssue,
   FetchFallback,
   FetchTaskDetail,
@@ -120,7 +120,7 @@ describe("Chat about a task", () => {
       given(createModel({ lines: Option.some([task]) })),
       message(Message.ClickedChat({ key, line: task })),
       StoryCommand.expectExact(
-        AttachTask({
+        AttachInboxItem({
           key,
           draftKey: "chatDraft:owner/owner/shop/12",
           item: {
@@ -132,7 +132,7 @@ describe("Chat about a task", () => {
           },
         }),
       ),
-      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
+      StoryCommand.resolve(AttachInboxItem, Message.AttachedItem()),
       expectOutMessage(OutMessage.TaskAttached()),
     );
   });
@@ -146,7 +146,7 @@ describe("Chat about a task", () => {
       given(createModel({ lines: Option.some([task]) })),
       message(Message.ClickedChat({ key, line: task })),
       StoryCommand.expectExact(
-        AttachTask({
+        AttachInboxItem({
           key,
           draftKey: "chatDraft:owner/owner/shop/12",
           item: {
@@ -158,7 +158,7 @@ describe("Chat about a task", () => {
           },
         }),
       ),
-      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
+      StoryCommand.resolve(AttachInboxItem, Message.AttachedItem()),
     );
   });
 
@@ -170,7 +170,10 @@ describe("Chat about a task", () => {
       update,
       given(createModel({ lines: Option.some([task]) })),
       message(Message.ClickedChat({ key, line: task })),
-      StoryCommand.resolve(AttachTask, Message.AttachFailed({ key, error: "storage is full" })),
+      StoryCommand.resolve(
+        AttachInboxItem,
+        Message.AttachFailed({ key, error: "storage is full" }),
+      ),
       model((m) => {
         expect(rowOf(m, key).error).toBe("storage is full");
       }),
@@ -179,7 +182,7 @@ describe("Chat about a task", () => {
       model((m) => {
         expect(rowOf(m, key).error).toBe("");
       }),
-      StoryCommand.resolve(AttachTask, Message.AttachedTask()),
+      StoryCommand.resolve(AttachInboxItem, Message.AttachedItem()),
     );
   });
 });
@@ -688,7 +691,7 @@ describe("the detail view of a task", () => {
       Scene.Mount.resolve(ComposerBehavior, ComposerFixture.sendSubmitted),
       Scene.click(Scene.role("button", { name: "Chat" })),
       Scene.Command.resolve(
-        AttachTask,
+        AttachInboxItem,
         Message.AttachFailed({ key: rowKey(task), error: "storage is full" }),
       ),
       Scene.expect(Scene.text("storage is full")).toExist(),

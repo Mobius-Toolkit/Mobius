@@ -4,6 +4,14 @@ import { ListRecurringTasksResponse } from "@/api/schemas.gen";
 export const RecurringTask = ListRecurringTasksResponse.fields.data.fields.tasks.value;
 export type RecurringTask = typeof RecurringTask.Type;
 
+export const recurringItem = (task: RecurringTask) => ({
+  id: `recurring-task:${task.id}`,
+  reference: `Recurring task ${task.id}`,
+  title: task.text,
+  reason: `Cron: ${task.cron}`,
+  link: "",
+});
+
 export const Deletion = Schema.Struct({
   id: Schema.Number,
   text: Schema.String,

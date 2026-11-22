@@ -17,6 +17,9 @@ export const Message = defineMessageUnion({
   RunStarted: { task: RecurringTask },
   RunRefused: { id: Schema.Number, reason: Schema.String },
   CompletedShowNotice: {},
+  ClickedChat: { task: RecurringTask },
+  AttachedItem: {},
+  AttachFailed: { key: Schema.String, error: Schema.String },
   ClickedDelete: { id: Schema.Number, text: Schema.String },
   ClickedConfirmDelete: {},
   TaskDeleted: { id: Schema.Number },
@@ -30,6 +33,7 @@ export type Message = typeof Message.Type;
 
 export const OutMessage = defineMessageUnion({
   LoginRequired: {},
+  ItemAttached: {},
 });
 
 export type OutMessage = typeof OutMessage.Type;

@@ -7,6 +7,7 @@ import { buttonClass, renderIconButton } from "@/ui/button";
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import {
   chevronRightIcon,
+  messageSquareIcon,
   pauseIcon,
   playIcon,
   spinnerIcon,
@@ -59,6 +60,13 @@ function renderControls(h: H, model: Model, task: RecurringTask): Html {
   return h.div(
     [h.Class("flex justify-end gap-2 px-2")],
     [
+      renderIconButton(h, {
+        label: `Chat about recurring task ${task.id}`,
+        disabled: false,
+        busy: false,
+        icon: messageSquareIcon(h),
+        click: Message.ClickedChat({ task }),
+      }),
       renderIconButton(h, {
         label: task.paused ? "Resume" : "Pause",
         disabled: pausing,

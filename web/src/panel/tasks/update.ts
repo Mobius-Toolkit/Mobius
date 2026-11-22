@@ -7,10 +7,10 @@ import { OutMessage as SettingOutMessage } from "@/setting/message";
 import type { Target } from "@/setting/schemas";
 import { init as initSetting, update as updateSetting } from "@/setting/update";
 import { chatDraftKey } from "@/lib/draft";
+import { AttachInboxItem } from "@/panel/attach";
 import * as Selection from "@/ui/selection";
 import {
   AddSelection,
-  AttachTask,
   ChangeIssue,
   FetchFallback,
   FetchTaskDetail,
@@ -221,7 +221,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       model: withRow(model, key, { starting: false, stopping: false, error }),
     }),
     ClickedChat: ({ key, line }) => attach(model, key, line),
-    AttachedTask: () => ({ model, outMessage: OutMessage.TaskAttached() }),
+    AttachedItem: () => ({ model, outMessage: OutMessage.TaskAttached() }),
     AttachFailed: ({ key, error }) => ({ model: withRow(model, key, { error }) }),
     ClickedSetting: ({ line }) => openSheet(model, line),
     GotSettingMessage: ({ message: child }) => foldSetting(model, child),
@@ -318,7 +318,7 @@ function attach(model: Model, key: string, line: TaskLine): UpdateReturn {
   const draftKey = chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number);
   return {
     model: withRow(model, key, { error: "" }),
-    commands: [AttachTask({ key, draftKey, item: taskItem(line) })],
+    commands: [AttachInboxItem({ key, draftKey, item: taskItem(line) })],
   };
 }
 

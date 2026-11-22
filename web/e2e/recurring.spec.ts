@@ -291,3 +291,109 @@ test("the four tab buttons fit the width of the sheet on the phone", async ({ pa
   expect(await tabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   expect(await sheet.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
+
+test("Chat attaches the recurring task to the draft of the Lead chat once, and the sent message shows it", async ({
+  page,
+}) => {
+  const text = "Please change the time of this task.";
+  const task = "Check the open pull requests and tell me which ones wait for a review.";
+  const main = page.getByRole("main");
+  const composer = main.locator("form");
+  let posted: { reference: string; title: string; reason: string; link: string }[] | undefined;
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { messages: { id: number; time: string }[] };
+    };
+    if (posted) {
+      body.data.messages.push({
+        id: 1_000_000,
+        action: null,
+        author: "Owner",
+        browserId: "",
+        cancelledAt: null,
+        deliveredAt: null,
+        displayOnly: false,
+        failedAt: null,
+        images: 0,
+        inboxItems: posted,
+        selections: [],
+        organization: "plants",
+        question: null,
+        repository: "plants/garden",
+        stoppedAt: null,
+        voice: false,
+        text,
+        time: "2026-10-15T12:00:00Z",
+        workstream: 50,
+      } as (typeof body.data.messages)[number]);
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.route("**/api/chat/messages", (route) => {
+    const parts = route.request().postData() ?? "";
+    posted = [...parts.matchAll(/name="inboxItems"\r\n\r\n(.*?)\r\n--/g)].map(
+      (part) => JSON.parse(part[1]) as NonNullable<typeof posted>[number],
+    );
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/workstreams/plants/garden/50");
+  await page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }).click();
+  const row = page
+    .getByRole("tabpanel", { name: "Recurring" })
+    .getByRole("listitem")
+    .filter({ hasText: "Check the open pull requests" });
+  const chat = row.getByRole("button", { name: /^Chat about recurring task \d+$/ });
+  await expect(chat).toHaveText("");
+  const reference = (await chat.getAttribute("title"))!.replace("Chat about r", "R");
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+
+  await chat.click();
+  await expect(composer.getByRole("button", { name: `Remove ${reference}` })).toBeVisible();
+  await expect(composer.getByText(task)).toBeVisible();
+  await expect(composer.getByText("Cron: 0 8 * * 1-5")).toBeVisible();
+  await chat.click();
+  await expect(composer.getByRole("button", { name: /^Remove / })).toHaveCount(1);
+
+  await page.getByLabel("Message to the Lead").fill(text);
+  await main.getByRole("button", { name: "Send", exact: true }).click();
+  await expect
+    .poll(() => posted)
+    .toEqual([{ reference, title: task, reason: "Cron: 0 8 * * 1-5", link: "" }]);
+  const bubble = main.locator("[data-message]", { hasText: text });
+  await expect(bubble).toHaveCount(1);
+  await expect(bubble).toContainText(reference);
+  await expect(bubble).toContainText(task);
+  await expect(bubble).toContainText("Cron: 0 8 * * 1-5");
+  await expect(composer.getByRole("button", { name: /^Remove / })).toHaveCount(0);
+});
+
+test("Chat in the subpage of a recurring task attaches it on the phone and shows the chat", async ({
+  page,
+}) => {
+  await page.setViewportSize(phone);
+  await page.goto("/workstreams/plants/garden/50");
+  await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("tab", { name: "Recurring" }).filter({ visible: true }).click();
+  const panel = page.getByRole("tabpanel", { name: "Recurring" });
+  await panel
+    .getByRole("listitem")
+    .filter({ hasText: "Weekly cost report" })
+    .getByRole("button")
+    .first()
+    .click();
+  await expect(panel.getByRole("heading", { name: "Recurring task" })).toBeVisible();
+  const chat = panel.getByRole("button", { name: /^Chat about recurring task \d+$/ });
+  const reference = (await chat.getAttribute("title"))!.replace("Chat about r", "R");
+  await expect(page.getByLabel("Message to the Lead")).toBeEditable();
+
+  await chat.click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  const composer = page.getByRole("main").locator("form");
+  await expect(composer.getByRole("button", { name: `Remove ${reference}` })).toBeVisible();
+  await expect(composer.getByText("Weekly cost report")).toBeVisible();
+  await expect(composer.getByText("Cron: 0 9 * * 1")).toBeVisible();
+  await composer.getByRole("button", { name: `Remove ${reference}` }).click();
+  await expect(composer.getByRole("button", { name: /^Remove / })).toHaveCount(0);
+});

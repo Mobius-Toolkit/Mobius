@@ -136,6 +136,7 @@ const foldRecurring = Update.foldChild({
   foldOutMessage: (outMessage) =>
     RecurringOutMessage.match<Update.Step<Model, Message>>(outMessage, {
       LoginRequired: () => requestLogin,
+      ItemAttached: () => (model) => ({ model }),
     }),
 });
 
