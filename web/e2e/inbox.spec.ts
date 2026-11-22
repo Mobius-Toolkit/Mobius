@@ -846,6 +846,32 @@ test("the todo panel shows Back only when the todo list opened it", async ({ pag
   await expect(back).toHaveCount(0);
 });
 
+test("the todo list fits a phone with a long todo name that has no space", async ({ page }) => {
+  const longName =
+    "internal/config/roles/lead/context/default_context_file_path_for_the_lead_role.toml";
+  const longTodo = {
+    ...optionalTodo,
+    id: 10,
+    title: longName,
+    todo: { ...optionalTodo.todo, name: longName, afterMerge: true },
+  };
+  await page.setViewportSize({ width: 360, height: 800 });
+  await routeInbox(page, [blockedReadyItem, todo, longTodo]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+  await row.getByRole("button", { name: "Complete todos (2)" }).click();
+  const dialog = page.getByRole("dialog");
+  const line = dialog.getByRole("button", { name: longName });
+  await expect(line).toBeVisible();
+  await expect(line.locator("[data-slot=badge]")).toHaveText(["optional", "after merge"]);
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const body = line.locator("..");
+  expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const sheet = await dialog.boundingBox();
+  const chevron = await line.locator("svg").boundingBox();
+  expect(chevron!.x + chevron!.width).toBeLessThanOrEqual(sheet!.x + sheet!.width);
+});
+
 test("the todo panel of the tray shows Back on a phone and returns to the list", async ({
   page,
 }) => {
