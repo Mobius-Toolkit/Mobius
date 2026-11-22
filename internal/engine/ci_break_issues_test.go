@@ -3,6 +3,7 @@ package engine_test
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -428,12 +429,12 @@ func createdIssues(fake *testkit.FakeGitHub) int {
 	return count
 }
 
-// connectDiagnoserInChecks is connectTask with a Diagnoser that finds nothing, and a task that waits in checks for a head
+// connectDiagnoserInChecks is connectTask with the Diagnoser script diagnoser, and a task that waits in checks for a head
 // with no CI.
-func connectDiagnoserInChecks(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+func connectDiagnoserInChecks(t *testing.T, fake *testkit.FakeGitHub, diagnoser string) *testserver.Server {
 	t.Helper()
 	dataDir := t.TempDir()
-	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+findsNothing)
+	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+diagnoser)
 	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, commits, func(cfg *config.Config) {
 		longGrace(cfg)
 		cfg.Roles.Diagnoser = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
@@ -444,7 +445,7 @@ func connectDiagnoserInChecks(t *testing.T, fake *testkit.FakeGitHub) *testserve
 func TestAJobLogThatTheLogHostRefusesGivesTheIssueOfTheBreakWithNoLogAndTheTaskCheckStillRuns(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoserInChecks(t, fake)
+	server := connectDiagnoserInChecks(t, fake, findsNothing)
 	sha := checksHead(t, server, fake)
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.RefuseJobLogDownloads(http.StatusNotFound)
@@ -468,12 +469,20 @@ func TestAJobLogThatTheLogHostRefusesGivesTheIssueOfTheBreakWithNoLogAndTheTaskC
 func TestAFailedBreakDoesNotStopThePollAndTheNextPollCreatesItsIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectDiagnoserInChecks(t, fake)
+	gate := filepath.Join(t.TempDir(), "gate")
+	diagnoser := fmt.Sprintf("[[prompts]]\nwhen = \"You are a Diagnoser\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\nreply = [\"I found no cause.\"]\n", gate)
+	server := connectDiagnoserInChecks(t, fake, diagnoser)
 	sha := checksHead(t, server, fake)
 	addMaintenanceWorkstream(fake, maintenance)
-	fake.RefuseJobLogDownloads(http.StatusInternalServerError)
-
 	hardMainRun(fake, head(t, fake, "main"))
+	testkit.WaitFor(t, func() bool {
+		sessions := diagnoserSessions(t, server)
+		return len(sessions) == 1 && len(promptTexts(t, server, sessions[0].ID)) == 1
+	})
+	fake.RefuseJobLogDownloads(http.StatusInternalServerError)
+	touch(t, gate)
+	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ended_at <> ''") == 1 })
+
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
