@@ -1964,3 +1964,49 @@ func TestTheStateLabelsMigrationKeepsTheChangeRowsAndAcceptsTheNewField(t *testi
 		}
 	}
 }
+
+func TestTheQuestionCommentMigrationKeepsTheOutgoingChangesAndAddsTheInboxMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db := openBefore(t, path, 20270501000000)
+	for _, statement := range []string{
+		`INSERT INTO outgoing_changes (id, integration, repository, number, field, text, status, created_at)
+			VALUES (10, 'github', 'o/a', 41, 'comment', 'Sent', 'sent', '2027-03-01T10:00:00Z')`,
+		`INSERT INTO outgoing_changes (id, integration, repository, number, field, text, status, created_at)
+			VALUES (11, 'github', 'o/a', 41, 'comment', 'Pending', 'pending', '2027-03-01T10:00:01Z')`,
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time)
+			VALUES (5, 'question', 'o', 'o/a', 'o/a', 1, 41, 'Ask', '', '2027-03-01T10:00:00Z')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var kept int
+	err = db.QueryRow(`SELECT count(*) FROM outgoing_changes WHERE (id, field, text, status) IN ((10, 'comment', 'Sent', 'sent'), (11, 'comment', 'Pending', 'pending'))`).Scan(&kept)
+	if err != nil || kept != 2 {
+		t.Errorf("kept rows = %d, %v", kept, err)
+	}
+	var metadata string
+	if err := db.QueryRow(`SELECT metadata FROM inbox_items WHERE id = 5`).Scan(&metadata); err != nil || metadata != "{}" {
+		t.Errorf("metadata = %q, %v", metadata, err)
+	}
+	var id int64
+	err = db.QueryRow(`INSERT INTO outgoing_changes (integration, repository, number, field, text, status, created_at)
+		VALUES ('github', 'o/a', 41, 'question', 'Ask', 'pending', '2027-03-01T10:00:02Z') RETURNING id`).Scan(&id)
+	if err != nil || id != 12 {
+		t.Errorf("question: id = %d, error = %v", id, err)
+	}
+	if _, err := db.Exec(`INSERT INTO outgoing_changes (integration, repository, number, field, status, created_at)
+		VALUES ('github', 'o/a', 41, 'unknown', 'pending', '2027-03-01T10:00:03Z')`); err == nil {
+		t.Error("the table accepts an unknown field")
+	}
+}

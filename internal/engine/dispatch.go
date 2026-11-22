@@ -240,7 +240,7 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) *gh.IssueEvent {
 // commentEvents acts on the new comments of the issue of a live task: a new comment that is an event resets the
 // counters of the task and goes to the Lead. It also continues a task in needs_human, as the author of the newest such
 // comment, when that comment is newer than the move of the task to needs_human. When the newest such comment is newer
-// than the last comment of the Mobius App, the question, it answers the question: mobius:question goes away.
+// than the question (questionTime), it answers the question: mobius:question goes away.
 // Each such comment gets the reaction of an agent that gets it. For an issue with no live task, see commentsWithoutTask.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
@@ -261,7 +261,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			return err
 		}
 		if asked {
-			if err := e.answerQuestions(ctx, repository.FullName, number, replies); err != nil {
+			if err := e.answerQuestions(ctx, repository, number, comments, replies); err != nil {
 				return err
 			}
 			if err := e.closeQuestionItems(ctx, repository.FullName, number); err != nil {
@@ -336,15 +336,16 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	return e.dispatchAnswer(ctx, repository, issue, task)
 }
 
-// answerQuestions stores the bodies of the comments that are newer than the question, with no role mark and separated
-// by a blank line, as the answer of each open question item of the issue.
-func (e *Engine) answerQuestions(ctx context.Context, repository string, number int64, replies []*gh.IssueComment) error {
-	items, err := e.openIssueItems(ctx, repository, number, questionKind)
+// answerQuestions stores the bodies of the comments of replies that are newer than the question, with no role mark and
+// separated by a blank line, as the answer of each open question item of the issue. comments are the comments that
+// questionAskedAt reads.
+func (e *Engine) answerQuestions(ctx context.Context, repository github.Repository, number int64, comments, replies []*gh.IssueComment) error {
+	items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
 	if err != nil {
 		return err
 	}
 	for _, item := range items {
-		asked, err := time.Parse(time.RFC3339Nano, item.Time)
+		asked, err := e.questionAskedAt(ctx, repository, item, comments)
 		if err != nil {
 			return err
 		}
@@ -367,39 +368,54 @@ func (e *Engine) answerQuestions(ctx context.Context, repository string, number 
 // chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
 const chatAnswerPrefix = "The Owner answered in the Lead chat:"
 
-// questionTime gives the time of the newest question Inbox item of the issue number, also a dismissed one, or the zero
-// time. ask adds this item with the outgoing change of its question comment, so the time is the time of the question
-// also while the send of the comment waits.
-func (e *Engine) questionTime(ctx context.Context, repository string, number int64) (time.Time, error) {
-	item, err := e.queries.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: repository, Issue: number, Kind: questionKind})
+// questionAskedAt gives the time of the question of the Inbox item: the created_at of its question comment on GitHub.
+// The item has no time of GitHub while the send of the comment waits, or after a person deleted the comment. The time
+// of the item is then the time of the question. comments are the comments that Mobius already read. When the question
+// comment is not in them, the function reads the comments of the issue.
+func (e *Engine) questionAskedAt(ctx context.Context, repository github.Repository, item store.InboxItem, comments []*gh.IssueComment) (time.Time, error) {
+	var metadata struct {
+		GitHub struct {
+			Question int64 `json:"question"`
+		} `json:"github"`
+	}
+	if err := json.Unmarshal([]byte(item.Metadata), &metadata); err != nil {
+		return time.Time{}, err
+	}
+	if id := metadata.GitHub.Question; id != 0 {
+		byID := func(comment *gh.IssueComment) bool { return comment.GetID() == id }
+		if !slices.ContainsFunc(comments, byID) {
+			var err error
+			if comments, err = repository.Comments(ctx, item.Issue); err != nil {
+				return time.Time{}, err
+			}
+		}
+		if i := slices.IndexFunc(comments, byID); i >= 0 {
+			return comments[i].GetCreatedAt().Time, nil
+		}
+	}
+	return time.Parse(time.RFC3339Nano, item.Time)
+}
+
+// questionTime gives the time of the newest question Inbox item of the issue number, also a dismissed one (see
+// questionAskedAt), or the zero time. ask adds this item with the outgoing change of its question comment, so the item
+// has a time also while the send of the comment waits.
+func (e *Engine) questionTime(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (time.Time, error) {
+	item, err := e.queries.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: repository.FullName, Issue: number, Kind: questionKind})
 	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, nil
 	}
 	if err != nil {
 		return time.Time{}, err
 	}
-	return time.Parse(time.RFC3339Nano, item.Time)
+	return e.questionAskedAt(ctx, repository, item, comments)
 }
 
-// answerReplies returns the comments of a trusted user after the last question of the Mobius App on the issue number,
-// the comments that dispatchAnswer puts in the dispatch event. It also returns the time of that question. The question
-// is the newest question Inbox item or the newest comment of the Mobius App that has no write marker. A comment that an
-// outgoing change sent is no question: its send can come after the comment of a person.
+// answerReplies returns the comments of a trusted user after the question of the Mobius App on the issue number, the
+// comments that dispatchAnswer puts in the dispatch event. It also returns the time of that question (questionTime).
 func (e *Engine) answerReplies(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) ([]*gh.IssueComment, time.Time, error) {
-	askedAt, err := e.questionTime(ctx, repository.FullName, number)
+	askedAt, err := e.questionTime(ctx, repository, number, comments)
 	if err != nil {
 		return nil, time.Time{}, err
-	}
-	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && !isWriteComment(comment.GetBody()) && comment.GetCreatedAt().After(askedAt) {
-			byLead, err := e.leadCommented(ctx, repository, comment)
-			if err != nil {
-				return nil, time.Time{}, err
-			}
-			if !byLead {
-				askedAt = comment.GetCreatedAt().Time
-			}
-		}
 	}
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
@@ -418,8 +434,7 @@ func (e *Engine) answerReplies(ctx context.Context, repository github.Repository
 }
 
 // dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
-// Mobius App. It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
+// comment of a trusted user, and each answer comment of the Mobius App, after the question (questionTime). It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
 // for it yet. The event keeps the newest reply of a trusted user as its comment.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	issue, err := e.withRowText(ctx, repository.FullName, issue)
@@ -497,15 +512,15 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 			return e.declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
 		}
 	}
-	return e.workstreamCommentEvents(ctx, repository, issue, events, answered)
+	return e.workstreamCommentEvents(ctx, repository, issue, comments, events, answered)
 }
 
 // workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
 // on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
 // in no Workstream with the triage state goes to retriage. Mobius does not act on a comment on another issue in no
-// Workstream. When answered is true, a comment on the Workstream issue
-// answers its question: mobius:question goes away.
-func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment, answered bool) error {
+// Workstream. When answered is true, a comment on the Workstream issue answers its question: mobius:question goes
+// away. events are comments of comments.
+func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments, events []*gh.IssueComment, answered bool) error {
 	number := int64(issue.GetNumber())
 	workstreamRepository, workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil {
@@ -530,7 +545,7 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 			return err
 		}
 		if asked {
-			if err := e.answerQuestions(ctx, repository.FullName, number, events); err != nil {
+			if err := e.answerQuestions(ctx, repository, number, comments, events); err != nil {
 				return err
 			}
 			if err := e.closeQuestionItems(ctx, repository.FullName, number); err != nil {
@@ -683,7 +698,7 @@ func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Rep
 }
 
 // newComments resets the counters of the task when comments have a comment that is an event. It gives the comments
-// that are events, and true when the newest of them is newer than the last comment of the Mobius App.
+// that are events, and true when the newest of them is newer than the question (questionTime).
 func (e *Engine) newComments(ctx context.Context, repository github.Repository, number int64, task store.Task, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	replies, answered, err := e.replies(ctx, repository, number, comments)
 	if err != nil {
@@ -723,35 +738,23 @@ func (e *Engine) trustedUser(login string) bool {
 	return slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, login) })
 }
 
-// replies gives the comments that are events, and true when the newest of them is newer than the last
-// question of the Mobius App on the issue number. The question is the newest question Inbox item or the newest comment
-// of the Mobius App. A stop comment is no question, a comment of the Lead is no question, and a comment that an
-// outgoing change sent is no question. The send of such a comment can come after the comment of a person.
+// replies gives the comments that are events, and true when the newest of them is newer than the question of the Mobius
+// App on the issue number (questionTime).
 func (e *Engine) replies(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
-	askedAt, err := e.questionTime(ctx, repository.FullName, number)
+	askedAt, err := e.questionTime(ctx, repository, number, comments)
 	if err != nil {
 		return nil, false, err
 	}
 	var repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
-		createdAt := comment.GetCreatedAt().Time
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !isStopComment(comment.GetBody()) && !isWriteComment(comment.GetBody()) && createdAt.After(askedAt) {
-			byLead, err := e.leadCommented(ctx, repository, comment)
-			if err != nil {
-				return nil, false, err
-			}
-			if !byLead {
-				askedAt = createdAt
-			}
-		}
 		isEvent, err := e.commentIsEvent(ctx, repository, comment)
 		if err != nil {
 			return nil, false, err
 		}
 		if isEvent {
 			replies = append(replies, comment)
-			if createdAt.After(repliedAt) {
+			if createdAt := comment.GetCreatedAt().Time; createdAt.After(repliedAt) {
 				repliedAt = createdAt
 			}
 		}
@@ -818,7 +821,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			dismissed = append(dismissed, dismissedItem)
 		}
 		var err error
-		if change, err = e.addOutgoingChange(ctx, q, repository.FullName, input.N, 0, commentField, comment); err != nil {
+		if change, err = e.addOutgoingChange(ctx, q, repository.FullName, input.N, 0, questionField, comment); err != nil {
 			return err
 		}
 		asked, message, err = e.storeQuestion(ctx, q, store.AddInboxItemParams{

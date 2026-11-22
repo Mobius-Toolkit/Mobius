@@ -757,6 +757,35 @@ func (g *FakeGitHub) AddCommentCreatedAt(repository string, number int64, author
 	return comment.ID
 }
 
+// CommentIDs gives the ids of the comments of the issue, the oldest first.
+func (g *FakeGitHub) CommentIDs(repository string, number int64) []int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var ids []int64
+	for _, comment := range g.issues[issueKey{repository, number}].comments {
+		ids = append(ids, comment.ID)
+	}
+	return ids
+}
+
+// SetCommentCreatedAt sets the creation time of the comment id of an issue of the repository. The update time of the
+// comment stays, so the poll does not read the comment again. It shows a clock of GitHub that differs from the clock of
+// Mobius.
+func (g *FakeGitHub) SetCommentCreatedAt(repository string, id int64, createdAt time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for key, found := range g.issues {
+		if key.repository != repository {
+			continue
+		}
+		for i := range found.comments {
+			if found.comments[i].ID == id {
+				found.comments[i].CreatedAt = timestamp(createdAt.Unix())
+			}
+		}
+	}
+}
+
 // EditComment replaces the body of the comment id of an issue of the repository. It gives false when the repository
 // has no such comment.
 func (g *FakeGitHub) EditComment(repository string, id int64, body string) bool {
