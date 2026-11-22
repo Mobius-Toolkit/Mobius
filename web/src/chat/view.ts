@@ -7,6 +7,7 @@ import { actionState, roleName } from "@/lib/actions";
 import { briefMarkdown } from "@/lib/briefDiff";
 import { diffLines } from "@/lib/diff";
 import { getGetChatImageUrl } from "@/api/api.gen";
+import { pausedText } from "@/lib/state";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { badgeClass, renderBadge } from "@/ui/badge";
 import { buttonClass } from "@/ui/button";
@@ -1615,7 +1616,7 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
                 [
                   h.span([h.Class("size-2 animate-pulse rounded-full bg-green-600")], []),
                   model.pausedUntil
-                    ? `The ${model.agent} waits for the usage limit until ${dayClock(model.pausedUntil)}.`
+                    ? `The ${model.agent} is ${pausedText(model.pausedUntil)}.`
                     : messages.some(
                           (m) =>
                             m.author === "Owner" &&

@@ -1,7 +1,7 @@
 import { cn } from "cn";
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { dayClock } from "@/lib/time";
+import { pausedText } from "@/lib/state";
 import { badgeClass, renderBadge } from "@/ui/badge";
 import { renderButton } from "@/ui/button";
 import { defineDialogMount, renderDialog } from "@/ui/dialog";
@@ -105,12 +105,7 @@ function renderToolText(h: H, tool: ToolCheck, pause: Pause | undefined, grow: b
       tool.name,
       pause === undefined
         ? h.empty
-        : renderBadge(
-            h,
-            "default",
-            `usage limit until ${dayClock(pause.pausedUntil)}`,
-            `w-fit ${amber}`,
-          ),
+        : renderBadge(h, "default", pausedText(pause.pausedUntil), `w-fit ${amber}`),
       tool.status === ""
         ? h.span(
             [h.Class(`${muted} break-words`)],

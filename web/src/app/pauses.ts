@@ -1,6 +1,6 @@
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { dayClock } from "@/lib/time";
+import { pausedText } from "@/lib/state";
 import { renderButton } from "@/ui/button";
 import { chevronDownIcon, chevronRightIcon } from "@/ui/icons";
 import { renderErrorBadge } from "@/ui/page";
@@ -131,9 +131,7 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
                         h,
                         "mr-1 inline size-3.5 align-[-0.125em]",
                       ),
-                      pause.harness,
-                      " paused until ",
-                      dayClock(pause.pausedUntil),
+                      `${pause.harness} ${pausedText(pause.pausedUntil)}`,
                     ],
                   ),
                   renderButton(h, {
