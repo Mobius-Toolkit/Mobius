@@ -279,17 +279,17 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndNoTranscriptLine(t *te
 			t.Errorf("transcript event = %s", data)
 		}
 	}
-	// The session comes at its addition, at its slot and at its end.
-	if len(agents) != 3 {
+	// The session comes at its addition, at its slot, at the start and at the answer of its Harness, and at its end.
+	if len(agents) != 5 {
 		t.Fatalf("agents = %+v", agents)
 	}
-	for _, start := range agents[:2] {
+	for _, start := range agents[:4] {
 		if start.ID != session || start.Name != "Lead" || start.EndedAt != nil {
 			t.Errorf("start = %+v", start)
 		}
 	}
-	if agents[2].ID != session || agents[2].EndReason != "done" {
-		t.Errorf("end = %+v", agents[2])
+	if agents[4].ID != session || agents[4].EndReason != "done" {
+		t.Errorf("end = %+v", agents[4])
 	}
 }
 
