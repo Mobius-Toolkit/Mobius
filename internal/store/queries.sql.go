@@ -697,8 +697,8 @@ func (q *Queries) AddInitFailure(ctx context.Context, arg AddInitFailureParams) 
 const addIssueToCreate = `-- name: AddIssueToCreate :one
 INSERT INTO issues (repository, title, body, state, author, workstream, parent, kind, triage, start_requested_at, start_requested_by, metadata)
 VALUES (?1, ?2, ?3, 'open', ?4,
-        ?5, ?6, 'task', CAST(?7 AS BOOLEAN),
-        ?8, ?9, ?10)
+        ?5, ?6, ?7, CAST(?8 AS BOOLEAN),
+        ?9, ?10, ?11)
 RETURNING id
 `
 
@@ -709,6 +709,7 @@ type AddIssueToCreateParams struct {
 	Author           string
 	Workstream       sql.NullInt64
 	Parent           sql.NullInt64
+	Kind             string
 	Triage           bool
 	StartRequestedAt sql.NullString
 	StartRequestedBy string
@@ -724,6 +725,7 @@ func (q *Queries) AddIssueToCreate(ctx context.Context, arg AddIssueToCreatePara
 		arg.Author,
 		arg.Workstream,
 		arg.Parent,
+		arg.Kind,
 		arg.Triage,
 		arg.StartRequestedAt,
 		arg.StartRequestedBy,
