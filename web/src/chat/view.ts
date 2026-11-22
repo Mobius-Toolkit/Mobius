@@ -1477,7 +1477,11 @@ export function renderTodoListDialog(h: H, model: Model): Html {
   if (!row) return h.empty;
 
   const body = h.div(
-    [h.Class("grid min-w-0 content-start gap-1 overflow-y-auto px-4 pb-4")],
+    [
+      h.Class(
+        "grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-1 overflow-y-auto px-4 pb-4",
+      ),
+    ],
     row.todos.map((todoItem) => {
       const { todo } = todoItem;
       if (!todo) return h.empty;
