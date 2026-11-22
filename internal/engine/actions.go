@@ -506,7 +506,7 @@ func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction)
 			}
 			title = item.Title
 		}
-		if err := e.dismissAction(ctx, replaced); err != nil {
+		if _, err := e.dismissAction(ctx, replaced); err != nil {
 			return nil, err
 		}
 		e.publish(Change{Action: &replaced})
@@ -515,11 +515,25 @@ func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction)
 	return done, nil
 }
 
-func (e *Engine) dismissAction(ctx context.Context, action store.PendingAction) error {
+func (e *Engine) dismissAction(ctx context.Context, action store.PendingAction) (store.InboxItem, error) {
 	if !action.InboxItem.Valid {
-		return nil
+		return store.InboxItem{}, nil
 	}
-	return e.Dismiss(ctx, action.InboxItem.Int64)
+	return e.dismiss(ctx, action.InboxItem.Int64)
+}
+
+// closeAction dismisses the Inbox item of the decided action, and adds the decision as a display-only Owner message
+// to its chat. The Triager has no chat.
+func (e *Engine) closeAction(ctx context.Context, action store.PendingAction, decision, message string) error {
+	item, err := e.dismissAction(ctx, action)
+	if err != nil || action.Role == actionRole(TriagerRole) {
+		return err
+	}
+	if !empty(message) {
+		decision += "\n\n" + message
+	}
+	e.addInboxOwnerMessage(ctx, item, decision)
+	return nil
 }
 
 // ApproveAction runs the pending action id with its stored arguments. When the run succeeds, the action is done, and the
@@ -576,7 +590,8 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved %s. The result: %s", name, action.Result)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
+	closeErr := e.closeAction(ctx, action, "Approved", message)
+	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message)))
 }
 
 // ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from workstreams. It returns
@@ -630,7 +645,8 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner rejected %s.", name)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
+	closeErr := e.closeAction(ctx, action, "Rejected", message)
+	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message)))
 }
 
 // afterActionRun is a hook of the tests. approve calls it after the tool of the action ran, before it stores the result.

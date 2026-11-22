@@ -64,7 +64,7 @@ func (e *Engine) withdrawAction(ctx context.Context, c caller, item store.InboxI
 	if err != nil {
 		return "", err
 	}
-	if err := e.dismissAction(ctx, action); err != nil {
+	if _, err := e.dismissAction(ctx, action); err != nil {
 		return "", err
 	}
 	e.publish(Change{Action: &action})
