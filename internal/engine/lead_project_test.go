@@ -62,6 +62,26 @@ func TestTwoCreateProjectCallsOfOneSessionWithTheSameTitleCreateOneProject(t *te
 	}
 }
 
+func TestCreateIssueAndCreateProjectWithTheSameTitleCreateTwoIssues(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	task := call("create_issue", `{ repository = "owner/shop", title = "Stats display", body = "", parent = "owner/shop#12", blocked_by = [] }`)
+	project := call("create_project", `{ title = "Stats display", body = "" }`)
+	server, _ := connect(t, fake, task+project)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ")
+
+	if got := reply(t, server, session); got != "Created owner/shop#13.Created owner/shop#14." {
+		t.Errorf("reply = %q", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 13 AND kind = 'task'", shop); got != 1 {
+		t.Errorf("task rows of #13 = %d", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 14 AND kind = 'project'", shop); got != 1 {
+		t.Errorf("project rows of #14 = %d", got)
+	}
+}
+
 func TestCreateProjectRefusesAnEmptyTitle(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

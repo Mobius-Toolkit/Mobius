@@ -1125,7 +1125,7 @@ func (e *Engine) createLeadIssue(ctx context.Context, c caller, repository githu
 	if err != nil {
 		return "", err
 	}
-	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title}
+	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title, issueKind(labels)}
 	var claimed *leadIssue
 	for {
 		claimed, err = c.agent.claimLeadIssue(ctx, key)
@@ -1182,6 +1182,7 @@ type leadIssueKey struct {
 	parentRepository string
 	parent           int64
 	title            string
+	kind             string
 }
 
 // leadIssue is the issue that a call of create_issue creates. done closes when the call ends. issueID is 0 when the
