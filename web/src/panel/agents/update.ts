@@ -1,7 +1,6 @@
 import { Option } from "effect";
 import { Command } from "foldkit";
 import * as Update from "foldkit/update";
-import { lowLoadReason } from "@/lib/agents";
 import { FetchLog } from "@/transcript/commands";
 import { OutMessage as TranscriptOutMessage } from "@/transcript/message";
 import { initialModel as initialTranscript } from "@/transcript/model";
@@ -44,7 +43,7 @@ const foldStartable = Update.foldChild({
 function keepStartable(model: Model): UpdateReturn {
   const open = Option.getOrUndefined(model.transcript);
   const live = open && model.agents.find((agent) => agent.id === open.agent.id);
-  return live ? foldStartable(model, live.queueReason === lowLoadReason) : { model };
+  return live ? foldStartable(model, live.wait === "low_load") : { model };
 }
 
 export function update(model: Model, message: Message): UpdateReturn {

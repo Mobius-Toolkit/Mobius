@@ -13,7 +13,11 @@ test.beforeEach(async ({ page }) => {
 const states = [
   { reason: "runs .mobius/check", badge: "checks", dot: /bg-green-600/ },
   { reason: "waits for a check slot", badge: "waits for check", dot: /bg-amber-500/ },
-  { reason: /paused until Sep 28, 12:00\sPM/, badge: "paused", dot: /bg-amber-500/ },
+  {
+    reason: /paused until Sep 28, 12:00\sPM/,
+    badge: /^paused until Sep 28, 12:00\sPM$/,
+    dot: /bg-amber-500/,
+  },
   { reason: "no free Implementer slot (2/2)", badge: "queued", dot: /bg-amber-500/ },
 ];
 
@@ -28,6 +32,31 @@ test("the Agents page shows the state of each agent with a queue reason", async 
   const running = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
   await expect(running.locator("span.rounded-full")).toHaveClass(/bg-green-600/);
   await expect(running.getByText("queued")).toBeHidden();
+});
+
+test("a task that waits for a Harness pause shows the same badge on the Tasks board, in the Workstream tree and on the Agents page", async ({
+  page,
+}) => {
+  const paused = /^paused until Sep 28, 12:00\sPM$/;
+
+  await page.goto("/tasks");
+  const card = page.getByRole("listitem").filter({ hasText: "Pick the plan limits" });
+  await expect(card.getByText(paused)).toBeVisible();
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const line = page
+    .getByRole("complementary")
+    .getByRole("listitem")
+    .filter({ hasText: "#45 Pick the plan limits" });
+  await expect(line.getByText(paused)).toBeVisible();
+
+  await page.goto("/agents");
+  const entry = page
+    .getByRole("main")
+    .getByRole("button", { name: /Ticket #45 Pick the plan limits/ });
+  await expect(entry.getByText(paused)).toBeVisible();
 });
 
 test("the Agents page shows the count of each Role and no global count", async ({ page }) => {

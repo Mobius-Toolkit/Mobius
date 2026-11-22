@@ -283,7 +283,8 @@ const question = "What is the state of the plans? The full report is at " +
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, a task that needs a human, and an open task #90 whose Start waits for the triage.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
-// check that runs, a check that waits for a slot, a pause, and a full Role.
+// check that runs, a check that waits for a slot, a pause, and a full Role. The session with the pause belongs to the
+// working task #45, so the Tasks board, the task list and the Agents page show the same pause.
 // The Workstream plants/garden#11 has the task #85. Its Implementer round ran after the engine clock was set, and the
 // engine keeps its Harness session until 10:30 UTC. Its number is the lowest of the Workstreams of plants, so the side
 // bar lists it last, below the first screen of each screenshot. Only the kept-session tests open it.
@@ -1003,20 +1004,23 @@ func TestServer(t *testing.T) {
 		workstream int64
 		issue      int64
 	}{{"owner/shop", 12, 42}, {"plants/garden", 20, 21}, {"plants/garden", 20, 22}, {"plants/garden", 30, 31}, {"plants/garden", 30, 32}, {"plants/garden", 19, 72}} {
-		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
-			VALUES (?1, ?1, ?2, ?3, 'needs_human', ?4)`, stopped.repository, stopped.issue, stopped.workstream, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+			VALUES (?1, ?1, ?2, ?3, 'needs_human', ?4, ?4)`, stopped.repository, stopped.issue, stopped.workstream, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for number, state := range map[int64]string{38: "checks", 39: "approval"} {
-		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
-			VALUES ('owner/shop', 'owner/shop', ?, 12, ?, ?)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+			VALUES ('owner/shop', 'owner/shop', ?1, 12, ?2, ?3, ?3)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			t.Fatal(err)
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
-		VALUES ('owner/shop', 'owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working' WHERE repository = 'owner/shop' AND issue = 45"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+		VALUES ('owner/shop', 'owner/shop', 40, 14, 'ready_for_review', ?1, ?1)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, delivered_at)
@@ -1794,8 +1798,8 @@ func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.Fake
 func implementerSpec(t *testing.T, server *testserver.Server, number int64) engine.Spec {
 	t.Helper()
 	queuedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at)
-		VALUES ('owner/shop', 'owner/shop', ?, 12, 'queued', ?, ?)`, number, queuedAt, queuedAt)
+	result, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, state_at)
+		VALUES ('owner/shop', 'owner/shop', ?1, 12, 'queued', ?2, ?2, ?2)`, number, queuedAt)
 	if err != nil {
 		t.Fatal(err)
 	}

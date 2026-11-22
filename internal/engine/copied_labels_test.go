@@ -108,7 +108,7 @@ func TestResumeOfALiveTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "waits for start_implementer")
+	checkTasks(t, server, "working")
 	events := leadEvents(t, server)
 	if len(events) != 1 || events[0].Kind != "dispatch" || !strings.Contains(events[0].Payload, ` "Add plan model" by @ui:`) {
 		t.Errorf("events = %+v", events)

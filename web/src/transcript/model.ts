@@ -1,5 +1,4 @@
 import { Option, Schema } from "effect";
-import { lowLoadReason } from "@/lib/agents";
 import { Agent, Line } from "./schemas";
 
 export const Model = Schema.Struct({
@@ -40,7 +39,7 @@ export function initialModel(agent: Agent): Model {
     opened: false,
     toggledOpen: [],
     rawShown: [],
-    startable: agent.queueReason === lowLoadReason,
+    startable: agent.wait === "low_load",
     starting: false,
     startError: "",
   };
