@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -570,6 +572,22 @@ func (g *FakeGitHub) createPullRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, body)
 }
 
+// canMergeTree tells if base and head merge with no conflict. It writes temporary tree objects to a separate object
+// directory so concurrent reads of the bare remote do not see transient tmp_obj files.
+func canMergeTree(remote, base, head string) bool {
+	tmpObj, err := os.MkdirTemp("", "mobius-merge-tree-*")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = os.RemoveAll(tmpObj) }()
+	cmd := gitCommand(remote, "merge-tree", "--write-tree", base, head)
+	cmd.Env = append(cmd.Env,
+		"GIT_OBJECT_DIRECTORY="+tmpObj,
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES="+filepath.Join(remote, "objects"),
+	)
+	return cmd.Run() == nil
+}
+
 // pullRequestJSON gives the pull request as GitHub does. It is not mergeable when git merge-tree of the base and the
 // head in the remote finds a conflict. The caller must hold the lock.
 func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string]any {
@@ -577,7 +595,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
 	pull := g.pullRequests[index]
 	remote := g.Remote(repository)
-	mergeable := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Run() == nil
+	mergeable := canMergeTree(remote, pull.Base, pull.Head)
 	state := "clean"
 	if g.behind[key] && gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() != nil {
 		state = "behind"
@@ -758,7 +776,7 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	}
 	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
 	remote := g.Remote(key.repository)
-	_, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	mergeable := canMergeTree(remote, pull.Base, pull.Head)
 	upToDate := gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() == nil
 	switch {
 	case request.ExpectedHeadSHA != g.headOf(key.repository, key.number):
@@ -767,7 +785,7 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	case upToDate:
 		message(w, http.StatusUnprocessableEntity, "there are no new commits on the base branch.")
 		return
-	case treeErr != nil:
+	case !mergeable:
 		message(w, http.StatusUnprocessableEntity, "merge conflict between base and head")
 		return
 	}
