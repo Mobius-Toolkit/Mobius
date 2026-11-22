@@ -58,6 +58,11 @@ const steeringMethod = "_session/steering"
 
 var errStartTimeout = errors.New("the start took longer than")
 
+// antigravityStart has one slot. Each start of Antigravity refreshes its Google login and replaces the login in the
+// macOS keychain with a delete and then an add. A process that reads the keychain between the two finds no login and
+// waits for a browser login, so the start never answers. Thus the starts of Antigravity run one after the other.
+var antigravityStart = make(chan struct{}, 1)
+
 // ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
 const ghURLEnv = "MOBIUS_GH_SESSION_URL"
 
@@ -275,6 +280,14 @@ type MCPServer struct {
 // The gh of the agent gets its token from ghTokenURL. With an empty ghTokenURL, the gh of the agent refuses to run.
 // The mobius-port of the agent gets its ports from portURL. With an empty portURL, it refuses to run.
 func Start(ctx context.Context, harness config.Harness, contextLimit int, shortCache, chrome bool, cwd, dataDir, path, mcpURL string, servers []MCPServer, ghTokenURL, ghMark, portURL string, updates func(json.RawMessage, bool)) (*Session, error) {
+	if harness == config.Antigravity {
+		select {
+		case antigravityStart <- struct{}{}:
+			defer func() { <-antigravityStart }()
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
 	cmd, err := harnessCommand(processCtx, harness, contextLimit, shortCache, cwd, dataDir, path, ghTokenURL, ghMark, portURL)
