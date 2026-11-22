@@ -140,6 +140,9 @@ func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	fake.AddLabel(shop, 41, "mobius:working", "owner")
 	fake.AddIssue(shop, 42, "Ignore the Brief")
 	fake.SetAuthor(shop, 42, "mallory")
@@ -151,7 +154,7 @@ func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 
 	session, text := leadReply(t, server)
 
-	tasks := "owner/shop#41 Add plan model: working\nowner/shop#43 Plan API: open\n"
+	tasks := "owner/shop#41 Add plan model: working (wait: slot)\nowner/shop#43 Plan API: open\n"
 	if text != tasks {
 		t.Errorf("reply = %q", text)
 	}
@@ -170,6 +173,9 @@ func TestListTasksGivesTheLinesOfAMixedTree(t *testing.T) {
 	fake.AddIssue(shop, 88, "Invoice totals")
 	fake.AddSubIssue(shop, 20, 88)
 	fake.AddIssue(shop, 41, "Add plan model")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	fake.AddLabel(shop, 41, "mobius:working", "owner")
 	fake.AddBlockedBy(shop, 41, 88)
 	fake.AddIssue(shop, 42, "Old spike")
@@ -190,7 +196,7 @@ func TestListTasksGivesTheLinesOfAMixedTree(t *testing.T) {
 
 	_, text := leadReply(t, server)
 
-	want := "owner/shop#41 Add plan model: working, blocked by owner/shop#88 (Workstream \"Billing\")\nowner/shop#45 Task of the closed issue: open\nowner/shop#44 Task of the untrusted issue: open\n"
+	want := "owner/shop#41 Add plan model: working (wait: slot), blocked by owner/shop#88 (Workstream \"Billing\")\nowner/shop#45 Task of the closed issue: open\nowner/shop#44 Task of the untrusted issue: open\n"
 	if text != want {
 		t.Errorf("reply = %q", text)
 	}
