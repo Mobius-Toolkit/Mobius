@@ -2989,6 +2989,33 @@ func (q *Queries) EndInitFailure(ctx context.Context, arg EndInitFailureParams) 
 	return err
 }
 
+const endIssueTriage = `-- name: EndIssueTriage :execrows
+UPDATE issues SET triage_ended_at = ?1
+WHERE repository = ?2 AND number = CAST(?3 AS INTEGER)
+    AND (triage_ended_at IS NULL OR julianday(triage_ended_at) < julianday(?4))
+`
+
+type EndIssueTriageParams struct {
+	EndedAt    sql.NullString
+	Repository string
+	Number     int64
+	Since      interface{}
+}
+
+// A triage that ended before since ends again.
+func (q *Queries) EndIssueTriage(ctx context.Context, arg EndIssueTriageParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endIssueTriage,
+		arg.EndedAt,
+		arg.Repository,
+		arg.Number,
+		arg.Since,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const endMcpServerOAuthFlow = `-- name: EndMcpServerOAuthFlow :exec
 UPDATE mcp_server_oauth
 SET state = '', code_verifier = '', flow_started_at = NULL, updated_at = ?
@@ -4056,6 +4083,22 @@ func (q *Queries) GetIssueTriage(ctx context.Context, arg GetIssueTriageParams) 
 	var triage bool
 	err := row.Scan(&triage)
 	return triage, err
+}
+
+const getIssueTriageEndedAt = `-- name: GetIssueTriageEndedAt :one
+SELECT triage_ended_at FROM issues WHERE repository = ? AND number = CAST(?2 AS INTEGER)
+`
+
+type GetIssueTriageEndedAtParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetIssueTriageEndedAt(ctx context.Context, arg GetIssueTriageEndedAtParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getIssueTriageEndedAt, arg.Repository, arg.Number)
+	var triage_ended_at sql.NullString
+	err := row.Scan(&triage_ended_at)
+	return triage_ended_at, err
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
@@ -5572,33 +5615,6 @@ type HasClosedOwnWriteParams struct {
 
 func (q *Queries) HasClosedOwnWrite(ctx context.Context, arg HasClosedOwnWriteParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasClosedOwnWrite, arg.Repository, arg.Number)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const hasCommentChangeWithText = `-- name: HasCommentChangeWithText :one
-SELECT EXISTS (
-    SELECT 1 FROM outgoing_changes
-    WHERE repository = ? AND number = CAST(?2 AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, ?3) > 0
-        AND julianday(created_at) >= julianday(?4)
-)
-`
-
-type HasCommentChangeWithTextParams struct {
-	Repository string
-	Number     int64
-	Part       string
-	Since      interface{}
-}
-
-func (q *Queries) HasCommentChangeWithText(ctx context.Context, arg HasCommentChangeWithTextParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasCommentChangeWithText,
-		arg.Repository,
-		arg.Number,
-		arg.Part,
-		arg.Since,
-	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

@@ -836,13 +836,6 @@ SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
 -- name: GetNewestCommentChange :one
 SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field IN ('comment', 'question') ORDER BY id DESC LIMIT 1;
 
--- name: HasCommentChangeWithText :one
-SELECT EXISTS (
-    SELECT 1 FROM outgoing_changes
-    WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' AND status <> 'refused' AND instr(text, sqlc.arg(part)) > 0
-        AND julianday(created_at) >= julianday(sqlc.arg(since))
-);
-
 -- name: SetOutgoingChangeStatus :exec
 UPDATE outgoing_changes SET status = ? WHERE id = ?;
 
@@ -1395,6 +1388,15 @@ ON CONFLICT (repository, number) DO UPDATE SET
     body = CASE WHEN issues.workstream IS NULL THEN excluded.body ELSE issues.body END,
     state = CASE WHEN issues.workstream IS NULL THEN excluded.state ELSE issues.state END,
     author = CASE WHEN issues.workstream IS NULL THEN excluded.author ELSE issues.author END;
+
+-- name: GetIssueTriageEndedAt :one
+SELECT triage_ended_at FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
+
+-- A triage that ended before since ends again.
+-- name: EndIssueTriage :execrows
+UPDATE issues SET triage_ended_at = sqlc.arg(ended_at)
+WHERE repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER)
+    AND (triage_ended_at IS NULL OR julianday(triage_ended_at) < julianday(sqlc.arg(since)));
 
 -- name: IsTriaging :one
 SELECT EXISTS (SELECT 1 FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND triage AND workstream IS NULL);
