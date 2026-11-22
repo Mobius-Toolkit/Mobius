@@ -232,6 +232,9 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	fake.AddIssue(shop, 39, "Old table")
 	fake.CloseIssue(shop, 39)
 	fake.AddIssue(shop, 41, "Add plan model")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	fake.AddLabel(shop, 41, "mobius:working", "owner")
 	fake.AddBlockedBy(shop, 41, 40)
 	fake.AddBlockedBy(shop, 41, 88)
@@ -243,9 +246,6 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 30)
 	fake.AddSubIssue(shop, 30, 31)
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
 	billing := "Billing"
 	queued := line(41, "Add plan model", "working", 0)
 	queued.BlockedBy = []taskBlocker{{Number: 40}, {Number: 88, WorkstreamTitle: &billing}}
