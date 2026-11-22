@@ -2619,6 +2619,8 @@ test("screenshots", async ({ page }) => {
   } = { merging: false, mergeRefusal: "", mergeQueuePlace: null, mergeQueueSize: 0 };
   // While the todos block, they belong to the pull request of the ready for review item.
   let blocked = true;
+  const longTodoName =
+    "internal/config/roles/lead/context/default_context_file_path_for_the_lead_role.toml";
   let moreTodos = false;
   const todoPullRequest = () => {
     const number = blocked ? 44 : 1110;
@@ -2768,14 +2770,14 @@ test("screenshots", async ({ page }) => {
                   id: 107,
                   issue: 45,
                   kind: "todo",
-                  title: "MOBIUS_SMTP_PORT",
+                  title: longTodoName,
                   reason: "mandatory · Deployment needs",
-                  text: "env_var: MOBIUS_SMTP_PORT",
+                  text: `env_var: ${longTodoName}`,
                   link: `${link}/issues/45`,
                   ...todoPullRequest(),
                   todo: {
                     kind: "env_var",
-                    name: "MOBIUS_SMTP_PORT",
+                    name: longTodoName,
                     path: "internal/config/config.go",
                     line: 61,
                     mandatory: true,
@@ -2840,6 +2842,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("optional", { exact: true }),
       page.getByRole("dialog").getByRole("button", { name: "roles.lead.context" }),
       page.getByRole("dialog").getByText("after merge", { exact: true }),
+      page.getByRole("dialog").getByRole("button", { name: longTodoName }),
     ],
     async (device) => {
       for (const locator of inboxReady(device)) {
