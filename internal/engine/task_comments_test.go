@@ -16,7 +16,7 @@ import (
 func commentRows(t *testing.T, server *testserver.Server, number int64, text string) int {
 	t.Helper()
 	var count int
-	err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = ? AND field = 'comment' AND text = ?", shop, number, text).Scan(&count)
+	err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE repository = ? AND number = ? AND field IN ('comment', 'question') AND text = ?", shop, number, text).Scan(&count)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,5 +198,5 @@ func TestACommentOfAPersonBeforeAnAskIsNoAnswerWhileTheQuestionCommentWaitsForIt
 // commentChanges gives the number of outgoing changes of comments with the status.
 func commentChanges(t *testing.T, server *testserver.Server, status string) int {
 	t.Helper()
-	return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'comment' AND status = ?", status)
+	return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field IN ('comment', 'question') AND status = ?", status)
 }

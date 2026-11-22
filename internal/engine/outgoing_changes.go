@@ -22,6 +22,7 @@ import (
 
 const (
 	commentField           = "comment"
+	questionField          = "question"
 	replyField             = "reply"
 	replyResolveField      = "reply_resolve"
 	reviewCommentField     = "review_comment"
@@ -68,11 +69,6 @@ const finishedChangeLife = 24 * time.Hour
 
 func writeMarker(id int64) string {
 	return fmt.Sprintf("%s%d -->", writeMarkerPrefix, id)
-}
-
-// isWriteComment tells if the body is the body of a comment that an outgoing change sent. Such a comment is no question.
-func isWriteComment(body string) bool {
-	return strings.Contains(body, writeMarkerPrefix)
 }
 
 // withoutWriteMarker gives the body of a comment with no hidden marker of an outgoing change.
@@ -407,8 +403,8 @@ func findWrittenComment(ctx context.Context, repository github.Repository, chang
 	return 0, "", err
 }
 
-// finish marks the change sent. In the same transaction, a review_comment stores the id of its comment, and an
-// approval_comment stores its URL (linkApproval).
+// finish marks the change sent. In the same transaction, a review_comment stores the id of its comment, a question
+// stores the id of its comment in its Inbox item, and an approval_comment stores its URL (linkApproval).
 func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, comment int64, url string) error {
 	var item *store.InboxItem
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -419,6 +415,11 @@ func (e *Engine) finish(ctx context.Context, change store.OutgoingChange, commen
 				Repository:    change.Repository,
 				PullRequest:   change.Number,
 			})
+			if err != nil {
+				return err
+			}
+		case questionField:
+			err := q.SetQuestionComment(ctx, store.SetQuestionCommentParams{Comment: comment, Repository: change.Repository, Issue: change.Number.Int64, Since: change.CreatedAt})
 			if err != nil {
 				return err
 			}

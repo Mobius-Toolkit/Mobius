@@ -402,6 +402,15 @@ RETURNING *;
 UPDATE inbox_items SET merging = ?, merge_refusal = ? WHERE id = ?
 RETURNING *;
 
+-- name: SetQuestionComment :exec
+UPDATE inbox_items SET metadata = json_set(metadata, '$.github.question', CAST(sqlc.arg(comment) AS INTEGER))
+WHERE id = (
+    SELECT oldest.id FROM inbox_items AS oldest
+    WHERE oldest.repository = sqlc.arg(repository) AND oldest.issue = CAST(sqlc.arg(issue) AS INTEGER) AND oldest.kind = 'question'
+        AND julianday(oldest.time) >= julianday(sqlc.arg(since))
+    ORDER BY julianday(oldest.time), oldest.id LIMIT 1
+);
+
 -- name: GetNewestInboxItem :one
 SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1;
 
@@ -825,7 +834,7 @@ WHERE field = 'parent' AND status = 'pending' AND issue IS NULL AND number IS NO
 SELECT id FROM outgoing_changes WHERE field = 'create' AND workstream = ?;
 
 -- name: GetNewestCommentChange :one
-SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field = 'comment' ORDER BY id DESC LIMIT 1;
+SELECT * FROM outgoing_changes WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER) AND field IN ('comment', 'question') ORDER BY id DESC LIMIT 1;
 
 -- name: HasCommentChangeWithText :one
 SELECT EXISTS (
@@ -2031,12 +2040,6 @@ ORDER BY ci_failure_places.id;
 
 -- name: AddLeadWrite :exec
 INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
-
--- name: ListLeadWrites :many
-SELECT * FROM lead_writes WHERE repository = ? COLLATE NOCASE AND issue = ? ORDER BY id;
-
--- name: SetLeadWriteItem :exec
-UPDATE lead_writes SET item = ? WHERE id = ? AND item IS NULL;
 
 -- name: DeleteDeploymentNeeds :exec
 DELETE FROM deployment_needs WHERE task = ?;

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"log"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -14,12 +13,6 @@ import (
 
 // nextStepMarker starts the next action in the comment of a stop notice.
 const nextStepMarker = "\n\nNext step: "
-
-// isStopComment tells if the body is a stop comment of a notice or the lost comment of handLostTasks. Such a comment is no
-// question.
-func isStopComment(body string) bool {
-	return body == lostText || strings.Contains(body, nextStepMarker)
-}
 
 // stopNotice tells the Owner why a task stopped and what to do next.
 type stopNotice struct {

@@ -182,6 +182,7 @@ type InboxItem struct {
 	Questions            string
 	Answer               string
 	Withdrawn            int64
+	Metadata             string
 }
 
 type IncomingChange struct {
@@ -237,18 +238,6 @@ type LeadEvent struct {
 	Review          sql.NullBool
 	HeldAt          sql.NullString
 	IssueRepository string
-}
-
-type LeadWrite struct {
-	ID         int64
-	Session    int64
-	Repository string
-	Issue      int64
-	Kind       string
-	Labels     string
-	Text       string
-	CreatedAt  string
-	Item       sql.NullInt64
 }
 
 type McpServer struct {

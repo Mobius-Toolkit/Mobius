@@ -168,91 +168,64 @@ func TestTheAddOfMobiusReadyThatTheLeadMadeStartsNoTaskAndRemovesTheLabel(t *tes
 	}
 }
 
-func TestACommentOfTheLeadAfterAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing.T) {
+func TestACommentOfTheMobiusAppAfterAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing.T) {
 	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			prepareAutopilot(fake, true)
-			addTaskIssue(fake, 41, "Add plan model")
-			addTaskIssue(fake, 42, "Add plan price")
-			dataDir := t.TempDir()
-			script := "[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n" +
-				leadWriteScript("gh issue comment 41 -R owner/shop --body 'Looking into it.'") + "\n[[prompts]]\nreply = [\"Seen\"]\n"
-			testkit.InstallFakeAgent(t, dataDir, options+script)
-			stubGH(t, dataDir)
-			cfg := testserver.Config(t, dataDir)
-			cfg.Roles.Implementer.Max = 1
-			keepSessionOpen(cfg)
-			server := startServerWith(t, fake, cfg, "")
-			liveTaskOf(t, server, 42)
-			testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
-			fake.AddComment(shop, 41, "owner", "Cents.")
-			testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
-			if recorded {
-				leadWrites(t, server, 1)
-			}
-			fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
-			waitForPolls(t, fake)
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	addTaskIssue(fake, 42, "Add plan price")
+	dataDir := t.TempDir()
+	script := "[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n"
+	testkit.InstallFakeAgent(t, dataDir, options+script)
+	cfg := testserver.Config(t, dataDir)
+	cfg.Roles.Implementer.Max = 1
+	keepSessionOpen(cfg)
+	server := startServerWith(t, fake, cfg, "")
+	liveTaskOf(t, server, 42)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
+	fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
+	waitForPolls(t, fake)
 
-			fake.CloseIssue(shop, 42)
+	fake.CloseIssue(shop, 42)
 
-			prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
-			if got := strings.Contains(prompt, ` reply on #41 "Add plan model" by @owner:`+"\n\n> Cents."); got != recorded {
-				t.Errorf("the prompt has the answer = %t: %s", got, prompt)
-			}
-			testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
-		})
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
+	if !strings.Contains(prompt, ` reply on #41 "Add plan model" by @owner:`+"\n\n> Cents.") {
+		t.Errorf("the prompt has no answer: %s", prompt)
 	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
 }
 
-func TestACommentOfTheLeadThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing.T) {
+func TestACommentOfTheMobiusAppThatTheSamePollReadsWithAnAnswerOfTheOwnerDoesNotHideTheAnswer(t *testing.T) {
 	t.Parallel()
-	for _, recorded := range []bool{true, false} {
-		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) {
-			t.Parallel()
-			fake := testkit.NewFakeGitHub(t)
-			prepareAutopilot(fake, true)
-			addTaskIssue(fake, 41, "Add plan model")
-			dataDir := t.TempDir()
-			script := "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n" +
-				leadWriteScript("gh issue comment 41 -R owner/shop --body 'Looking into it.'") + "\n[[prompts]]\nreply = [\"Seen\"]\n"
-			testkit.InstallFakeAgent(t, dataDir, options+script)
-			stubGH(t, dataDir)
-			cfg := testserver.Config(t, dataDir)
-			cfg.Roles.Implementer.Max = 1
-			keepSessionOpen(cfg)
-			server := startServerWith(t, fake, cfg, "")
-			testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
-			if recorded {
-				leadWrites(t, server, 1)
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	dataDir := t.TempDir()
+	script := "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n"
+	testkit.InstallFakeAgent(t, dataDir, options+script)
+	cfg := testserver.Config(t, dataDir)
+	cfg.Roles.Implementer.Max = 1
+	keepSessionOpen(cfg)
+	server := startServerWith(t, fake, cfg, "")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
+	commentReads := func() int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if strings.HasSuffix(request.Path, "/issues/comments") {
+				reads++
 			}
-			commentReads := func() int {
-				reads := 0
-				for _, request := range fake.Requests() {
-					if strings.HasSuffix(request.Path, "/issues/comments") {
-						reads++
-					}
-				}
-				return reads
-			}
-			before := commentReads()
-			release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/comments")
-
-			fake.AddComment(shop, 41, "owner", "Cents.")
-			testkit.WaitFor(t, func() bool { return commentReads() > before })
-			fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
-			release()
-
-			if recorded {
-				testkit.WaitFor(t, func() bool { return taskState(t, server) != "asked" })
-				return
-			}
-			waitForPolls(t, fake)
-			if state := taskState(t, server); state != "asked" {
-				t.Errorf("state = %s", state)
-			}
-		})
+		}
+		return reads
 	}
+	before := commentReads()
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/comments")
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return commentReads() > before })
+	fake.AddComment(shop, 41, app, marked("Looking into it.", leadMark))
+	release()
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "asked" })
 }

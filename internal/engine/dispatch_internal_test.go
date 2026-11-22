@@ -89,25 +89,45 @@ func TestACommentOfATrustedUserThroughTheMobiusAppIsAnEventOnlyWhenItIsAnOwnerAn
 	}
 }
 
-func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
-	t.Parallel()
-	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("owner", "", 3)}
+func askedAt(t *testing.T, e *Engine, seconds int64) {
+	t.Helper()
+	_, err := e.queries.AddInboxItem(t.Context(), store.AddInboxItemParams{
+		Kind:                 questionKind,
+		Organization:         "owner",
+		Repository:           "owner/shop",
+		WorkstreamRepository: "owner/shop",
+		Workstream:           12,
+		Issue:                41,
+		Time:                 time.Unix(seconds, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
+func TestAReplyAfterTheQuestionAnswersIt(t *testing.T) {
+	t.Parallel()
+	e := storingEngine(t)
+	askedAt(t, e, 2)
+	comments := []*gh.IssueComment{comment("owner", "", 1), comment("owner", "", 3), comment("owner", "", 4)}
+
+	replies, answered, err := e.replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(replies) != 2 || !answered {
+	if len(replies) != 3 || !answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
 	}
 }
 
-func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
+func TestAReplyBeforeTheQuestionDoesNotAnswerIt(t *testing.T) {
 	t.Parallel()
-	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("mallory", "", 3)}
+	e := storingEngine(t)
+	askedAt(t, e, 2)
+	comments := []*gh.IssueComment{comment("owner", "", 1), comment("mallory", "", 3)}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
+	replies, answered, err := e.replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
@@ -117,21 +137,59 @@ func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 	}
 }
 
-func TestAReplyBeforeAStopCommentOfTheMobiusAppAnswersTheQuestion(t *testing.T) {
+func TestACommentOfTheMobiusAppWithNoWriteMarkerDoesNotMoveTheQuestionTime(t *testing.T) {
 	t.Parallel()
-	stop := comment(app, "", 3)
-	stop.Body = new("CI failed." + nextStepMarker + "Resume.")
-	lost := comment(app, "", 4)
-	lost.Body = new(lostText)
-	comments := []*gh.IssueComment{comment(app, "", 1), comment("owner", "", 2), stop, lost}
+	e := storingEngine(t)
+	askedAt(t, e, 1)
+	comments := []*gh.IssueComment{comment("owner", "", 2), comment(app, "", 3)}
 
-	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, 41, comments)
+	replies, answered, err := e.replies(t.Context(), appRepository, 41, comments)
 
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(replies) != 1 || !answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
+	}
+	trusted, at, err := e.answerReplies(t.Context(), appRepository, 41, comments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trusted) != 1 || !at.Equal(time.Unix(1, 0)) {
+		t.Errorf("trusted = %d, question time = %s", len(trusted), at)
+	}
+}
+
+func TestTheQuestionTimeIsTheTimeOfTheInboxItemWhileTheSendWaits(t *testing.T) {
+	t.Parallel()
+	e := storingEngine(t)
+	if at, err := e.questionTime(t.Context(), appRepository, 41, nil); err != nil || !at.IsZero() {
+		t.Errorf("question time with no item = %s, %v", at, err)
+	}
+	askedAt(t, e, 5)
+
+	at, err := e.questionTime(t.Context(), appRepository, 41, []*gh.IssueComment{comment(app, "", 9)})
+
+	if err != nil || !at.Equal(time.Unix(5, 0)) {
+		t.Errorf("question time = %s, %v", at, err)
+	}
+}
+
+func TestTheQuestionTimeIsTheGitHubTimeOfTheQuestionComment(t *testing.T) {
+	t.Parallel()
+	e := storingEngine(t)
+	askedAt(t, e, 5)
+	err := e.queries.SetQuestionComment(t.Context(), store.SetQuestionCommentParams{Comment: 7, Repository: "owner/shop", Issue: 41, Since: time.Unix(0, 0).UTC().Format(time.RFC3339Nano)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	question := comment(app, "", 3)
+	question.ID = new(int64(7))
+
+	at, err := e.questionTime(t.Context(), appRepository, 41, []*gh.IssueComment{comment(app, "", 9), question})
+
+	if err != nil || !at.Equal(time.Unix(3, 0)) {
+		t.Errorf("question time = %s, %v", at, err)
 	}
 }
 
