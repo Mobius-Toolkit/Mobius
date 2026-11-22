@@ -388,6 +388,9 @@ RETURNING *;
 -- name: SetInboxItemAnswer :exec
 UPDATE inbox_items SET answer = ? WHERE id = ?;
 
+-- name: SetInboxItemChatAnswer :exec
+UPDATE inbox_items SET answer = ?, answered_in_chat = 1 WHERE id = ?;
+
 -- name: SetInboxItemWithdrawn :exec
 UPDATE inbox_items SET withdrawn = 1 WHERE id = ?;
 

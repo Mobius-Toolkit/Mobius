@@ -365,7 +365,7 @@ func (e *Engine) answerQuestions(ctx context.Context, repository github.Reposito
 	return nil
 }
 
-// chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
+// chatAnswerPrefix starts the comment that closeQuestionTool posts, and the chat answer in the dispatch event.
 const chatAnswerPrefix = "The Owner answered in the Lead chat:"
 
 // questionAskedAt gives the time of the question of the Inbox item: the created_at of its question comment on GitHub.
@@ -434,14 +434,10 @@ func (e *Engine) answerReplies(ctx context.Context, repository github.Repository
 }
 
 // dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user, and each answer comment of the Mobius App, after the question (questionTime). It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
-// for it yet. The event keeps the newest reply of a trusted user as its comment.
+// comment of a trusted user after the question (questionTime). It also has the answer that closeQuestion stored in the
+// newest question item of the issue, also a dismissed one. The event keeps the newest reply of a trusted user as its comment.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	issue, err := e.withRowText(ctx, repository.FullName, issue)
-	if err != nil {
-		return err
-	}
-	pending, err := e.pendingChanges(ctx, repository.FullName, task.Issue)
 	if err != nil {
 		return err
 	}
@@ -449,7 +445,7 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 	if err != nil {
 		return err
 	}
-	trusted, askedAt, err := e.answerReplies(ctx, repository, task.Issue, comments)
+	trusted, _, err := e.answerReplies(ctx, repository, task.Issue, comments)
 	if err != nil {
 		return err
 	}
@@ -458,33 +454,24 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 	var newestAt time.Time
 	var replies strings.Builder
 	for _, comment := range comments {
-		if !comment.GetCreatedAt().After(askedAt) {
+		if !slices.Contains(trusted, comment) {
 			continue
 		}
-		if slices.Contains(trusted, comment) {
-			actor = comment.GetUser().GetLogin()
-			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", taskEventRef(task, task.Issue), issue, actor, comment.GetBody()))
-			if !comment.GetCreatedAt().Before(newestAt) {
-				newest, newestAt = commentRef{id: comment.GetID()}, comment.GetCreatedAt().Time
-			}
-		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
-			if actor == "" {
-				actor = comment.GetUser().GetLogin()
-			}
-			replies.WriteString("\n\n" + comment.GetBody())
+		actor = comment.GetUser().GetLogin()
+		replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", taskEventRef(task, task.Issue), issue, actor, comment.GetBody()))
+		if !comment.GetCreatedAt().Before(newestAt) {
+			newest, newestAt = commentRef{id: comment.GetID()}, comment.GetCreatedAt().Time
 		}
 	}
-	for _, change := range pending {
-		onGitHub := slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool {
-			return strings.Contains(comment.GetBody(), writeMarker(change.ID))
-		})
-		if change.Field != commentField || !strings.HasPrefix(change.Text.String, chatAnswerPrefix) || onGitHub {
-			continue
-		}
+	item, err := e.queries.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: repository.FullName, Issue: task.Issue, Kind: questionKind})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if item.AnsweredInChat == 1 {
 		if actor == "" {
 			actor = appLogin(repository.AppSlug)
 		}
-		replies.WriteString("\n\n" + change.Text.String)
+		replies.WriteString("\n\n" + chatAnswerPrefix + "\n\n" + quote(item.Answer))
 	}
 	text := eventText(time.Now(), "answer of", taskEventRef(task, task.Issue), issue, actor, issue.GetBody()) + replies.String()
 	_, err = e.redispatch(ctx, issue, task, text, newest)
@@ -941,32 +928,13 @@ func questionsJSON(questions []Question) (string, error) {
 }
 
 // closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue, and
-// dismisses the open question items of the issue (closeQuestionItems). mobius:question stays until the dismiss, so a failed call can run again. A call
-// adds no comment when the newest comment of the Mobius App already has text, or when the newest comment change of the
-// issue has text and is pending or sent.
+// dismisses the open question items of the issue (closeQuestionItems). mobius:question stays until the dismiss, so a failed call can run again.
 // task is the zero value for the Workstream issue. answer is the answer of the Owner that each dismissed question item
-// keeps, or empty.
+// keeps, or empty. A non-empty answer is stored before answerAsked, because dispatchAnswer reads it.
 func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text, answer string) error {
 	number := int64(issue.GetNumber())
-	comments, err := repository.Comments(ctx, number)
-	if err != nil {
+	if err := e.postCommentOnce(ctx, repository, number, text); err != nil {
 		return err
-	}
-	var newest *gh.IssueComment
-	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && (newest == nil || comment.GetCreatedAt().After(newest.GetCreatedAt().Time)) {
-			newest = comment
-		}
-	}
-	if newest == nil || runner.WithoutMark(withoutWriteMarker(newest.GetBody())) != runner.WithoutMark(text) {
-		if err := e.postCommentOnce(ctx, repository, number, text); err != nil {
-			return err
-		}
-	}
-	if task.State == "asked" {
-		if err := e.answerAsked(ctx, repository, issue, task); err != nil {
-			return err
-		}
 	}
 	if answer != "" {
 		items, err := e.openIssueItems(ctx, repository.FullName, number, questionKind)
@@ -974,9 +942,14 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 			return err
 		}
 		for _, item := range items {
-			if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: answer, ID: item.ID}); err != nil {
+			if err := e.queries.SetInboxItemChatAnswer(ctx, store.SetInboxItemChatAnswerParams{Answer: answer, ID: item.ID}); err != nil {
 				return err
 			}
+		}
+	}
+	if task.State == "asked" {
+		if err := e.answerAsked(ctx, repository, issue, task); err != nil {
+			return err
 		}
 	}
 	return e.closeQuestionItems(ctx, repository.FullName, number)

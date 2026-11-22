@@ -183,6 +183,7 @@ type InboxItem struct {
 	Answer               string
 	Withdrawn            int64
 	Metadata             string
+	AnsweredInChat       int64
 }
 
 type IncomingChange struct {
