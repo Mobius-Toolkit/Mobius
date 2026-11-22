@@ -13,7 +13,7 @@
 - Do not suppress a linter. Do not use `//nolint`, `oxlint-disable`, `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the finding.
 - Use Bun for the frontend. Do not use npm, yarn, pnpm or Node.
 - Use Oxlint to lint the frontend (`bun run lint`). Do not add ESLint.
-- Use oxfmt to format the frontend (`bun run format`). Do not add Prettier or Biome.
+- Use `bun fmt` to format the frontend (`bun run format`). Do not add Prettier, Biome or oxfmt.
 - Run `make fmt` before each commit. CI only checks the format. It never writes it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 - A new Harness records the tokens, the cost and the reported model of each turn when the Harness gives them, in `internal/engine/usage.go`, with a Go test of the read.
@@ -130,7 +130,7 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 
 ## Commands
 
-- `bun run format` in `web` formats the frontend files with oxfmt. `bun run format:check` fails on an unformatted file.
+- `bun run format` in `web` formats the frontend files with `bun fmt`. `bun run format:check` fails on an unformatted file.
 - `bun run test` in `web` runs the Vitest tests of the Foldkit code: the Story tests of each `update` and the tests of the Markdown view.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
-- `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
+- `make fmt` formats the Go code with golangci-lint and the frontend files with `bun fmt`.
