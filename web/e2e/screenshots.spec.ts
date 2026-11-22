@@ -998,7 +998,7 @@ test("screenshots", async ({ page }) => {
   });
   await screenshot(page, "chat-paused", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
-    main.getByText(/waits for the usage limit until/),
+    main.getByText(/^The Lead is paused until Sep 28, 12:00\sPM\.$/),
     chatEnd,
   ]);
   await page.unroute("**/api/chat?*");
@@ -3864,7 +3864,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("2.1.284 (Claude Code) · newest 2.1.300"),
     main.getByText("0.2.1-rc.4 · newest 0.2.1-rc.5"),
-    main.getByText(/^usage limit until Sep 28, 12:00\sPM$/),
+    main.getByText(/^paused until Sep 28, 12:00\sPM$/),
   ]);
   const nodeTool = {
     name: "dsh",

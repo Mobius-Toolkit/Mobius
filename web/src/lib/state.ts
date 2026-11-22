@@ -24,13 +24,15 @@ const waitTexts: Record<Exclude<AgentWait, "" | "paused">, string> = {
   owner_action: "waits for Owner action",
 };
 
+export const pausedText = (pausedUntil: string) => `paused until ${dayClock(pausedUntil)}`;
+
 export function displayState({ state, merging = false, wait, pausedUntil }: StateInput) {
   if (wait === "") {
     return { text: merging ? "approved" : state, variant: "secondary" as const };
   }
   if (wait === "paused") {
     return {
-      text: pausedUntil ? `paused until ${dayClock(pausedUntil)}` : "paused",
+      text: pausedUntil ? pausedText(pausedUntil) : "paused",
       variant: "outline" as const,
     };
   }

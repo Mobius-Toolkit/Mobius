@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AgentWait } from "@/api/api.gen";
-import { displayState, waitDot } from "./state";
+import { displayState, pausedText, waitDot } from "./state";
 import { dayClock } from "./time";
 
 const until = "2026-09-28T12:00:00Z";
+
+describe("pausedText", () => {
+  it("gives the end of the pause", () => {
+    expect(pausedText(until)).toBe(`paused until ${dayClock(until)}`);
+  });
+});
 
 describe("displayState", () => {
   it.each<[AgentWait, string]>([
