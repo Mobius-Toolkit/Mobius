@@ -49,7 +49,12 @@ func recurringTasks(t *testing.T, server *testserver.Server) []engine.RecurringT
 
 func addRecurringTask(t *testing.T, server *testserver.Server, expression, text string) engine.RecurringTask {
 	t.Helper()
-	task, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, expression, text)
+	return addRecurringTaskIn(t, server, expression, text, 0)
+}
+
+func addRecurringTaskIn(t *testing.T, server *testserver.Server, expression, text string, project int64) engine.RecurringTask {
+	t.Helper()
+	task, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, expression, text, project)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +111,7 @@ func TestAWrongCronExpressionGivesAnErrorThatNamesTheExpression(t *testing.T) {
 		{"CRON_TZ=UTC 0 8 * * *", `the cron expression "CRON_TZ=UTC 0 8 * * *" is wrong: `},
 	} {
 		_, nextErr := server.Engine.NextTimes(test.cron, 1)
-		_, addErr := server.Engine.AddRecurringTask(t.Context(), shop, 12, test.cron, planCheck)
+		_, addErr := server.Engine.AddRecurringTask(t.Context(), shop, 12, test.cron, planCheck, 0)
 		for _, err := range []error{nextErr, addErr} {
 			var wrong *engine.CronError
 			if !errors.As(err, &wrong) || !strings.HasPrefix(err.Error(), test.want) {
@@ -363,10 +368,10 @@ func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testin
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 
-	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, " \n"); !errors.Is(err, engine.ErrEmptyRecurringText) {
+	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, " \n", 0); !errors.Is(err, engine.ErrEmptyRecurringText) {
 		t.Errorf("error of an empty text = %v", err)
 	}
-	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 99, hourly, planCheck); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
+	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 99, hourly, planCheck, 0); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
 		t.Errorf("error of an unknown Workstream = %v", err)
 	}
 	copied := func() int {
@@ -381,7 +386,7 @@ func TestAddRecurringTaskRefusesAnEmptyTextAndAWorkstreamThatIsNotOpen(t *testin
 	fake.CloseIssue(shop, 12)
 
 	testkit.WaitFor(t, func() bool { return copied() == 0 })
-	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, planCheck); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
+	if _, err := server.Engine.AddRecurringTask(t.Context(), shop, 12, hourly, planCheck, 0); !errors.Is(err, engine.ErrNoRecurringWorkstream) {
 		t.Errorf("error of a closed Workstream = %v", err)
 	}
 	if tasks := recurringTasks(t, server); len(tasks) != 0 {
@@ -399,7 +404,7 @@ func TestUpdateRecurringTaskChangesTheTextAndMovesTheCheckOnlyForANewCronExpress
 	task := addRecurringTask(t, server, hourly, planCheck)
 
 	setNow(server, friday.Add(90*time.Minute))
-	changed, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, "Check the prices.")
+	changed, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, "Check the prices.", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +414,7 @@ func TestUpdateRecurringTaskChangesTheTextAndMovesTheCheckOnlyForANewCronExpress
 	setNow(server, friday.Add(100*time.Minute))
 	waitForRuns(t, server, 1)
 
-	other, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, "30 * * * *", "Check the prices.")
+	other, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, "30 * * * *", "Check the prices.", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,13 +427,13 @@ func TestUpdateRecurringTaskChangesTheTextAndMovesTheCheckOnlyForANewCronExpress
 		t.Errorf("runs before the new time = %+v", got.Runs)
 	}
 
-	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 13, task.ID, hourly, planCheck); !errors.Is(err, engine.ErrNoRecurringTask) {
+	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 13, task.ID, hourly, planCheck, 0); !errors.Is(err, engine.ErrNoRecurringTask) {
 		t.Errorf("error of the id of another Workstream = %v", err)
 	}
-	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, "0 8 * *", planCheck); err == nil {
+	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, "0 8 * *", planCheck, 0); err == nil {
 		t.Error("a wrong cron expression changed the task")
 	}
-	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, ""); !errors.Is(err, engine.ErrEmptyRecurringText) {
+	if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, task.ID, hourly, "", 0); !errors.Is(err, engine.ErrEmptyRecurringText) {
 		t.Errorf("error of an empty text = %v", err)
 	}
 	if got := recurringTasks(t, server)[0]; got.Cron != "30 * * * *" || got.Text != "Check the prices." {
@@ -491,7 +496,7 @@ func TestAChangeOfARecurringTaskDuringTheStepGivesNoEventAndNoRun(t *testing.T) 
 	t.Parallel()
 	for name, change := range map[string]func(*testing.T, *testserver.Server, int64){
 		"a new cron expression": func(t *testing.T, server *testserver.Server, id int64) {
-			if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, id, "30 10 * * *", planCheck); err != nil {
+			if _, err := server.Engine.UpdateRecurringTask(t.Context(), shop, 12, id, "30 10 * * *", planCheck, 0); err != nil {
 				t.Fatal(err)
 			}
 		},

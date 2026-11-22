@@ -22,6 +22,8 @@ const task = (overrides: Partial<RecurringTask> = {}): RecurringTask => ({
   id: 1,
   next: "2026-09-29T08:00:00Z",
   paused: false,
+  project: null,
+  projectTitle: null,
   runs: [],
   text: "Check the open pull requests",
   ...overrides,

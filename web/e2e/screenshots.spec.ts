@@ -2331,6 +2331,7 @@ test("screenshots", async ({ page }) => {
       checkRow.getByText("0 8 * * 1-5 · Next Sep 29, 08:00 AM"),
       checkRow.getByText("Last: Sep 28, 12:00 PM manual"),
       recurringPanel.getByText("Paused", { exact: true }),
+      recurringPanel.getByText("Project #53 Cost reports"),
       recurringPanel.getByRole("button", { name: "Resume" }),
       checkRow.getByRole("button", { name: "Run now" }),
       recurringChat,

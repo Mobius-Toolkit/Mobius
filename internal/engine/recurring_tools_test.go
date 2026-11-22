@@ -158,7 +158,7 @@ func TestAnApprovedUpdateOfARecurringTaskOfAnotherWorkstreamOrOfADeletedTaskChan
 	setNow(server, friday)
 	var billing engine.RecurringTask
 	testkit.WaitFor(t, func() bool {
-		task, err := server.Engine.AddRecurringTask(t.Context(), shop, 20, hourly, "Send the invoices.")
+		task, err := server.Engine.AddRecurringTask(t.Context(), shop, 20, hourly, "Send the invoices.", 0)
 		billing = task
 		return err == nil
 	})

@@ -195,18 +195,23 @@ func (e *Engine) editBriefTool(c caller) mcp.Tool {
 const recurringToolRules = "The cron expression has five fields (minute, hour, day of month, month, day of week) and uses the local time zone of the Mobius server. Call it at once. The tool returns at once, and Mobius changes the recurring tasks only after the Owner approves it. The result arrives later as an Approval message. Call it only when the Owner asks for it in the chat."
 
 var (
-	cronProperty          = map[string]any{"type": "string", "minLength": 1, "description": "The cron expression with five fields, in the local time zone of the Mobius server."}
-	recurringTextProperty = map[string]any{"type": "string", "minLength": 1, "description": "The text of the Lead event at each time of the cron expression."}
-	recurringIDProperty   = map[string]any{"type": "integer", "minimum": 1, "description": "The ID of the recurring task in the section \"Recurring tasks\" of the first prompt."}
+	cronProperty             = map[string]any{"type": "string", "minLength": 1, "description": "The cron expression with five fields, in the local time zone of the Mobius server."}
+	recurringTextProperty    = map[string]any{"type": "string", "minLength": 1, "description": "The text of the Lead event at each time of the cron expression."}
+	recurringIDProperty      = map[string]any{"type": "integer", "minimum": 1, "description": "The ID of the recurring task in the section \"Recurring tasks\" of the first prompt."}
+	recurringProjectProperty = map[string]any{"type": "integer", "minimum": 1, "description": "The number of an open Project of this Workstream, in the repository of the Workstream. Leave it out for a task with no Project."}
 )
 
 func (e *Engine) createRecurringTaskTool(c caller) mcp.Tool {
 	return approvedTool(e, c, e.callerRepository, "create_recurring_task",
-		"Add a recurring task to this Workstream. At each time of the cron expression, you get an event with the text. "+recurringToolRules+" Each call adds its own waiting action.",
-		map[string]any{"cron": cronProperty, "text": recurringTextProperty},
-		func(_ context.Context, _ github.Repository, input createRecurringInput) (string, error) {
+		"Add a recurring task to this Workstream. At each time of the cron expression, you get an event with the text. With a project, the event names the Project, and you create the issues of each run below that Project. "+recurringToolRules+" Each call adds its own waiting action.",
+		map[string]any{"cron": cronProperty, "text": recurringTextProperty, "project": recurringProjectProperty},
+		func(ctx context.Context, _ github.Repository, input createRecurringInput) (string, error) {
 			times, err := e.recurringTimes(input.Cron)
-			return "Add a recurring task: next " + times, err
+			if err != nil {
+				return "", err
+			}
+			in, err := e.recurringProject(ctx, c, input.Project)
+			return "Add a recurring task" + in + ": next " + times, err
 		},
 		checkCreateRecurring,
 		e.createRecurringTask)
@@ -214,11 +219,15 @@ func (e *Engine) createRecurringTaskTool(c caller) mcp.Tool {
 
 func (e *Engine) updateRecurringTaskTool(c caller) mcp.Tool {
 	return approvedTool(e, c, e.callerRepository, "update_recurring_task",
-		"Change the cron expression and the text of a recurring task of this Workstream. "+recurringToolRules+" A new call with the same id replaces the waiting action for that task, and the result names the replaced action.",
-		map[string]any{"id": recurringIDProperty, "cron": cronProperty, "text": recurringTextProperty},
-		func(_ context.Context, _ github.Repository, input updateRecurringInput) (string, error) {
+		"Change the cron expression, the text and the Project of a recurring task of this Workstream. A call with no project gives the task no Project. "+recurringToolRules+" A new call with the same id replaces the waiting action for that task, and the result names the replaced action.",
+		map[string]any{"id": recurringIDProperty, "cron": cronProperty, "text": recurringTextProperty, "project": recurringProjectProperty},
+		func(ctx context.Context, _ github.Repository, input updateRecurringInput) (string, error) {
 			times, err := e.recurringTimes(input.Cron)
-			return fmt.Sprintf("Change the recurring task %d: next %s", input.ID, times), err
+			if err != nil {
+				return "", err
+			}
+			in, err := e.recurringProject(ctx, c, input.Project)
+			return fmt.Sprintf("Change the recurring task %d%s: next %s", input.ID, in, times), err
 		},
 		checkUpdateRecurring,
 		e.updateRecurringTask)

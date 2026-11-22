@@ -392,6 +392,10 @@ func TestServer(t *testing.T) {
 	github.AddSubIssueOf("plants/garden", 50, 51, "Buy daisy seeds")
 	github.CloseIssue("plants/garden", 51)
 	github.AddSubIssueOf("plants/garden", 50, 52, "Sow the daisies")
+	github.AddSubIssueOf("plants/garden", 50, 53, "Cost reports")
+	github.AddLabel("plants/garden", 53, "mobius:project", "owner")
+	// An open Project is an open task of #50, so the note "All tasks are closed." would not show.
+	github.CloseIssue("plants/garden", 53)
 	github.AddSubIssueOf("plants/garden", 55, 56, "Buy aster seeds")
 	github.CloseIssue("plants/garden", 56)
 	github.AddSubIssueOf("plants/garden", 55, 57, "Sow the asters")
@@ -602,7 +606,7 @@ func TestServer(t *testing.T) {
 			return
 		}
 		query := r.URL.Query()
-		if _, err := server.Engine.AddRecurringTask(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), number, query.Get("cron"), query.Get("text")); err != nil {
+		if _, err := server.Engine.AddRecurringTask(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), number, query.Get("cron"), query.Get("text"), 0); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
@@ -1135,16 +1139,16 @@ func pauseDSHForSettings(ctx context.Context, t *testing.T, server *testserver.S
 	}
 }
 
-// addRecurringTasks gives plants/garden#50 an active and a paused recurring task with fixed times. It runs after
+// addRecurringTasks gives plants/garden#50 an active recurring task, and a paused recurring task in its Project #53, with fixed times. It runs after
 // SetClock, so the next times and the times of the checks do not change. The Workstream plants/garden#55 has no task.
 func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Server) {
 	t.Helper()
 	const repository = "plants/garden"
-	active, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 8 * * 1-5", "Check the open pull requests and tell me which ones wait for a review.")
+	active, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 8 * * 1-5", "Check the open pull requests and tell me which ones wait for a review.", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	paused, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 9 * * 1", "Weekly cost report")
+	paused, err := server.Engine.AddRecurringTask(ctx, repository, 50, "0 9 * * 1", "Weekly cost report", 53)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,6 +29,10 @@ type RecurringTask struct {
 	Cron string `gork:"cron"`
 	// Text is the text that the Lead gets at each time
 	Text string `gork:"text"`
+	// Project is the number of the Project of the task, or null for a task with no Project
+	Project *int64 `gork:"project"`
+	// ProjectTitle is the title of the Project of the task, or null for a task with no Project
+	ProjectTitle *string `gork:"projectTitle"`
 	// Paused is true when the task gives no event
 	Paused bool `gork:"paused"`
 	// Next is the next time of the task, or null for a paused task
@@ -43,6 +47,10 @@ func recurringTaskOf(task engine.RecurringTask) RecurringTask {
 		runs = append(runs, RecurringTaskRun{Time: run.Time, Result: run.Result, Reason: run.Reason})
 	}
 	found := RecurringTask{ID: task.ID, Cron: task.Cron, Text: task.Text, Paused: task.Paused, Runs: runs}
+	if task.Project != 0 {
+		found.Project = &task.Project
+		found.ProjectTitle = &task.ProjectTitle
+	}
 	if !task.Next.IsZero() {
 		found.Next = &task.Next
 	}

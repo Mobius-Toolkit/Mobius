@@ -582,7 +582,7 @@ func (e *Engine) closeOpenPullRequest(ctx context.Context, repository github.Rep
 }
 
 // closeProject posts the report on the Project input.N of the Workstream of c and closes it as completed. It refuses an
-// issue that is not a Project of the Workstream, and a Project with an open sub-issue.
+// issue that is not a Project of the Workstream, a Project with an open sub-issue, and a Project with a recurring task.
 func (e *Engine) closeProject(ctx context.Context, c caller, repository github.Repository, input closeProjectInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -612,6 +612,21 @@ func (e *Engine) closeProject(ctx context.Context, c caller, repository github.R
 	}
 	if len(open) > 0 {
 		return "", refuse("%s#%d has open sub-issues: %s.", repository.FullName, input.N, strings.Join(open, ", "))
+	}
+	recurring, err := e.queries.ListProjectRecurringTasks(ctx, store.ListProjectRecurringTasksParams{
+		Repository: c.repository,
+		Workstream: c.workstream,
+		Project:    sql.NullInt64{Int64: input.N, Valid: true},
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(recurring) > 0 {
+		tasks := make([]string, len(recurring))
+		for i, task := range recurring {
+			tasks[i] = fmt.Sprintf("%d %q", task.ID, task.Text)
+		}
+		return "", refuse("%s#%d has recurring tasks: %s.", repository.FullName, input.N, strings.Join(tasks, ", "))
 	}
 	report, err := e.withMark(ctx, c, repository.FullName, input.Report)
 	if err != nil {
