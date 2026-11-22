@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 const maintenance = 20
@@ -424,4 +426,64 @@ func createdIssues(fake *testkit.FakeGitHub) int {
 		}
 	}
 	return count
+}
+
+// connectDiagnoserInChecks is connectTask with a Diagnoser that finds nothing, and a task that waits in checks for a head
+// with no CI.
+func connectDiagnoserInChecks(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	dataDir := t.TempDir()
+	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+findsNothing)
+	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, commits, func(cfg *config.Config) {
+		longGrace(cfg)
+		cfg.Roles.Diagnoser = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+	return server
+}
+
+func TestAJobLogThatTheLogHostRefusesGivesTheIssueOfTheBreakWithNoLogAndTheTaskCheckStillRuns(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoserInChecks(t, fake)
+	sha := checksHead(t, server, fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.RefuseJobLogDownloads(http.StatusNotFound)
+
+	hardMainRun(fake, head(t, fake, "main"))
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
+
+	number := ciBreakIssue(t, fake)
+	_, body := fake.Issue(shop, number)
+	for _, want := range []string{"Failed job: test", "Failed step: Run go test"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not have %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "End of the job log") {
+		t.Errorf("body has a log section:\n%s", body)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+}
+
+func TestAFailedBreakDoesNotStopThePollAndTheNextPollCreatesItsIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoserInChecks(t, fake)
+	sha := checksHead(t, server, fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.RefuseJobLogDownloads(http.StatusInternalServerError)
+
+	hardMainRun(fake, head(t, fake, "main"))
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if created := createdIssues(fake); created != 0 {
+		t.Fatalf("created issues = %d", created)
+	}
+	fake.RefuseJobLogDownloads(0)
+
+	number := ciBreakIssue(t, fake)
+	if _, body := fake.Issue(shop, number); !strings.Contains(body, "--- FAIL: TestPlan") {
+		t.Errorf("body = %q", body)
+	}
 }
