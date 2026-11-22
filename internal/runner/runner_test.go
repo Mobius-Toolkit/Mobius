@@ -76,11 +76,10 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghs_secret")
 	t.Setenv("GITHUB_TOKEN", "ghs_secret")
 	t.Setenv("MOBIUS_GH_SESSION_URL", "http://127.0.0.1:1/gh-token/parent")
-	t.Setenv("MOBIUS_GH_WRITES_URL", "http://127.0.0.1:1/gh-writes/parent")
 	t.Setenv("MOBIUS_GH_MARK", "— Lead of #1")
 	dataDir := t.TempDir()
 
-	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin", "", "", "", "")
+	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin", "", "", "")
 
 	if cmd.Dir != "/work" {
 		t.Errorf("dir = %q", cmd.Dir)
@@ -96,30 +95,22 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 		}
 	}
 	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_SESSION_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_WRITES_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_MARK=") {
+		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_SESSION_URL=") || strings.HasPrefix(entry, "MOBIUS_GH_MARK=") {
 			t.Errorf("env has %s", entry)
 		}
 	}
 }
 
 func TestACommandWithAGHTokenURLHasTheURL(t *testing.T) {
-	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "", "", "")
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "", "")
 
 	if !slices.Contains(cmd.Env, "MOBIUS_GH_SESSION_URL=http://127.0.0.1:6363/gh-token/key") {
 		t.Errorf("env = %v", cmd.Env)
 	}
 }
 
-func TestACommandWithAGHWritesURLHasTheURL(t *testing.T) {
-	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "http://127.0.0.1:6363/gh-writes/key", "", "")
-
-	if !slices.Contains(cmd.Env, "MOBIUS_GH_WRITES_URL=http://127.0.0.1:6363/gh-writes/key") {
-		t.Errorf("env = %v", cmd.Env)
-	}
-}
-
 func TestACommandWithAGHMarkHasTheMark(t *testing.T) {
-	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "", "— Lead of #1", "")
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "", "— Lead of #1", "")
 
 	if !slices.Contains(cmd.Env, "MOBIUS_GH_MARK=— Lead of #1") {
 		t.Errorf("env = %v", cmd.Env)
@@ -135,7 +126,7 @@ func dshDropsEnv(name string) bool {
 }
 
 func TestTheGHEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
-	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "http://127.0.0.1:6363/gh-writes/key", "— Lead of #1", "")
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key", "— Lead of #1", "")
 
 	kept := map[string]bool{}
 	for _, entry := range cmd.Env {
@@ -144,7 +135,7 @@ func TestTheGHEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
 			kept[name] = true
 		}
 	}
-	for _, name := range []string{ghURLEnv, ghWritesURLEnv, ghMarkEnv} {
+	for _, name := range []string{ghURLEnv, ghMarkEnv} {
 		if !kept[name] {
 			t.Errorf("dsh drops %s from the environment of a shell command", name)
 		}
@@ -175,7 +166,7 @@ func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
 		}
 	}
 
-	cmd, err := harnessCommand(context.Background(), config.DSH, 0, false, "/work", t.TempDir(), dir, "", "", "", "")
+	cmd, err := harnessCommand(context.Background(), config.DSH, 0, false, "/work", t.TempDir(), dir, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +181,7 @@ func TestDSHGetsTheDangerFullAccessModeAndNoOtherHarnessGetsIt(t *testing.T) {
 		if harness == config.DSH {
 			continue
 		}
-		cmd, err := harnessCommand(context.Background(), harness, 0, false, "/work", t.TempDir(), dir, "", "", "", "")
+		cmd, err := harnessCommand(context.Background(), harness, 0, false, "/work", t.TempDir(), dir, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +214,7 @@ func TestOnlyClaudeCodeWithAContextGetsTheContextWindow(t *testing.T) {
 		{"claude-code with no context", config.ClaudeCode, 0, ""},
 		{"dsh with a context", config.DSH, 200000, ""},
 	} {
-		cmd, err := harnessCommand(context.Background(), c.harness, c.context, false, "/work", t.TempDir(), dir, "", "", "", "")
+		cmd, err := harnessCommand(context.Background(), c.harness, c.context, false, "/work", t.TempDir(), dir, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,7 +247,7 @@ func TestOnlyClaudeCodeWithTheShortCacheGetsTheFiveMinuteSwitch(t *testing.T) {
 		{"claude-code with no short cache", config.ClaudeCode, false, ""},
 		{"dsh with the short cache", config.DSH, true, ""},
 	} {
-		cmd, err := harnessCommand(context.Background(), c.harness, 0, c.shortCache, "/work", t.TempDir(), dir, "", "", "", "")
+		cmd, err := harnessCommand(context.Background(), c.harness, 0, c.shortCache, "/work", t.TempDir(), dir, "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,7 +299,7 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session 
 
 func startFakeAgentAt(t *testing.T, mcpURL string, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, mcpURL, nil, "", "", "", "", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, mcpURL, nil, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +380,7 @@ func startDSH(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	if err := os.Symlink(exe, filepath.Join(dir, "dsh")); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), config.DSH, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", "", updates)
+	session, err := Start(context.Background(), config.DSH, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +455,7 @@ func TestCodexGetsNoBrowserSignInAndTheModelTheEffortAndTheFullAccessModeByTheir
 		t.Fatal(err)
 	}
 	var message strings.Builder
-	session, err := Start(context.Background(), config.Codex, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", "", func(params json.RawMessage, _ bool) {
+	session, err := Start(context.Background(), config.Codex, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", func(params json.RawMessage, _ bool) {
 		var notification struct {
 			Update struct {
 				Content struct {
@@ -518,7 +509,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", "", func(json.RawMessage, bool) {})
+	_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
@@ -536,7 +527,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 func startSteeringAgent(t *testing.T, outcome string) (*Session, string) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_STEERING", outcome)
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", nil, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", nil, "", "", "", func(json.RawMessage, bool) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -810,7 +801,7 @@ func TestSessionGivesTheMCPServersOfTheListAfterTheMobiusServerInTheirOrder(t *t
 		{Name: "files", Command: "files-server", Args: []string{"--root", "/data"}, Env: []Pair{{Name: "KEY", Value: "env-value"}}},
 	}
 
-	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", servers, "", "", "", "", func(json.RawMessage, bool) {})
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", servers, "", "", "", func(json.RawMessage, bool) {})
 
 	if err != nil {
 		t.Fatal(err)
@@ -838,7 +829,7 @@ func TestARefusedSessionNewNamesTheMCPServersAndHidesTheirSecrets(t *testing.T) 
 				{Name: "files", Command: "files-server", Env: []Pair{{Name: "KEY", Value: `p&Zq"w<x>`}, {Name: "OTHER", Value: `a"Yk<c`}}},
 			}
 
-			_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", "", func(json.RawMessage, bool) {})
+			_, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "", servers, "", "", "", func(json.RawMessage, bool) {})
 
 			if err == nil {
 				t.Fatal("no error")

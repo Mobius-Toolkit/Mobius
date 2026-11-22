@@ -2044,9 +2044,6 @@ FROM ci_failure_places LEFT JOIN ci_breaks ON ci_breaks.id = ci_failure_places.c
 WHERE ci_failure_places.failure = ?
 ORDER BY ci_failure_places.id;
 
--- name: AddLeadWrite :exec
-INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
-
 -- name: DeleteDeploymentNeeds :exec
 DELETE FROM deployment_needs WHERE task = ?;
 
