@@ -524,6 +524,45 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	}
 }
 
+func TestTwoStartsOfAntigravityAtTheSameTimeBothGetASession(t *testing.T) {
+	dir := fakeAgentDir(t)
+	login := filepath.Join(dir, "login")
+	if err := os.WriteFile(login, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOBIUS_FAKE_KEYCHAIN", "1")
+	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
+	StartTimeout = 5 * time.Second
+	start := func() (*Session, error) {
+		return Start(context.Background(), config.Antigravity, 0, false, false, dir, dir, dir, "", nil, "", "", "", func(json.RawMessage, bool) {})
+	}
+	type result struct {
+		session *Session
+		err     error
+	}
+	first := make(chan result, 1)
+	go func() {
+		session, err := start()
+		first <- result{session, err}
+	}()
+	testkit.WaitFor(t, func() bool {
+		_, err := os.Stat(login)
+		return errors.Is(err, os.ErrNotExist)
+	})
+
+	second, secondErr := start()
+	one := <-first
+
+	if one.err != nil || secondErr != nil {
+		t.Errorf("errors = %v, %v", one.err, secondErr)
+	}
+	for _, session := range []*Session{one.session, second} {
+		if session != nil {
+			session.Close()
+		}
+	}
+}
+
 func startSteeringAgent(t *testing.T, outcome string) (*Session, string) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_STEERING", outcome)
@@ -664,7 +703,35 @@ func runFakeAgent() {
 	<-agent.conn.Done()
 }
 
+// replaceLogin copies the keychain of Antigravity: it reads the login, deletes it, and adds it again. A process that
+// finds no login waits for a browser login, as the real program does.
+func replaceLogin(ctx context.Context) error {
+	const login, foundNoLogin = "login", "found-no-login"
+	if _, err := os.Stat(login); err != nil {
+		if err := os.WriteFile(foundNoLogin, nil, 0o600); err != nil {
+			return err
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if err := os.Remove(login); err != nil {
+		return err
+	}
+	for range 100 {
+		if _, err := os.Stat(foundNoLogin); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return os.WriteFile(login, nil, 0o600)
+}
+
 func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
+	if os.Getenv("MOBIUS_FAKE_KEYCHAIN") == "1" {
+		if err := replaceLogin(ctx); err != nil {
+			return acp.InitializeResponse{}, err
+		}
+	}
 	if os.Getenv("MOBIUS_FAKE_HANG") == "1" {
 		if err := os.WriteFile("pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 			return acp.InitializeResponse{}, err
