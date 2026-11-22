@@ -165,13 +165,7 @@ export const sameSearch = (a: Search, b: Search): boolean =>
 type FilterOptions = { readonly [key in FilterOptionName]?: ReadonlyArray<string> };
 
 export type FilterOptionName =
-  | "harnesses"
-  | "models"
-  | "modelVersions"
-  | "efforts"
-  | "roles"
-  | "repositories"
-  | "sources";
+  "harnesses" | "models" | "modelVersions" | "efforts" | "roles" | "repositories" | "sources";
 
 // The values that a filter of the tab offers come from the last load of the tab.
 export function filterOptionsOf(model: Model): FilterOptions | undefined {
