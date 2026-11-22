@@ -770,33 +770,6 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) (int
 	return id, err
 }
 
-const addLeadWrite = `-- name: AddLeadWrite :exec
-INSERT INTO lead_writes (session, repository, issue, kind, labels, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-`
-
-type AddLeadWriteParams struct {
-	Session    int64
-	Repository string
-	Issue      int64
-	Kind       string
-	Labels     string
-	Text       string
-	CreatedAt  string
-}
-
-func (q *Queries) AddLeadWrite(ctx context.Context, arg AddLeadWriteParams) error {
-	_, err := q.db.ExecContext(ctx, addLeadWrite,
-		arg.Session,
-		arg.Repository,
-		arg.Issue,
-		arg.Kind,
-		arg.Labels,
-		arg.Text,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const addMcpServer = `-- name: AddMcpServer :one
 INSERT INTO mcp_servers (organization, name, kind, url, headers, command, args, env, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

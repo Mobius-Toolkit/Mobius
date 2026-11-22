@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -62,42 +61,6 @@ func connectLeadWrites(t *testing.T, fake *testkit.FakeGitHub, commands ...strin
 	server, dataDir := connect(t, fake, triager+leadWriteScript(commands...))
 	stubGH(t, dataDir)
 	return server
-}
-
-func TestTheGHOfTheLeadRecordsOnlyTheCommentsWithTheSessionOfTheLead(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := connectLeadWrites(t, fake,
-		"gh issue edit 41 42 -R owner/shop --add-label mobius:ready --remove-label mobius:triage",
-		"gh pr comment 42 -R owner/shop --body 'Please rebase.'",
-		"gh issue list -R owner/shop",
-	)
-
-	for n := 1; n <= 3; n++ {
-		leadWrites(t, server, n)
-	}
-
-	var got []string
-	rows, err := server.DB.Query("SELECT session, repository, issue, kind, labels, text FROM lead_writes ORDER BY id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var session, issue int64
-		var repository, kind, labels, text string
-		if err := rows.Scan(&session, &repository, &issue, &kind, &labels, &text); err != nil {
-			t.Fatal(err)
-		}
-		if session == 0 {
-			t.Error("a write has no session")
-		}
-		got = append(got, fmt.Sprintf("%s#%d %s %s %q", repository, issue, kind, labels, text))
-	}
-	want := []string{fmt.Sprintf("owner/shop#42 commented [] %q", marked("Please rebase.", leadMark))}
-	if !slices.Equal(got, want) {
-		t.Errorf("writes = %q", got)
-	}
 }
 
 func TestTheRemovalOfMobiusTriageThatTheAppMadeDoesNotStopTheTriagerAlsoAfterAWriteOfTheLead(t *testing.T) {

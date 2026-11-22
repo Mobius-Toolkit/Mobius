@@ -2,19 +2,11 @@ package runner
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
-
-	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 )
 
 // valueFlags are the flags of gh issue and gh pr that take a value. The other flags take none.
@@ -42,18 +34,14 @@ var valueFlags = map[string]string{
 	"reviewer":        "",
 }
 
-var itemURL = regexp.MustCompile(`^https?://[^/]+/([^/]+/[^/]+)/(?:issues|pull)/(\d+)`)
-
 type ghArgs struct {
-	positional []string
-	flags      map[string][]string
+	flags map[string][]string
 }
 
 func parseGHArgs(args []string) ghArgs {
 	parsed := ghArgs{flags: map[string][]string{}}
 	for i := 0; i < len(args); i++ {
 		if !strings.HasPrefix(args[i], "-") || args[i] == "-" {
-			parsed.positional = append(parsed.positional, args[i])
 			continue
 		}
 		name, value, inline := valueFlag(args[i])
@@ -102,58 +90,6 @@ func (a ghArgs) repository() string {
 	repository, _ := a.flag("repo")
 	fields := strings.Split(repository, "/")
 	return strings.Join(fields[max(len(fields)-2, 0):], "/")
-}
-
-// targets gives the repository and the number of each issue or pull request of the positional arguments. An argument
-// with no repository is not a target.
-func (a ghArgs) targets() []mcp.GHWrite {
-	repository := a.repository()
-	var targets []mcp.GHWrite
-	for _, arg := range a.positional {
-		target := mcp.GHWrite{Repository: repository}
-		if match := itemURL.FindStringSubmatch(arg); match != nil {
-			if target.Repository == "" {
-				target.Repository = match[1]
-			}
-			arg = match[2]
-		}
-		number, err := strconv.ParseInt(strings.TrimPrefix(arg, "#"), 10, 64)
-		if err != nil || target.Repository == "" {
-			continue
-		}
-		target.Issue = number
-		targets = append(targets, target)
-	}
-	return targets
-}
-
-// ghWrites gives the writes of the gh call with args, and the stdin for the real gh. It reads stdin one time, only
-// when a body comes from it.
-func ghWrites(args []string, stdin io.Reader) ([]mcp.GHWrite, io.Reader, error) {
-	if len(args) < 2 || args[0] != "issue" && args[0] != "pr" || args[1] != "comment" && (args[0] != "issue" || args[1] != "close") {
-		return nil, stdin, nil
-	}
-	parsed := parseGHArgs(args[2:])
-	var text string
-	var found bool
-	var err error
-	if args[1] == "close" {
-		text, found = parsed.flag("comment")
-	} else if text, found = parsed.flag("body"); !found {
-		if file, ok := parsed.flag("body-file"); ok {
-			text, stdin, err = readBody(file, stdin)
-			found = err == nil
-		}
-	}
-	if err != nil || !found {
-		return nil, stdin, err
-	}
-	var writes []mcp.GHWrite
-	for _, target := range parsed.targets() {
-		target.Kind, target.Text = "commented", text
-		writes = append(writes, target)
-	}
-	return writes, stdin, nil
 }
 
 // markBodies gives args with the mark line at the end of each body that the gh call writes, and the stdin for the
@@ -217,26 +153,4 @@ func readBody(file string, stdin io.Reader) (string, io.Reader, error) {
 	}
 	text, err := io.ReadAll(stdin)
 	return string(text), bytes.NewReader(text), err
-}
-
-// sendGHWrites sends writes to url. The body of a response with an error status is the error.
-func sendGHWrites(url string, writes []mcp.GHWrite) error {
-	body, err := json.Marshal(map[string][]mcp.GHWrite{"writes": writes})
-	if err != nil {
-		return err
-	}
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusNoContent {
-		text, _ := io.ReadAll(response.Body)
-		return errors.New(strings.TrimSpace(string(text)))
-	}
-	return nil
 }
