@@ -170,11 +170,8 @@ func (e *Engine) projectTitle(ctx context.Context, repository string, n int64) (
 	return title, err
 }
 
-// projectName gives "Project #n title" for a Project number, or an empty text for a task with no Project.
+// projectName gives "Project #n title" for a Project number.
 func projectName(n int64, title string) string {
-	if n == 0 {
-		return ""
-	}
 	return strings.TrimSpace(fmt.Sprintf("Project #%d %s", n, title))
 }
 
