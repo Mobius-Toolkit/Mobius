@@ -938,20 +938,6 @@ func (q *Queries) AddOwnerAction(ctx context.Context, arg AddOwnerActionParams) 
 	return err
 }
 
-const addOwnerAnswer = `-- name: AddOwnerAnswer :exec
-INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?)
-`
-
-type AddOwnerAnswerParams struct {
-	Repository string
-	CommentID  int64
-}
-
-func (q *Queries) AddOwnerAnswer(ctx context.Context, arg AddOwnerAnswerParams) error {
-	_, err := q.db.ExecContext(ctx, addOwnerAnswer, arg.Repository, arg.CommentID)
-	return err
-}
-
 const addPendingAction = `-- name: AddPendingAction :one
 INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
@@ -5969,6 +5955,27 @@ func (q *Queries) HoldLeadEvent(ctx context.Context, arg HoldLeadEventParams) er
 	return err
 }
 
+const isAnswerComment = `-- name: IsAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = CAST(?2 AS INTEGER)
+        AND answer.value = CAST(?3 AS INTEGER)
+)
+`
+
+type IsAnswerCommentParams struct {
+	Repository string
+	Issue      int64
+	Comment    int64
+}
+
+func (q *Queries) IsAnswerComment(ctx context.Context, arg IsAnswerCommentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isAnswerComment, arg.Repository, arg.Issue, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isCIFixIssue = `-- name: IsCIFixIssue :one
 SELECT EXISTS (SELECT 1 FROM ci_fix_issues WHERE repository = ? AND issue = ?)
 `
@@ -5997,22 +6004,6 @@ type IsCommentAnsweredParams struct {
 
 func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
-const isOwnerAnswer = `-- name: IsOwnerAnswer :one
-SELECT EXISTS (SELECT 1 FROM owner_answers WHERE repository = ? AND comment_id = ?)
-`
-
-type IsOwnerAnswerParams struct {
-	Repository string
-	CommentID  int64
-}
-
-func (q *Queries) IsOwnerAnswer(ctx context.Context, arg IsOwnerAnswerParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, isOwnerAnswer, arg.Repository, arg.CommentID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -12133,6 +12124,20 @@ type SetACPSessionIDParams struct {
 
 func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams) error {
 	_, err := q.db.ExecContext(ctx, setACPSessionID, arg.AcpSessionID, arg.ID)
+	return err
+}
+
+const setAnswerComment = `-- name: SetAnswerComment :exec
+UPDATE inbox_items SET metadata = json_insert(metadata, '$.github.answers[#]', CAST(?1 AS INTEGER)) WHERE id = ?2
+`
+
+type SetAnswerCommentParams struct {
+	Comment int64
+	ID      int64
+}
+
+func (q *Queries) SetAnswerComment(ctx context.Context, arg SetAnswerCommentParams) error {
+	_, err := q.db.ExecContext(ctx, setAnswerComment, arg.Comment, arg.ID)
 	return err
 }
 
