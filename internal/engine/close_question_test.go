@@ -57,8 +57,8 @@ reply = ["Seen"]
 		t.Errorf("rows = %+v", rows)
 	}
 	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
-	if !strings.Contains(prompt, "The Owner answered in the Lead chat:\n\n> Dollars.") {
-		t.Errorf("dispatch event = %q", prompt)
+	if got := strings.Count(prompt, closingAnswer); got != 1 {
+		t.Errorf("answers in the dispatch event = %d: %q", got, prompt)
 	}
 	if strings.Contains(prompt, "by @:") {
 		t.Errorf("dispatch event has no actor: %q", prompt)
@@ -187,6 +187,53 @@ reply = ["Seen"]
 		calls := leadCalls(t, server)
 		return len(calls) == 2 && calls[1]["error"] == "#41 has no open question. An answer of the Owner on GitHub closes the question, so the Lead calls no close_question for it."
 	})
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	if !strings.Contains(prompt, "> Cents.") || strings.Contains(prompt, "The Owner answered in the Lead chat:") {
+		t.Errorf("dispatch event = %q", prompt)
+	}
+}
+
+func TestCloseQuestionOfAnAskedTaskWithStartOffGivesTheChatAnswerOnceAtTheLaterDispatchAlsoWhenAPersonEditedItsComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "answer of #41"
+reply = ["Seen"]
+
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 41), "mobius:question") && len(fake.Comments(shop, 41)) == 1
+	})
+	turnStartOff(t, server)
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+
+	testkit.WaitFor(t, func() bool { return taskStateOf(t, server, 41) == "answered" })
+	waitForSentChanges(t, server)
+	ids := fake.CommentIDs(shop, 41)
+	if !fake.EditComment(shop, ids[len(ids)-1], "Edited by a person.") {
+		t.Fatalf("comment ids = %v", ids)
+	}
+	waitForPolls(t, fake)
+
+	turnStartOn(t, server)
+
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
+	if got := strings.Count(prompt, closingAnswer); got != 1 {
+		t.Errorf("answers in the dispatch event = %d: %q", got, prompt)
+	}
 }
 
 func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {

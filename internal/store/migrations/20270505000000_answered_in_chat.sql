@@ -1,0 +1,1 @@
+ALTER TABLE inbox_items ADD COLUMN answered_in_chat INTEGER NOT NULL DEFAULT 0;
