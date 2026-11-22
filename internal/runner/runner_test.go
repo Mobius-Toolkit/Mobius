@@ -526,11 +526,11 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 
 func TestTwoStartsOfAntigravityAtTheSameTimeBothGetASession(t *testing.T) {
 	dir := fakeAgentDir(t)
-	keychain := t.TempDir()
-	if err := os.WriteFile(filepath.Join(keychain, "login"), nil, 0o600); err != nil {
+	login := filepath.Join(dir, "login")
+	if err := os.WriteFile(login, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MOBIUS_FAKE_KEYCHAIN", keychain)
+	t.Setenv("MOBIUS_FAKE_KEYCHAIN", "1")
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 5 * time.Second
 	start := func() (*Session, error) {
@@ -546,7 +546,7 @@ func TestTwoStartsOfAntigravityAtTheSameTimeBothGetASession(t *testing.T) {
 		first <- result{session, err}
 	}()
 	testkit.WaitFor(t, func() bool {
-		_, err := os.Stat(filepath.Join(keychain, "login"))
+		_, err := os.Stat(login)
 		return errors.Is(err, os.ErrNotExist)
 	})
 
@@ -705,10 +705,10 @@ func runFakeAgent() {
 
 // replaceLogin copies the keychain of Antigravity: it reads the login, deletes it, and adds it again. A process that
 // finds no login waits for a browser login, as the real program does.
-func replaceLogin(ctx context.Context, dir string) error {
-	login := filepath.Join(dir, "login")
+func replaceLogin(ctx context.Context) error {
+	const login, foundNoLogin = "login", "found-no-login"
 	if _, err := os.Stat(login); err != nil {
-		if err := os.WriteFile(filepath.Join(dir, "found-no-login"), nil, 0o600); err != nil {
+		if err := os.WriteFile(foundNoLogin, nil, 0o600); err != nil {
 			return err
 		}
 		<-ctx.Done()
@@ -718,7 +718,7 @@ func replaceLogin(ctx context.Context, dir string) error {
 		return err
 	}
 	for range 100 {
-		if _, err := os.Stat(filepath.Join(dir, "found-no-login")); err == nil {
+		if _, err := os.Stat(foundNoLogin); err == nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -727,8 +727,8 @@ func replaceLogin(ctx context.Context, dir string) error {
 }
 
 func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
-	if keychain := os.Getenv("MOBIUS_FAKE_KEYCHAIN"); keychain != "" {
-		if err := replaceLogin(ctx, keychain); err != nil {
+	if os.Getenv("MOBIUS_FAKE_KEYCHAIN") == "1" {
+		if err := replaceLogin(ctx); err != nil {
 			return acp.InitializeResponse{}, err
 		}
 	}
