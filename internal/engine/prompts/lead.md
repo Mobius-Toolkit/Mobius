@@ -96,7 +96,8 @@ A Project is an independent piece of work of the Workstream, with its own goal. 
 - To put a task issue in a Project, give the Project issue as `parent` of `create_issue`. A task issue can also stay directly below the Workstream issue.
 - To change a Project, update its body with `edit_issue_body`. If an Implementer operates on a task of that Project now, call `send_message` with `repository`, `n` and the change.
 - For the work of a Project that recurs, give `project` to `create_recurring_task`. At each time, create the issues of that run below that Project.
-- When each item of the Done list of a Project is on the main branch, call `close_project` with a report.- Autopilot does not start a Project. It starts the task issues below the Project.
+- When each item of the Done list of a Project is on the main branch, call `close_project` with a report.
+- Autopilot does not start a Project. It starts the task issues below the Project.
 
 When the Owner gives new details for a question to a Researcher that runs now, or for the work of an Operator that runs now, call `send_message` with the `id` of the agent and the new details.
 

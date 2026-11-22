@@ -19,9 +19,9 @@ func callUpdateRecurringIn(when string, id, project int) string {
 	return callRecurring(when, "update_recurring_task", fmt.Sprintf("{ id = %d, cron = %q, text = %q, project = %d }", id, weekdays, planCheck, project))
 }
 
-// addProject adds the Project number below the Workstream owner/shop#12 on the fake GitHub, and waits until the local
+// addCopiedProject adds the Project number below the Workstream owner/shop#12 on the fake GitHub, and waits until the local
 // copy has it.
-func addProject(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int64, title string) {
+func addCopiedProject(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int64, title string) {
 	t.Helper()
 	fake.AddIssue(shop, number, title)
 	fake.AddLabel(shop, number, "mobius:project", "owner")
@@ -36,7 +36,7 @@ func TestTheLeadCreatesARecurringTaskInAProjectAndTheApprovalNamesTheProject(t *
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, approvalSeen+callCreateRecurringIn("Add it.", 41)+seenScript)
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 
 	run(t, server, leadSpec(t), "Add it.")
 
@@ -63,7 +63,7 @@ func TestAnUpdateOfARecurringTaskSetsItsProjectAndAnUpdateWithNoProjectClearsIt(
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, approvalSeen+callUpdateRecurringIn("Change 1.", 1, 41)+callUpdateRecurring("Change 2.", 2, weekdays, planCheck)+seenScript)
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	addRecurringTask(t, server, hourly, planCheck)
 	addRecurringTaskIn(t, server, hourly, planCheck, 41)
 
@@ -92,7 +92,7 @@ func TestARecurringTaskToolCallWithANumberThatIsNotAnOpenProjectOfTheWorkstreamA
 		callCreateRecurringIn("Add 4.", 51)+callCreateRecurringIn("Add 5.", -1)+seenScript)
 	setNow(server, friday)
 	addRecurringTask(t, server, hourly, planCheck)
-	addProject(t, server, fake, 42, "Old display")
+	addCopiedProject(t, server, fake, 42, "Old display")
 	fake.CloseIssue(shop, 42)
 	testkit.WaitFor(t, func() bool {
 		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 42 AND state = 'closed'", shop) == 1
@@ -140,7 +140,7 @@ func TestTheLeadEventOfARunOfARecurringTaskInAProjectNamesTheProject(t *testing.
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	addRecurringTaskIn(t, server, "0 8 * * 1-5", planCheck, 41)
 
 	monday := time.Date(2026, 11, 16, 8, 0, 30, 0, time.Local)
@@ -161,7 +161,7 @@ func TestTheLeadEventOfARunNowOfARecurringTaskInAProjectNamesTheProject(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	task := addRecurringTaskIn(t, server, weekdays, planCheck, 41)
 
 	status, text := postRun(t, server, task.ID)
@@ -180,7 +180,7 @@ func TestCloseProjectRefusesAProjectWithARecurringTaskAlsoAPausedOne(t *testing.
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, closeProject(41, "Done."))
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	addRecurringTaskIn(t, server, hourly, planCheck, 41)
 	paused := addRecurringTaskIn(t, server, hourly, "Count the shops.", 41)
 	addRecurringTask(t, server, hourly, "Other work.")
@@ -205,7 +205,7 @@ func TestTheFirstPromptOfTheLeadNamesTheProjectOfARecurringTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, seenScript)
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	addRecurringTaskIn(t, server, hourly, "Count the shops.", 41)
 
 	sendChat(t, server, leadChat, "What recurs?")
@@ -222,7 +222,7 @@ func TestTheListGivesTheProjectNumberAndTitleOfARecurringTaskAndNullForATaskWith
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	setNow(server, friday)
-	addProject(t, server, fake, 41, "Stats display")
+	addCopiedProject(t, server, fake, 41, "Stats display")
 	addRecurringTaskIn(t, server, hourly, planCheck, 41)
 	addRecurringTask(t, server, hourly, "Count the shops.")
 
