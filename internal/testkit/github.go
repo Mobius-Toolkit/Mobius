@@ -269,6 +269,8 @@ type FakeGitHub struct {
 	jobListRefusal int
 	// jobLogRefusal is the status that the link to a job log gives, or 0 when it works.
 	jobLogRefusal int
+	// jobLogDownloadRefusal is the status that the download of a job log gives, or 0 when it works.
+	jobLogDownloadRefusal int
 	// closeRefusal is the status that the close of an issue gives, or 0 when it works.
 	closeRefusal int
 	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.

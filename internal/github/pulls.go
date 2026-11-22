@@ -273,7 +273,8 @@ func (r Repository) CheckRunAnnotations(ctx context.Context, id int64) ([]*gh.Ch
 }
 
 // JobLog gives the log of the job of GitHub Actions with the id. The job of a check run of GitHub Actions has the id
-// of the check run. The log comes from a link of GitHub that needs no token, so the token does not go to that host.
+// of the check run. The log comes from a link of GitHub that needs no token, so the token does not go to that host. A 4xx
+// status of that host, for example an expired log, gives a *gh.ErrorResponse, as a 4xx status of GitHub does.
 func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 	link, _, err := r.Client.Actions.GetWorkflowJobLogs(ctx, r.Owner(), r.Name(), id, 1)
 	if err != nil {
@@ -288,6 +289,9 @@ func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 		return "", err
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode >= http.StatusBadRequest && response.StatusCode < http.StatusInternalServerError {
+		return "", &gh.ErrorResponse{Response: response, Message: fmt.Sprintf("the job log of %d", id)}
+	}
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("the job log of %d: %s", id, response.Status)
 	}
