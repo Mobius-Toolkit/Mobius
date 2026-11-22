@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -578,6 +579,68 @@ func (e *Engine) closeOpenPullRequest(ctx context.Context, repository github.Rep
 		return err
 	}
 	return repository.ClosePullRequest(ctx, number)
+}
+
+// closeProject posts the report on the Project input.N of the Workstream of c and closes it as completed. It refuses an
+// issue that is not a Project of the Workstream, and a Project with an open sub-issue.
+func (e *Engine) closeProject(ctx context.Context, c caller, repository github.Repository, input closeProjectInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Report) {
+		return "", refuse("report must not be empty.")
+	}
+	tree, err := e.queries.ListCopiedTree(ctx, store.ListCopiedTreeParams{Repository: c.repository, Number: c.workstream})
+	if err != nil {
+		return "", err
+	}
+	at := slices.IndexFunc(tree, func(row store.ListCopiedTreeRow) bool {
+		return row.Number == input.N && strings.EqualFold(row.IssueRepository, repository.FullName)
+	})
+	if at < 0 || tree[at].Kind != projectKind {
+		return "", refuse("%s#%d is not a Project of this Workstream.", repository.FullName, input.N)
+	}
+	project := tree[at]
+	if project.State == "closed" {
+		return "", refuse("%s#%d is already closed.", repository.FullName, input.N)
+	}
+	var open []string
+	for _, row := range tree {
+		if row.Parent.Valid && row.Parent.Int64 == project.ID && row.State == "open" {
+			open = append(open, fmt.Sprintf("%s#%d %q", row.IssueRepository, row.Number, row.Title))
+		}
+	}
+	if len(open) > 0 {
+		return "", refuse("%s#%d has open sub-issues: %s.", repository.FullName, input.N, strings.Join(open, ", "))
+	}
+	report, err := e.withMark(ctx, c, repository.FullName, input.Report)
+	if err != nil {
+		return "", err
+	}
+	if err := e.postCommentOnce(ctx, repository, input.N, report); err != nil {
+		return "", err
+	}
+	var changeID int64
+	e.copyWrite.Lock()
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		if _, err := q.SetIssueState(ctx, store.SetIssueStateParams{State: "closed", ID: project.ID}); err != nil {
+			return err
+		}
+		changeID, err = addIssueChange(ctx, q, repository.FullName, input.N, project.ID, stateField)
+		return err
+	})
+	e.copyWrite.Unlock()
+	if err != nil {
+		return "", err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.sendNow(ctx, repository, changeID); err != nil {
+		return "", err
+	}
+	return e.sentOrLater(ctx, changeID,
+		fmt.Sprintf("Closed %s#%d.", repository.FullName, input.N),
+		fmt.Sprintf("Mobius closes %s#%d on GitHub later.", repository.FullName, input.N),
+	)
 }
 
 // closeTask closes a task issue of the Workstream that has no work left. The branch stays.
