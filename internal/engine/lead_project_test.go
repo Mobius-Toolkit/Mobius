@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func TestCreateProjectAddsARowWithKindProjectBelowTheWorkstreamAndDispatchDoesNotStartIt(t *testing.T) {
@@ -176,5 +177,142 @@ func TestCloseProjectPostsTheReportAndClosesAProjectWithNoOpenSubIssueAsComplete
 	}
 	if got := countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 41 AND state = 'closed'", shop); got != 1 {
 		t.Errorf("closed rows of #41 = %d", got)
+	}
+}
+
+func setProject(n, project int) string {
+	return "[[prompts]]\nwhen = \"Move " + itoa(int64(n)) + " to " + itoa(int64(project)) + "\"\ncall = { tool = \"set_project\", arguments = { repository = \"owner/shop\", n = " + itoa(int64(n)) + ", project = " + itoa(int64(project)) + " } }\n\n"
+}
+
+// addProjectTree adds the Projects #41 and #42 below the Workstream #12, the task #43 below parent, and the issue #44
+// below the Project #41.
+func addProjectTree(fake *testkit.FakeGitHub, parent int64) {
+	for _, number := range []int64{41, 42} {
+		fake.AddIssue(shop, number, "Project "+itoa(number))
+		fake.AddLabel(shop, number, "mobius:project", "owner")
+		fake.AddSubIssue(shop, 12, number)
+	}
+	fake.AddIssue(shop, 43, "Add plan model")
+	fake.AddSubIssue(shop, parent, 43)
+	fake.AddIssue(shop, 44, "Show the counters")
+	fake.AddSubIssue(shop, 41, 44)
+}
+
+func waitForProjectTree(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 43, 44) AND workstream IS NOT NULL", shop) == 4 &&
+			countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42) AND kind = 'project'", shop) == 2
+	})
+}
+
+func TestSetProjectMovesATaskIntoAProjectToAnotherProjectAndOutOfAProject(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		parent  int64
+		project int
+		want    int64
+		result  string
+	}{
+		{"into a Project", 12, 41, 41, "Moved owner/shop#43 below the Project owner/shop#41. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
+		{"to another Project", 41, 42, 42, "Moved owner/shop#43 below the Project owner/shop#42. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
+		{"out of a Project", 41, 0, 12, "Moved owner/shop#43 directly below the Workstream issue. A running task continues. If an Implementer works on the task, send the Project body with send_message."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connect(t, fake, setProject(43, test.project))
+			addProjectTree(fake, test.parent)
+			waitForProjectTree(t, server)
+
+			session := run(t, server, leadSpec(t), "Move 43 to "+itoa(int64(test.project)))
+
+			if got := reply(t, server, session); got != test.result {
+				t.Errorf("reply = %q", got)
+			}
+			// A task directly below the Workstream issue has no parent row.
+			if got := countRows(t, server, "SELECT count(*) FROM issues i WHERE i.repository = ? AND i.number = 43 AND coalesce((SELECT p.number FROM issues p WHERE p.id = i.parent), 12) = ?", shop, test.want); got != 1 {
+				t.Errorf("rows of #43 with the parent #%d = %d", test.want, got)
+			}
+			if got := fake.SubIssueNumbers(shop, test.want); !slices.Contains(got, 43) {
+				t.Errorf("sub-issues of #%d = %v", test.want, got)
+			}
+			for _, other := range []int64{12, 41, 42} {
+				if other != test.want && slices.Contains(fake.SubIssueNumbers(shop, other), 43) {
+					t.Errorf("#43 is also a sub-issue of #%d", other)
+				}
+			}
+			waitForPolls(t, fake)
+			if got := countRows(t, server, "SELECT count(*) FROM issues i WHERE i.repository = ? AND i.number = 43 AND coalesce((SELECT p.number FROM issues p WHERE p.id = i.parent), 12) = ?", shop, test.want); got != 1 {
+				t.Errorf("rows of #43 with the parent #%d after the polls = %d", test.want, got)
+			}
+		})
+	}
+}
+
+func TestSetProjectChangesNothingWhenTheTaskHasThatParent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, setProject(44, 41)+setProject(43, 0))
+	addProjectTree(fake, 12)
+	waitForProjectTree(t, server)
+	waitForPolls(t, fake)
+	before := countRows(t, server, "SELECT count(*) FROM outgoing_changes")
+
+	session := run(t, server, leadSpec(t), "Move 44 to 41", "Move 43 to 0")
+
+	if got, want := reply(t, server, session), "owner/shop#44 is already below the Project owner/shop#41. Mobius changed nothing.owner/shop#43 is already directly below the Workstream issue. Mobius changed nothing."; got != want {
+		t.Errorf("reply = %q", got)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes"); got != before {
+		t.Errorf("outgoing changes = %d, want %d", got, before)
+	}
+}
+
+func TestSetProjectRefusesAWorkstreamIssueAProjectAnIssueOfAnotherWorkstreamAndAProjectThatIsNotOpenOfThisWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, setProject(12, 41)+setProject(42, 41)+setProject(52, 41)+setProject(98, 41)+setProject(43, 43)+setProject(43, 51)+setProject(43, 45)+setProject(43, 98))
+	addProjectTree(fake, 12)
+	fake.AddIssue(shop, 45, "Closed project")
+	fake.AddLabel(shop, 45, "mobius:project", "owner")
+	fake.AddSubIssue(shop, 12, 45)
+	fake.CloseIssue(shop, 45)
+	fake.AddIssue(shop, 13, "Other Workstream")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 51, "Other project")
+	fake.AddLabel(shop, 51, "mobius:project", "owner")
+	fake.AddSubIssue(shop, 13, 51)
+	fake.AddIssue(shop, 52, "Other task")
+	fake.AddSubIssue(shop, 13, 52)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 43, 44, 45, 51, 52) AND workstream IS NOT NULL", shop) == 7 &&
+			countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number IN (41, 42, 45, 51) AND kind = 'project'", shop) == 4
+	})
+
+	session := run(t, server, leadSpec(t), "Move 12 to 41", "Move 42 to 41", "Move 52 to 41", "Move 98 to 41", "Move 43 to 43", "Move 43 to 51", "Move 43 to 45", "Move 43 to 98")
+
+	calls := mcpCalls(t, server, session)
+	want := []string{
+		"owner/shop#12 is a Workstream issue.",
+		"owner/shop#42 is a Project.",
+		"owner/shop#52 is not in this Workstream.",
+		"owner/shop#98 is not in this Workstream.",
+		"owner/shop#43 is not an open Project of this Workstream.",
+		"owner/shop#51 is not an open Project of this Workstream.",
+		"owner/shop#45 is not an open Project of this Workstream.",
+		"owner/shop#98 is not an open Project of this Workstream.",
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %+v", calls)
+	}
+	for i, message := range want {
+		if calls[i]["error"] != message {
+			t.Errorf("call %d error = %v, want %q", i, calls[i]["error"], message)
+		}
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'parent'"); got != 0 {
+		t.Errorf("parent changes = %d", got)
 	}
 }
