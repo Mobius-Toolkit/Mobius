@@ -3218,6 +3218,10 @@ test("screenshots", async ({ page }) => {
         await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
       }
       await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByText(/· starts devin/)
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
     },
   );
   await setQueueReason(page, "", "");
