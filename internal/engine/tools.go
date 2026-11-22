@@ -213,6 +213,20 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					},
 				},
 				e.createIssue),
+			tool(e, c, "create_project",
+				"Create a Project: an independent piece of work of the Workstream, with its own goal. Mobius creates the issue with the label mobius:project in the repository of the Workstream, below the Workstream issue. Put a task issue in the Project with the Project issue as parent of create_issue.",
+				map[string]any{
+					"title": map[string]any{"type": "string", "minLength": 1, "description": "The title of the Project."},
+					"body":  map[string]any{"type": "string", "description": "The body of the Project, with the sections Goal, Scope and Done, in this order."},
+				},
+				e.createProject),
+			tool(e, c, "close_project",
+				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, and a Project with an open sub-issue.",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Project issue, in the repository of the Workstream."},
+					"report": map[string]any{"type": "string", "minLength": 1, "description": "The report for the people on the issue: what the Project did, and where each item of its Done list is on the main branch."},
+				},
+				e.closeProject),
 			taskTool(e, c, "set_implementer_binding",
 				"Set or clear the Implementer setting (Harness, model and effort) of a task issue, or of the Workstream issue. Use it only when the Owner asks for it. For the Workstream issue, the setting applies to each task of the Workstream with no setting of its own. An empty harness, model and effort clear the setting. The next Implementer session uses the setting, and a session that runs keeps its binding. Mobius refuses a setting that the Roles page refuses. It acts at once.",
 				map[string]any{
@@ -887,6 +901,16 @@ type blockersInput struct {
 	BlockedBy []string `json:"blocked_by"`
 }
 
+type projectInput struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+type closeProjectInput struct {
+	N      int64  `json:"n"`
+	Report string `json:"report"`
+}
+
 type editIssueBodyInput struct {
 	repositoryInput
 	N    int64  `json:"n"`
@@ -1026,6 +1050,17 @@ func (e *Engine) readIssueTool(ctx context.Context, _ caller, repository github.
 // createIssue creates an issue in repository below the issue input.Parent, which is the Workstream issue of c or an issue
 // below it, in any repository of the organization.
 func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Repository, input leadIssueInput) (string, error) {
+	return e.createLeadIssue(ctx, c, repository, input, nil)
+}
+
+// createProject creates a Project in the repository of the Workstream of c, directly below the Workstream issue.
+func (e *Engine) createProject(ctx context.Context, c caller, repository github.Repository, input projectInput) (string, error) {
+	parent := fmt.Sprintf("%s#%d", c.repository, c.workstream)
+	return e.createLeadIssue(ctx, c, repository, leadIssueInput{Title: input.Title, Body: input.Body, Parent: parent}, []string{projectLabel})
+}
+
+// createLeadIssue creates the issue with labels. A label that issueKind reads gives the kind of the row.
+func (e *Engine) createLeadIssue(ctx context.Context, c caller, repository github.Repository, input leadIssueInput, labels []string) (string, error) {
 	if empty(input.Title) {
 		return "", refuse("title must not be empty.")
 	}
@@ -1090,7 +1125,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	if err != nil {
 		return "", err
 	}
-	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title}
+	key := leadIssueKey{repository.FullName, parent.repository.FullName, parent.number, input.Title, issueKind(labels)}
 	var claimed *leadIssue
 	for {
 		claimed, err = c.agent.claimLeadIssue(ctx, key)
@@ -1112,7 +1147,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 		c.agent.clearLeadIssue(key, claimed)
 	}
-	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, nil, setting, false, false, nil)
+	issueID, createID, err := e.addIssueToCreate(ctx, repository, issueRef{workstream.FullName, c.workstream}, input.Title, input.Body, mark, parentAdd, resolved, labels, setting, false, false, nil)
 	if err != nil {
 		c.agent.finishLeadIssue(key, claimed, 0)
 		return "", err
@@ -1147,6 +1182,7 @@ type leadIssueKey struct {
 	parentRepository string
 	parent           int64
 	title            string
+	kind             string
 }
 
 // leadIssue is the issue that a call of create_issue creates. done closes when the call ends. issueID is 0 when the
