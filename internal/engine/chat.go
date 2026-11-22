@@ -1618,7 +1618,7 @@ func (e *Engine) endTurn(c *chat, current item, quiet []store.LeadEvent) error {
 }
 
 // tellHold tells on the task issue of a held event that the task waits for the Owner. The issue of an open question
-// gets no comment, because the question is already there and a newer comment of the Mobius App would hide the answer.
+// gets no comment, because the question is already there.
 func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEvent) error {
 	if !event.Issue.Valid {
 		return nil

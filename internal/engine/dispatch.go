@@ -240,7 +240,7 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) *gh.IssueEvent {
 // commentEvents acts on the new comments of the issue of a live task: a new comment that is an event resets the
 // counters of the task and goes to the Lead. It also continues a task in needs_human, as the author of the newest such
 // comment, when that comment is newer than the move of the task to needs_human. When the newest such comment is newer
-// than the last comment of the Mobius App, the question, it answers the question: mobius:question goes away.
+// than the question (questionTime), it answers the question: mobius:question goes away.
 // Each such comment gets the reaction of an agent that gets it. For an issue with no live task, see commentsWithoutTask.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
@@ -434,8 +434,7 @@ func (e *Engine) answerReplies(ctx context.Context, repository github.Repository
 }
 
 // dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
-// Mobius App. It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
+// comment of a trusted user, and each answer comment of the Mobius App, after the question (questionTime). It also has each answer of closeQuestion whose outgoing change is pending, because GitHub has no comment
 // for it yet. The event keeps the newest reply of a trusted user as its comment.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	issue, err := e.withRowText(ctx, repository.FullName, issue)
@@ -699,7 +698,7 @@ func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Rep
 }
 
 // newComments resets the counters of the task when comments have a comment that is an event. It gives the comments
-// that are events, and true when the newest of them is newer than the last comment of the Mobius App.
+// that are events, and true when the newest of them is newer than the question (questionTime).
 func (e *Engine) newComments(ctx context.Context, repository github.Repository, number int64, task store.Task, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	replies, answered, err := e.replies(ctx, repository, number, comments)
 	if err != nil {
