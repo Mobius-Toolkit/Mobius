@@ -67,8 +67,7 @@ export function keepFocus(event: Event) {
 }
 
 type ComposerMessage =
-  | ReturnType<typeof Message.SendSubmitted>
-  | ReturnType<typeof Message.ImagesChosen>;
+  ReturnType<typeof Message.SendSubmitted> | ReturnType<typeof Message.ImagesChosen>;
 
 // One Mount owns the behavior that needs the DOM event: Enter, a paste with a picture, a blur on iOS, the focus at
 // the start, and a mouse down on a button that must not take the focus from the field.

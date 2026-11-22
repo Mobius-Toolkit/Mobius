@@ -1,8 +1,7 @@
 export type Part = { kind: "unchanged" | "added" | "removed"; text: string };
 
 export type DiffLine =
-  | { kind: "unchanged" | "added" | "removed"; text: string }
-  | { kind: "changed"; parts: Part[] };
+  { kind: "unchanged" | "added" | "removed"; text: string } | { kind: "changed"; parts: Part[] };
 
 function lines(text: string) {
   return text === "" ? [] : text.replace(/\n$/, "").split("\n");

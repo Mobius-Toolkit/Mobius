@@ -3936,6 +3936,45 @@ func (q *Queries) GetIssueByID(ctx context.Context, id int64) (GetIssueByIDRow, 
 	return i, err
 }
 
+const getIssueProject = `-- name: GetIssueProject :one
+WITH RECURSIVE ancestors (parent, depth) AS (
+    SELECT t.parent, 1 FROM issues t WHERE t.repository = ? AND t.number = CAST(?2 AS INTEGER)
+    UNION ALL
+    SELECT i.parent, a.depth + 1 FROM issues i JOIN ancestors a ON i.id = a.parent
+)
+SELECT p.repository, p.number, p.title, p.body
+FROM ancestors a
+JOIN issues p ON p.id = a.parent
+WHERE p.kind = 'project'
+ORDER BY a.depth
+LIMIT 1
+`
+
+type GetIssueProjectParams struct {
+	Repository string
+	Number     int64
+}
+
+type GetIssueProjectRow struct {
+	Repository string
+	Number     sql.NullInt64
+	Title      string
+	Body       string
+}
+
+// The Project of an issue is its nearest ancestor with kind = 'project'.
+func (q *Queries) GetIssueProject(ctx context.Context, arg GetIssueProjectParams) (GetIssueProjectRow, error) {
+	row := q.db.QueryRowContext(ctx, getIssueProject, arg.Repository, arg.Number)
+	var i GetIssueProjectRow
+	err := row.Scan(
+		&i.Repository,
+		&i.Number,
+		&i.Title,
+		&i.Body,
+	)
+	return i, err
+}
+
 const getIssueRepositoryChoice = `-- name: GetIssueRepositoryChoice :one
 SELECT repository FROM issue_repositories WHERE organization = ?
 `
