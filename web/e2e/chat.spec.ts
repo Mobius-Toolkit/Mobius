@@ -1531,6 +1531,7 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
     body.data.push({
       number: 73,
       title: "Rake the bark",
+      kind: "task",
       state: "needs-human",
       depth: 0,
       repository: "plants/garden",
@@ -1586,6 +1587,7 @@ test("the Tasks tab shows owner/name#N and the Start button for a task of anothe
     body.data.push({
       number: 5,
       title: "Pick the apples",
+      kind: "task",
       state: "open",
       depth: 0,
       repository: "plants/orchard",
@@ -1640,6 +1642,7 @@ async function routeStopTasks(page: Page) {
         data: stopStates.map(({ state, wait }, index) => ({
           number: 80 + index,
           title: `Task ${index}`,
+          kind: "task",
           state,
           depth: 0,
           repository: "plants/garden",
@@ -3892,6 +3895,7 @@ test.describe("the detail view of a task", () => {
     const dummyTasks = Array.from({ length: 30 }, (_, i) => ({
       number: 100 + i,
       title: `Task ${100 + i}`,
+      kind: "task",
       state: "open",
       url: `https://github.com/plants/garden/issues/${100 + i}`,
       repository: "plants/garden",

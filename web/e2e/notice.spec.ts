@@ -169,6 +169,7 @@ test("a Stop in the Tasks tab shows its notice, and a refused Stop shows its err
           {
             number: 84,
             title: "Task",
+            kind: "task",
             state: "working",
             depth: 0,
             repository: "owner/shop",

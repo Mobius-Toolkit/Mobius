@@ -44,6 +44,38 @@ func TestTheTasksEndpointGivesTheRepositoryOfEachTask(t *testing.T) {
 	}
 }
 
+func TestTheTasksEndpointGivesTheKindOfEachLine(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	github.AddIssue(shop, 12, "Integrate loyalty plans")
+	github.AddLabel(shop, 12, "mobius:workstream", "owner")
+	github.AddSubIssueOf(shop, 12, 41, "Plan pages")
+	github.AddLabel(shop, 41, "mobius:project", "owner")
+	github.AddSubIssueOf(shop, 41, 42, "Add plan model")
+	github.AddSubIssueOf(shop, 12, 43, "Name the plan tiers")
+	server := startWithApp(t, github, "User")
+
+	type line struct {
+		Number int64  `json:"number"`
+		Kind   string `json:"kind"`
+	}
+	var got []line
+	testkit.WaitFor(t, func() bool {
+		var body struct {
+			Data []line `json:"data"`
+		}
+		if reply := call(t, server.Client, http.MethodGet, server.URL+"/api/workstreams/owner/shop/12/tasks", "", &body); reply.StatusCode != http.StatusOK {
+			return false
+		}
+		got = body.Data
+		return len(got) == 3
+	})
+
+	want := []line{{41, "project"}, {42, "task"}, {43, "task"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("tasks = %+v, want %+v", got, want)
+	}
+}
+
 func TestTheBoardEndpointGivesTheTasksOfAllWorkstreamsWithTheirTitlesAndRepositories(t *testing.T) {
 	github := testkit.NewFakeGitHub(t)
 	github.AddRepository(barn)

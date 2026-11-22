@@ -12,6 +12,7 @@ export const Message = defineMessageUnion({
   LoadFailed: { error: Schema.String },
   LoginRequired: {},
   ToggledClosed: {},
+  ToggledProject: { url: Schema.String },
   ClickedStart: { key: Schema.String, line: TaskLine },
   ClickedStop: { key: Schema.String, line: TaskLine },
   ChangedIssue: { key: Schema.String },

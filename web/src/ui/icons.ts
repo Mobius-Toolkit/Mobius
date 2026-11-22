@@ -153,6 +153,15 @@ const arrowDown: readonly Shape[] = [
 
 const chevronDown: readonly Shape[] = [["path", { d: "m6 9 6 6 6-6" }]];
 
+const folder: readonly Shape[] = [
+  [
+    "path",
+    {
+      d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+    },
+  ],
+];
+
 const play: readonly Shape[] = [
   [
     "path",
@@ -234,6 +243,10 @@ export function arrowDownIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html 
 
 export function chevronDownIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
   return icon(h, chevronDown, className);
+}
+
+export function folderIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {
+  return icon(h, folder, className);
 }
 
 export function playIcon<M>(h: HtmlBuilder<M>, className = "size-4"): Html {

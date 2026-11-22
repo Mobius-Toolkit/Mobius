@@ -59,6 +59,8 @@ func taskText(workstreamRepository string, lines []TaskLine) string {
 type TaskLine struct {
 	Number int64
 	Title  string
+	// Kind is "task" or "project".
+	Kind string
 	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A Start that waits shows "start waits". Wait holds the wait of a live task.
 	State string
 	URL   string
@@ -210,7 +212,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		depth := depths[row.Parent.Int64]
 		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
-			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(row.labels), URL: issueLink(issueRepositoryName, row.Number), Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
+			line := TaskLine{Number: row.Number, Title: row.Title, Kind: row.Kind, State: labelState(row.labels), URL: issueLink(issueRepositoryName, row.Number), Repository: issueRepositoryName, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {
 				line.State = "closed"
 			} else {
