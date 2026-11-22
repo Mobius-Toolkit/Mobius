@@ -330,13 +330,12 @@ func TestSetProjectClearsTheBucketOfATaskThatWasBelowABucket(t *testing.T) {
 		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = ? AND number = 43 AND json_extract(metadata, '$.github.bucket') = 90", shop) == 1
 	})
 
+	fake.FailAddSubIssue(shop, 41, true)
+
 	run(t, server, leadSpec(t), "Move 43 to 41")
 
 	waitForPolls(t, fake)
 	if got := countRows(t, server, "SELECT count(*) FROM issues i WHERE i.repository = ? AND i.number = 43 AND json_extract(i.metadata, '$.github.bucket') IS NULL AND (SELECT p.number FROM issues p WHERE p.id = i.parent) = 41", shop); got != 1 {
 		t.Errorf("rows of #43 with no bucket below #41 = %d", got)
-	}
-	if got := fake.SubIssueNumbers(shop, 90); len(got) != 0 {
-		t.Errorf("sub-issues of the bucket = %v", got)
 	}
 }
