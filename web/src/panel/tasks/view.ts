@@ -101,7 +101,7 @@ function renderEntry(h: H, model: Model, line: TaskLine): Html {
                   ],
                 ),
               ),
-              renderStateBadge(h, line, "h-auto max-w-full whitespace-normal"),
+              renderStateBadge(h, line, "h-auto min-h-5 max-w-full py-0 whitespace-normal"),
             ],
           ),
           renderIconButton(h, {

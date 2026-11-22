@@ -3113,11 +3113,21 @@ test("screenshots", async ({ page }) => {
         .toBe(true);
     },
   );
-  await screenshot(page, "agents", "/agents", (device) => [
-    ...frame(device, drain),
-    main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
-    ...queueReasons.map((reason) => main.getByText(reason)),
-  ]);
+  await screenshot(
+    page,
+    "agents",
+    "/agents",
+    (device) => [
+      ...frame(device, drain),
+      main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
+      ...queueReasons.map((reason) => main.getByText(reason)),
+    ],
+    async () => {
+      await main
+        .getByRole("button", { name: /Ticket #45 Pick the plan limits/ })
+        .scrollIntoViewIfNeeded();
+    },
+  );
   await setQueueReason(page, "Autopilot paused: no task starts", "start_off");
   await screenshot(page, "agents-start-paused", "/agents", (device) => [
     ...frame(device, drain),

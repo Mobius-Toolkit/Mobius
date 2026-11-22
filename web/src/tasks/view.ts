@@ -41,7 +41,7 @@ function renderCard(h: H, task: BoardTask, now: number): Html {
       h.span(
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-1")],
         [
-          renderStateBadge(h, task, "h-auto max-w-full whitespace-normal"),
+          renderStateBadge(h, task, "h-auto min-h-5 max-w-full py-0 whitespace-normal"),
           task.mergeQueuePlace !== null
             ? renderBadge(
                 h,
