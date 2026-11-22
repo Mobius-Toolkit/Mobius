@@ -2,7 +2,10 @@ package engine_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
@@ -143,5 +146,52 @@ func TestEditIssueBodyRefusesAnIssueOfAnotherWorkstream(t *testing.T) {
 	var changes int
 	if err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE issue IS NOT NULL").Scan(&changes); err != nil || changes != 0 {
 		t.Errorf("outgoing changes = %d, %v", changes, err)
+	}
+}
+
+func TestEditIssueBodyRemovesTheFooterOfACreatedIssueFromItsInput(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectWith(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n", withUIURL)
+	fake.AddIssue(shop, 41, "Plan table")
+	fake.AddSubIssue(shop, 12, 41)
+	start(t, server, leadSpec(t))
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	connection, err := client.Connect(t.Context(), &sdk.StreamableClientTransport{Endpoint: mcpURL(t, dataDir)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	callTool := func(name string, arguments map[string]any) string {
+		result, err := connection.CallTool(t.Context(), &sdk.CallToolParams{Name: name, Arguments: arguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Content[0].(*sdk.TextContent).Text
+	}
+	created := callTool("create_issue", map[string]any{"repository": "owner/shop", "title": "Add plan model", "body": "Plans have a price.", "parent": "owner/shop#12", "blocked_by": []string{}})
+	if created != "Created owner/shop#42." {
+		t.Fatalf("create_issue = %q", created)
+	}
+	_, createdBody := fake.Issue(shop, 42)
+	footer := strings.TrimPrefix(createdBody, "Plans have a price.\n\n")
+	if !strings.HasPrefix(footer, chatLink+"\n\n"+leadLinkMark+"\n\n<!-- mobius:write ") {
+		t.Fatalf("created body = %q", createdBody)
+	}
+
+	edited := callTool("edit_issue_body", map[string]any{"repository": "owner/shop", "n": 42, "body": "Plans have a name.\n\n" + footer})
+
+	if edited != "Changed the body of owner/shop#42." {
+		t.Errorf("edit_issue_body = %q", edited)
+	}
+	if _, gotGH := fake.Issue(shop, 42); gotGH != "Plans have a name.\n\n"+chatLink {
+		t.Errorf("github body = %q", gotGH)
+	}
+	var dbBody string
+	if err := server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = 42", shop).Scan(&dbBody); err != nil {
+		t.Fatal(err)
+	}
+	if dbBody != "Plans have a name." {
+		t.Errorf("issues.body = %q", dbBody)
 	}
 }
