@@ -36,8 +36,8 @@ type TaskLine struct {
 	BlockedBy []Blocker `gork:"blockedBy"`
 	// Implementer is the own Implementer setting of the task, or null when the task has none
 	Implementer *IssueSetting `gork:"implementer"`
-	// Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
-	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
 	PausedUntil *time.Time `gork:"pausedUntil"`
 }
@@ -241,8 +241,8 @@ type BoardTask struct {
 	MergeQueuePlace *int64 `gork:"mergeQueuePlace"`
 	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null
 	MergeQueueSize int64 `gork:"mergeQueueSize"`
-	// Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
-	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
 	PausedUntil *time.Time `gork:"pausedUntil"`
 }

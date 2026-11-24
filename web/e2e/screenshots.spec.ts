@@ -3208,6 +3208,34 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText(/· Autopilot paused: no task starts/),
   ]);
+  await setQueueReason(page, "starts devin", "harness_start");
+  await screenshot(page, "agents-harness-start", "/agents", (device) => [
+    ...frame(device, drain),
+    main.getByText(/· starts devin/),
+    main.getByText("starting", { exact: true }),
+  ]);
+  await screenshot(
+    page,
+    "chat-agents-harness-start",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatTray,
+      chatEnd,
+      page.getByText(/· starts devin/).filter({ visible: true }),
+      page.getByText("starting", { exact: true }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByText(/· starts devin/)
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
   await setQueueReason(page, "", "");
   await screenshot(
     page,

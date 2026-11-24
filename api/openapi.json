@@ -7755,7 +7755,7 @@
           },
           "wait": {
             "type": "string",
-            "description": "Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init",
+            "description": "Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init and harness_start",
             "enum": [
               "",
               "paused",
@@ -7767,6 +7767,7 @@
               "low_load",
               "local_check",
               "init",
+              "harness_start",
               "ci",
               "lead",
               "owner",
@@ -8040,7 +8041,7 @@
           },
           "wait": {
             "type": "string",
-            "description": "Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action",
+            "description": "Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action",
             "enum": [
               "",
               "paused",
@@ -8052,6 +8053,7 @@
               "low_load",
               "local_check",
               "init",
+              "harness_start",
               "ci",
               "lead",
               "owner",
@@ -12212,7 +12214,7 @@
           },
           "wait": {
             "type": "string",
-            "description": "Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action",
+            "description": "Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action",
             "enum": [
               "",
               "paused",
@@ -12224,6 +12226,7 @@
               "low_load",
               "local_check",
               "init",
+              "harness_start",
               "ci",
               "lead",
               "owner",
