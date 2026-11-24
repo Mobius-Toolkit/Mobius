@@ -553,7 +553,7 @@ func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, nu
 	return false, nil
 }
 
-// copiedTask is a task in the copied tree of a Workstream.
+// copiedTask is an issue or a bucket in the copied tree of a Workstream.
 type copiedTask struct {
 	repository string
 	number     int64
@@ -561,12 +561,13 @@ type copiedTask struct {
 	state      string
 	url        string
 	bucket     bool
+	kind       string
 }
 
 // afterCopiedTasksTree is a hook of the tests. copiedTasks calls it after ListCopiedTree.
 var afterCopiedTasksTree func()
 
-// copiedTasks gives the buckets of the Workstream number of repository, and then the tasks of its copied tree in the
+// copiedTasks gives the buckets of the Workstream number of repository, and then the issues of its copied tree in the
 // order of the tree. It leaves out an issue in a repository that the App cannot read. It keeps a bucket, because
 // closeWorkstream closes it.
 func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, number int64) ([]copiedTask, error) {
@@ -597,7 +598,7 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 	}
 	var tasks []copiedTask
 	for _, bucket := range buckets {
-		tasks = append(tasks, copiedTask{repository.FullName, bucket.Number, bucket.Title, bucket.State, issueLink(repository.FullName, bucket.Number), true})
+		tasks = append(tasks, copiedTask{repository: repository.FullName, number: bucket.Number, title: bucket.Title, state: bucket.State, url: issueLink(repository.FullName, bucket.Number), bucket: true})
 	}
 	for _, row := range tree {
 		if row.Number == 0 {
@@ -607,14 +608,14 @@ func (e *Engine) copiedTasks(ctx context.Context, repository github.Repository, 
 		if !ok {
 			continue
 		}
-		tasks = append(tasks, copiedTask{source.FullName, row.Number, row.Title, row.State, issueLink(source.FullName, row.Number), false})
+		tasks = append(tasks, copiedTask{repository: source.FullName, number: row.Number, title: row.Title, state: row.State, url: issueLink(source.FullName, row.Number), kind: row.Kind})
 	}
 	return tasks, nil
 }
 
 // WorkstreamDetails reads the open Workstream number of repository from the local copy. A task is an issue in the
-// sub-issue tree of the Workstream, also an issue of another repository. A nested Workstream and the issues below it
-// are no tasks.
+// sub-issue tree of the Workstream, also an issue of another repository. A Project, a nested Workstream and the issues
+// below a nested Workstream are no tasks.
 func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, number int64) (WorkstreamDetails, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -649,7 +650,7 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 		return WorkstreamDetails{}, err
 	}
 	for _, task := range tasks {
-		if task.bucket {
+		if task.bucket || task.kind == projectKind {
 			continue
 		}
 		if task.state == "open" {

@@ -632,6 +632,30 @@ func TestTheDetailsCountTheTasksOfTheWorkstreamAtEachDepth(t *testing.T) {
 	}
 }
 
+func TestTheDetailsDoNotCountAProject(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.SetCreatedAt(shop, 12, 1790000000)
+	fake.AddSubIssueOf(shop, 12, 21, "Plan limits")
+	fake.AddLabel(shop, 21, "mobius:project", "owner")
+	fake.AddSubIssueOf(shop, 12, 22, "Old plan limits")
+	fake.AddLabel(shop, 22, "mobius:project", "owner")
+	fake.CloseIssueAs(shop, 22, "completed")
+	fake.AddSubIssueOf(shop, 21, 23, "Show the plan limit")
+	fake.AddSubIssueOf(shop, 21, 24, "Name the plan limit")
+	fake.CloseIssueAs(shop, 24, "completed")
+	server := startCopied(t, fake)
+
+	status, got := details(t, server, 12)
+
+	want := workstreamDetails{CreatedAt: "2026-09-21T14:13:20Z", CompletedTasks: 1, OpenTasks: 1}
+	if status != http.StatusOK || got != want {
+		t.Errorf("details = %d %+v, want %+v", status, got, want)
+	}
+}
+
 func TestTheDetailsAndTheClosureMakeNoGitHubCallForTheIssuesOfTheTree(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
