@@ -89,12 +89,13 @@ func session(t *testing.T, server *testserver.Server, id int64) store.Session {
 	return store.Session{}
 }
 
-// queued waits for a session of role in the Workstream #12 with a queue reason, and gives it.
+// queued waits for a session of role in the Workstream #12 that waits for a slot or another gate, and gives it.
+// A session in the start of its Harness has a queue reason too, but it does not wait for a gate.
 func queued(t *testing.T, server *testserver.Server, role string) store.Session {
 	t.Helper()
 	return testkit.WaitForValue(t, func() (store.Session, bool) {
 		for _, node := range tree(t, server) {
-			if node.Session.Role == role && node.Session.QueueReason.Valid {
+			if node.Session.Role == role && node.Session.QueueReason.Valid && node.Session.QueueWait.String != "harness_start" {
 				return node.Session, true
 			}
 		}

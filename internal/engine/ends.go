@@ -582,7 +582,8 @@ func (e *Engine) closeOpenPullRequest(ctx context.Context, repository github.Rep
 }
 
 // closeProject posts the report on the Project input.N of the Workstream of c and closes it as completed. It refuses an
-// issue that is not a Project of the Workstream, a Project with an open sub-issue, and a Project with a recurring task.
+// issue that is not a Project of the Workstream, a Project with an open sub-issue, a Project with a recurring task, and
+// an evergreen Project.
 func (e *Engine) closeProject(ctx context.Context, c caller, repository github.Repository, input closeProjectInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -603,6 +604,9 @@ func (e *Engine) closeProject(ctx context.Context, c caller, repository github.R
 	project := tree[at]
 	if project.State == "closed" {
 		return "", refuse("%s#%d is already closed.", repository.FullName, input.N)
+	}
+	if project.Evergreen {
+		return "", refuse("%s#%d is an evergreen Project. It has no end.", repository.FullName, input.N)
 	}
 	var open []string
 	for _, row := range tree {

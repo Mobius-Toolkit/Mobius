@@ -213,15 +213,9 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					},
 				},
 				e.createIssue),
-			tool(e, c, "create_project",
-				"Create a Project: an independent piece of work of the Workstream, with its own goal. Mobius creates the issue with the label mobius:project in the repository of the Workstream, below the Workstream issue. Put a task issue in the Project with the Project issue as parent of create_issue.",
-				map[string]any{
-					"title": map[string]any{"type": "string", "minLength": 1, "description": "The title of the Project."},
-					"body":  map[string]any{"type": "string", "description": "The body of the Project, with the sections Goal, Scope and Done, in this order."},
-				},
-				e.createProject),
+			e.createProjectTool(c),
 			tool(e, c, "close_project",
-				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, and a Project with a recurring task.",
+				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, a Project with a recurring task, and an evergreen Project.",
 				map[string]any{
 					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Project issue, in the repository of the Workstream."},
 					"report": map[string]any{"type": "string", "minLength": 1, "description": "The report for the people on the issue: what the Project did, and where each item of its Done list is on the main branch."},
@@ -595,6 +589,19 @@ func (e *Engine) sendMessageTool(c caller) mcp.Tool {
 	return sendMessage
 }
 
+func (e *Engine) createProjectTool(c caller) mcp.Tool {
+	createProject := tool(e, c, "create_project",
+		"Create a Project: an independent piece of work of the Workstream, with its own goal. Mobius creates the issue with the label mobius:project in the repository of the Workstream, below the Workstream issue. Put a task issue in the Project with the Project issue as parent of create_issue.",
+		map[string]any{
+			"title":     map[string]any{"type": "string", "minLength": 1, "description": "The title of the Project."},
+			"body":      map[string]any{"type": "string", "description": "The body of the Project, with the sections Goal, Scope and Done, in this order."},
+			"evergreen": map[string]any{"type": "boolean", "description": "Optional. True makes the Project evergreen: it has no end, and close_project refuses it. Give it only when the Owner asks for it."},
+		},
+		e.createProject)
+	createProject.Optional = []string{"evergreen"}
+	return createProject
+}
+
 var repositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the issue."}
 
 var codeRepositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository of the code (owner/name) in the organization of the chat."}
@@ -910,8 +917,9 @@ type blockersInput struct {
 }
 
 type projectInput struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Evergreen bool   `json:"evergreen"`
 }
 
 type closeProjectInput struct {
@@ -1072,7 +1080,11 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 // createProject creates a Project in the repository of the Workstream of c, directly below the Workstream issue.
 func (e *Engine) createProject(ctx context.Context, c caller, repository github.Repository, input projectInput) (string, error) {
 	parent := fmt.Sprintf("%s#%d", c.repository, c.workstream)
-	return e.createLeadIssue(ctx, c, repository, leadIssueInput{Title: input.Title, Body: input.Body, Parent: parent}, []string{projectLabel})
+	labels := []string{projectLabel}
+	if input.Evergreen {
+		labels = append(labels, evergreenLabel)
+	}
+	return e.createLeadIssue(ctx, c, repository, leadIssueInput{Title: input.Title, Body: input.Body, Parent: parent}, labels)
 }
 
 // createLeadIssue creates the issue with labels. A label that issueKind reads gives the kind of the row.
@@ -1561,7 +1573,7 @@ func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository,
 		if !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
 			return refuse("%s#%d is not in this Workstream.", row.Repository, row.Number.Int64)
 		}
-		clean := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, body)
+		clean := runner.WithoutMark(e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(body)))
 		if _, err := q.SetIssueBody(ctx, store.SetIssueBodyParams{Body: clean, ID: id}); err != nil {
 			return err
 		}

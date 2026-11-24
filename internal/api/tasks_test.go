@@ -44,7 +44,7 @@ func TestTheTasksEndpointGivesTheRepositoryOfEachTask(t *testing.T) {
 	}
 }
 
-func TestTheTasksEndpointGivesTheKindOfEachLine(t *testing.T) {
+func TestTheTasksEndpointGivesTheKindAndTheEvergreenMarkOfEachLine(t *testing.T) {
 	github := testkit.NewFakeGitHub(t)
 	github.AddIssue(shop, 12, "Integrate loyalty plans")
 	github.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -52,11 +52,15 @@ func TestTheTasksEndpointGivesTheKindOfEachLine(t *testing.T) {
 	github.AddLabel(shop, 41, "mobius:project", "owner")
 	github.AddSubIssueOf(shop, 41, 42, "Add plan model")
 	github.AddSubIssueOf(shop, 12, 43, "Name the plan tiers")
+	github.AddSubIssueOf(shop, 12, 44, "Maintenance")
+	github.AddLabel(shop, 44, "mobius:project", "owner")
+	github.AddLabel(shop, 44, "mobius:evergreen", "owner")
 	server := startWithApp(t, github, "User")
 
 	type line struct {
-		Number int64  `json:"number"`
-		Kind   string `json:"kind"`
+		Number    int64  `json:"number"`
+		Kind      string `json:"kind"`
+		Evergreen bool   `json:"evergreen"`
 	}
 	var got []line
 	testkit.WaitFor(t, func() bool {
@@ -67,10 +71,10 @@ func TestTheTasksEndpointGivesTheKindOfEachLine(t *testing.T) {
 			return false
 		}
 		got = body.Data
-		return len(got) == 3
+		return len(got) == 4
 	})
 
-	want := []line{{41, "project"}, {42, "task"}, {43, "task"}}
+	want := []line{{41, "project", false}, {42, "task", false}, {43, "task", false}, {44, "project", true}}
 	if !slices.Equal(got, want) {
 		t.Errorf("tasks = %+v, want %+v", got, want)
 	}

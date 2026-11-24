@@ -381,6 +381,15 @@ func (e *Engine) reopenWorkstreamFromChange(ctx context.Context, repository gith
 func (e *Engine) applySettingChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: change.Repository, Number: change.Number})
 	if errors.Is(err, sql.ErrNoRows) {
+		if change.Field == evergreenField {
+			row, inTree, err := e.treeIssueOf(ctx, change.Repository, change.Number)
+			if err != nil {
+				return err
+			}
+			if inTree {
+				return e.applyTreeIssueRowChange(ctx, repository, row, change)
+			}
+		}
 		log.Printf("apply the %s of %s#%d: the Workstream has no copy", change.Field, change.Repository, change.Number)
 		return nil
 	}
@@ -511,12 +520,34 @@ func (e *Engine) applyTreeIssueRowChange(ctx context.Context, repository github.
 			return nil
 		}
 		kind := "task"
+		evergreen := false
 		if change.Change == labeledChange {
 			kind = projectKind
+			found, err := e.changeRepository(change.Repository, repository).Issue(ctx, change.Number)
+			if err != nil || found == nil {
+				return err
+			}
+			evergreen = hasLabel(found, evergreenLabel)
 		}
 		e.copyWrite.Lock()
 		var err error
 		changed, err = e.queries.SetIssueKind(ctx, store.SetIssueKindParams{Kind: kind, ID: row.ID})
+		if err == nil && evergreen {
+			var evergreenChanged int64
+			evergreenChanged, err = e.queries.SetIssueEvergreen(ctx, store.SetIssueEvergreenParams{Evergreen: true, ID: row.ID})
+			changed += evergreenChanged
+		}
+		e.copyWrite.Unlock()
+		if err != nil {
+			return err
+		}
+	case evergreenField:
+		if row.Kind != projectKind {
+			return nil
+		}
+		e.copyWrite.Lock()
+		var err error
+		changed, err = e.queries.SetIssueEvergreen(ctx, store.SetIssueEvergreenParams{Evergreen: change.Change == labeledChange, ID: row.ID})
 		e.copyWrite.Unlock()
 		if err != nil {
 			return err
