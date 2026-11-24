@@ -22,6 +22,7 @@ const (
 	waitLowLoad          Wait = "low_load"
 	waitLocalCheck       Wait = "local_check"
 	waitInit             Wait = "init"
+	waitHarnessStart     Wait = "harness_start"
 	waitCI               Wait = "ci"
 	waitLead             Wait = "lead"
 	waitOwner            Wait = "owner"

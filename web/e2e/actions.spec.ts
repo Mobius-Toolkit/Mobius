@@ -79,6 +79,23 @@ const badge = (card: Locator, name: string) =>
 const link = (page: Page, path: string) =>
   page.locator(`nav a[href="${path}"]`).filter({ visible: true });
 
+const ownerDecision = (page: Page, decision: string, title: string) =>
+  page
+    .getByRole("main")
+    .locator("[data-message]")
+    .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
+    .filter({ hasText: title })
+    .filter({ has: page.getByText(decision, { exact: true }) });
+
+async function expectOnTheRight(message: Locator) {
+  const bubble = await message.boundingBox();
+  const list = await message.locator("xpath=..").boundingBox();
+  expect(bubble && list).toBeTruthy();
+  const left = (bubble?.x ?? 0) - (list?.x ?? 0);
+  const right = (list?.x ?? 0) + (list?.width ?? 0) - ((bubble?.x ?? 0) + (bubble?.width ?? 0));
+  expect(right).toBeLessThan(left);
+}
+
 const fits = (locator: Locator) =>
   locator.first().evaluate((el) => el.scrollWidth <= el.clientWidth);
 
@@ -124,6 +141,10 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(card.getByText("Sent the message to the Lead of #14 Early renewals.")).toBeVisible();
   await expect(card.getByText("Go ahead.")).toHaveCount(0);
   await expect(card.getByRole("button")).toHaveText(["Details"]);
+  const decision = ownerDecision(page, "Approved", leadTitle);
+  await expect(decision).toHaveCount(1);
+  await expect(decision.getByText("Go ahead.")).toBeVisible();
+  await expectOnTheRight(decision);
 
   await card.getByRole("button", { name: "Details" }).click();
   await expect(panel(page).getByRole("heading", { name: leadTitle })).toBeVisible();
@@ -158,6 +179,10 @@ test("the Owner rejects an action with a note", async ({ page }) => {
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
   await expect(card.getByText("Wait for the migration of #12.")).toHaveCount(0);
   await expect(waiting(page, 1)).toBeHidden();
+  const decision = ownerDecision(page, "Rejected", leadTitle);
+  await expect(decision).toHaveCount(1);
+  await expect(decision.getByText("Wait for the migration of #12.")).toBeVisible();
+  await expectOnTheRight(decision);
 
   await card.getByRole("button", { name: "Details" }).click();
   await expect(panel(page).getByText(dropText)).toBeVisible();

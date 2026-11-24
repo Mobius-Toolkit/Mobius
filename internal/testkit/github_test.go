@@ -1022,3 +1022,53 @@ func TestAGetRouteGivesNotModifiedForTheETagOfItsLastAnswerAndOKAfterAChange(t *
 		t.Errorf("logged status = %d", got)
 	}
 }
+
+func TestReadingAPullRequestWritesNoObjectFilesToTheRemote(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.CommitFileOnBranch("owner/shop", "feature", "feature.txt", "feature\n", "Add feature")
+	clean := github.OpenPullRequest("owner/shop", "Add feature", "feature")
+	github.CommitFileOnBranch("owner/shop", "conflict", "main.txt", "from branch\n", "Change main.txt")
+	conflicting := github.OpenPullRequest("owner/shop", "Change main.txt", "conflict")
+	github.CommitFile("owner/shop", "main.txt", "from main\n", "Add main.txt")
+
+	objectFiles := func(remote string) []string {
+		var files []string
+		err := filepath.WalkDir(filepath.Join(remote, "objects"), func(path string, entry os.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(remote, path)
+			files = append(files, rel)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	remote := github.Remote("owner/shop")
+	before := objectFiles(remote)
+
+	token := installationToken(t, github)
+	readPull := func(number int64) bool {
+		var pull struct {
+			Mergeable *bool `json:"mergeable"`
+		}
+		reply := send(t, http.MethodGet, fmt.Sprintf("%s/repos/owner/shop/pulls/%d", github.URL, number), token, "", &pull)
+		if reply.StatusCode != http.StatusOK || pull.Mergeable == nil {
+			t.Fatalf("pull %d status = %d, mergeable = %v", number, reply.StatusCode, pull.Mergeable)
+		}
+		return *pull.Mergeable
+	}
+
+	if !readPull(clean) {
+		t.Errorf("clean pull %d mergeable = false, want true", clean)
+	}
+	if readPull(conflicting) {
+		t.Errorf("conflicting pull %d mergeable = true, want false", conflicting)
+	}
+	if after := objectFiles(remote); !reflect.DeepEqual(after, before) {
+		t.Errorf("remote objects changed after read: before=%v after=%v", before, after)
+	}
+}

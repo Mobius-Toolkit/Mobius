@@ -18,6 +18,8 @@ type TaskLine struct {
 	Title string `gork:"title"`
 	// Kind is task for a task issue, and project for a Project of the Workstream
 	Kind string `gork:"kind" validate:"oneof=task project"`
+	// Evergreen is true for a Project that has no end
+	Evergreen bool `gork:"evergreen"`
 	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A Start that waits shows "start waits". A wait of a live task is in wait, not in state.
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
@@ -34,8 +36,8 @@ type TaskLine struct {
 	BlockedBy []Blocker `gork:"blockedBy"`
 	// Implementer is the own Implementer setting of the task, or null when the task has none
 	Implementer *IssueSetting `gork:"implementer"`
-	// Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
-	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
 	PausedUntil *time.Time `gork:"pausedUntil"`
 }
@@ -79,7 +81,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
+		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, Evergreen: line.Evergreen, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
 		if line.Implementer != nil {
 			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
 		}
@@ -239,8 +241,8 @@ type BoardTask struct {
 	MergeQueuePlace *int64 `gork:"mergeQueuePlace"`
 	// MergeQueueSize is the number of tasks in the merge queue of that repository, or 0 when mergeQueuePlace is null
 	MergeQueueSize int64 `gork:"mergeQueueSize"`
-	// Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action
-	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
 	PausedUntil *time.Time `gork:"pausedUntil"`
 }

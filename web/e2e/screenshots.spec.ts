@@ -228,6 +228,7 @@ const decide = async (page: Page, panel: Locator, decision: "approve" | "reject"
   );
   await panel.getByRole("button", { name: decision === "approve" ? "Approve" : "Reject" }).click();
   expect((await answered).ok()).toBe(true);
+  expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
 };
 
 // The tests have no DOM types, so the check is a script.
@@ -1573,6 +1574,8 @@ test("screenshots", async ({ page }) => {
       page.getByRole("link", { name: "Plan limits" }).filter({ visible: true }),
       page.getByText("1/3", { exact: true }).filter({ visible: true }),
       page.getByText("#22 Show the plan limit in the account menu").filter({ visible: true }),
+      page.getByRole("link", { name: "Maintenance" }).filter({ visible: true }),
+      page.getByText("evergreen", { exact: true }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
@@ -1581,6 +1584,10 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page
         .getByRole("link", { name: "Plan limits" })
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+      await page
+        .getByRole("link", { name: "Maintenance" })
         .filter({ visible: true })
         .scrollIntoViewIfNeeded();
     },
@@ -2420,6 +2427,7 @@ test("screenshots", async ({ page }) => {
       number: 5,
       title: "Pick the apples",
       kind: "task",
+      evergreen: false,
       state: "open",
       depth: 0,
       repository: "plants/orchard",
@@ -2464,6 +2472,7 @@ test("screenshots", async ({ page }) => {
       number: 74,
       title: "Prune the hedge",
       kind: "task",
+      evergreen: false,
       state: "working",
       depth: 0,
       repository: "plants/garden",
@@ -2508,6 +2517,7 @@ test("screenshots", async ({ page }) => {
       number: 75,
       title: "Deploy the hedge",
       kind: "task",
+      evergreen: false,
       state: "waits for Owner action",
       depth: 0,
       repository: "plants/garden",
@@ -3202,6 +3212,34 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText(/· Autopilot paused: no task starts/),
   ]);
+  await setQueueReason(page, "starts devin", "harness_start");
+  await screenshot(page, "agents-harness-start", "/agents", (device) => [
+    ...frame(device, drain),
+    main.getByText(/· starts devin/),
+    main.getByText("starting", { exact: true }),
+  ]);
+  await screenshot(
+    page,
+    "chat-agents-harness-start",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      chatTray,
+      chatEnd,
+      page.getByText(/· starts devin/).filter({ visible: true }),
+      page.getByText("starting", { exact: true }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+      await page
+        .getByText(/· starts devin/)
+        .filter({ visible: true })
+        .scrollIntoViewIfNeeded();
+    },
+  );
   await setQueueReason(page, "", "");
   await routeLongNameOfPaused(page);
   await screenshot(
@@ -3252,7 +3290,11 @@ test("screenshots", async ({ page }) => {
     page,
     "transcript-connecting",
     "/agents",
-    (device) => [...frame(device, drain), main.getByText("Connecting…")],
+    (device) => [
+      ...frame(device, drain),
+      main.getByText("Connecting…"),
+      main.getByText("The plan prices are in cents now."),
+    ],
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
   await page.unroute("**/api/agents/*/transcript/events");
@@ -4437,7 +4479,8 @@ test("screenshots", async ({ page }) => {
     await page.keyboard.press("Escape");
   };
   // The chat scrolls to its end when it opens and when a message comes, so the end is the only stable place. The
-  // fake Coordinator ends each of its calls with the message that gives the ID of the action.
+  // fake Coordinator ends each of its calls with the message that gives the ID of the action. The decision of the Owner
+  // follows it.
   const showEnd = (text: string) => async () => {
     await expect(cardOf(page, text)).toBeVisible();
     await expect
@@ -4446,7 +4489,11 @@ test("screenshots", async ({ page }) => {
           const list = el.parentElement;
           if (
             !list ||
-            !/Its ID is \d+, only for withdraw\.$/.test(list.lastElementChild?.textContent ?? "")
+            !(
+              /Its ID is \d+, only for withdraw\.$/.test(
+                list.lastElementChild?.textContent ?? "",
+              ) || list.lastElementChild?.querySelector('[aria-label^="Sent from the Inbox"]')
+            )
           ) {
             return false;
           }
@@ -4455,6 +4502,22 @@ test("screenshots", async ({ page }) => {
         }),
       )
       .toBe(true);
+  };
+  const ownerDecision = (decision: string, title: string) =>
+    main
+      .locator("[data-message]")
+      .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
+      .filter({ hasText: title })
+      .filter({ has: page.getByText(decision, { exact: true }) });
+  const showDecision = (decision: string, title: string) => async () => {
+    await expect(ownerDecision(decision, title)).toBeVisible();
+    await showChatEnd(page);
+    await expect(ownerDecision(decision, title)).toBeInViewport();
+  };
+  const showCardInView = async (title: string) => {
+    await showEnd(title)();
+    await cardOf(page, title).evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await expect(cardOf(page, title)).toBeInViewport({ ratio: 1 });
   };
 
   await page.setViewportSize(viewports.desktop);
@@ -4609,6 +4672,9 @@ test("screenshots", async ({ page }) => {
       waits(2),
       cardOf(page, unknownTitle).getByText("Rejected", { exact: true }),
       cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
+      ownerDecision("Rejected", unknownTitle).getByRole("img", {
+        name: "Sent from the Inbox at 09:30 AM",
+      }),
     ],
     async (device) => {
       if (device === "desktop") {
@@ -4616,34 +4682,51 @@ test("screenshots", async ({ page }) => {
         await panel.getByRole("button", { name: "Reject" }).click();
         await expect(panel).toBeHidden();
         await skipNotice(page, noticeOf(page, "Rejected: "));
+        await fixRecordTimes(page);
+        await page.goto("/chat");
       }
       const card = cardOf(page, unknownTitle);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
       await expect(waits(2)).toBeVisible();
-      await showEnd(unknownTitle)();
+      await expect(ownerDecision("Rejected", unknownTitle)).toHaveCount(1);
+      if (device === "desktop") {
+        await showEnd(unknownTitle)();
+        await expect(card).toBeInViewport({ ratio: 1 });
+        await expect(ownerDecision("Rejected", unknownTitle)).toBeInViewport({ ratio: 1 });
+      } else {
+        await showCardInView(unknownTitle);
+      }
     },
   );
-  const unknownAction = await cardOf(page, unknownTitle).getAttribute("data-action");
-  const setUnknownAction = async (state: string, message: string) => {
-    const query = new URLSearchParams({ state, message });
-    expect((await page.request.put(`/e2e/actions/${unknownAction}/state?${query}`)).ok()).toBe(
-      true,
-    );
+  // The Lead action has no decision, so the chat shows no message of the Owner for it. The state stays only for the
+  // screenshot.
+  const leadAction = await cardOf(page, leadTitle).getAttribute("data-action");
+  const setLeadAction = async (state: string) => {
+    const query = new URLSearchParams({ state, message: "" });
+    expect((await page.request.put(`/e2e/actions/${leadAction}/state?${query}`)).ok()).toBe(true);
   };
-  await setUnknownAction("withdrawn", "");
+  await setLeadAction("withdrawn");
   await screenshot(
     page,
     "action-withdrawn",
     "/chat",
     (device) => [
       ...approvalReady(device, "3"),
-      waits(2),
-      cardOf(page, unknownTitle).getByText("Withdrawn by the agent", { exact: true }),
-      cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
+      waits(1),
+      cardOf(page, leadTitle).getByText("Withdrawn by the agent", { exact: true }),
+      cardOf(page, leadTitle).getByRole("button", { name: "Details" }),
     ],
-    showEnd(unknownTitle),
+    async () => {
+      await showCardInView(leadTitle);
+      await expect(
+        main
+          .locator("[data-message]")
+          .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
+          .filter({ hasText: leadTitle }),
+      ).toHaveCount(0);
+    },
   );
-  await setUnknownAction("rejected", "Wait for the migration of #12.");
+  await setLeadAction("pending");
 
   // The fake Coordinator asks a question with options. The answer ends the question.
   await page.goto("/chat");
@@ -4880,6 +4963,17 @@ test("screenshots", async ({ page }) => {
     ],
     showBriefCard,
   );
+  await screenshot(
+    page,
+    "action-approved-owner-message",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "1"),
+      ownerDecision("Approved", briefTitle).getByText("Approved", { exact: true }),
+      ownerDecision("Approved", briefTitle).getByText(briefTitle),
+    ],
+    showDecision("Approved", briefTitle),
+  );
   const openBriefDetails = async () => {
     await showBriefCard();
     await briefCard().getByRole("button", { name: "Details" }).click();
@@ -4952,6 +5046,18 @@ test("screenshots", async ({ page }) => {
   await expect(panel).toBeHidden();
   await expect(waits(1)).toBeHidden();
   await settle(page);
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "action-rejected-owner-message",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "1"),
+      ownerDecision("Rejected", leadToLeadTitle).getByText("Rejected", { exact: true }),
+      ownerDecision("Rejected", leadToLeadTitle).getByText(leadToLeadTitle),
+    ],
+    showDecision("Rejected", leadToLeadTitle),
+  );
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);

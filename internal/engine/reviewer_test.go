@@ -280,15 +280,12 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 
 	queued := testkit.WaitForValue(t, func() (store.Session, bool) {
 		for _, session := range roleSessions(t, server, engine.ReviewerRole) {
-			if session.QueueReason.Valid {
+			if session.QueueReason.String == "no free reviewer slot (1/1)" {
 				return session, true
 			}
 		}
 		return store.Session{}, false
 	})
-	if queued.QueueReason.String != "no free reviewer slot (1/1)" {
-		t.Errorf("queue reason = %s", queued.QueueReason.String)
-	}
 	pullRequests := fake.PullRequests(shop)
 	if len(pullRequests) != 2 || pullRequests[1].Head != "mobius/41" {
 		t.Fatalf("pull requests = %+v", pullRequests)

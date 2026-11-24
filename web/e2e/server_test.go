@@ -366,6 +366,9 @@ func TestServer(t *testing.T) {
 	github.AddSubIssueOf("owner/shop", 21, 23, "Add the plan limit to the settings page")
 	github.AddSubIssueOf("owner/shop", 21, 24, "Name the plan limit")
 	github.CloseIssue("owner/shop", 24)
+	github.AddSubIssueOf("owner/shop", 12, 25, "Maintenance")
+	github.AddLabel("owner/shop", 25, "mobius:project", "owner")
+	github.AddLabel("owner/shop", 25, "mobius:evergreen", "owner")
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
@@ -1240,7 +1243,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 	}
 	testkit.WaitFor(t, func() bool {
 		var undelivered, open int
-		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE id > ? AND author IN ('Owner', 'Approval') AND delivered_at IS NULL", lastMessage).Scan(&undelivered); err != nil {
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE id > ? AND author IN ('Owner', 'Approval') AND display_only = 0 AND delivered_at IS NULL", lastMessage).Scan(&undelivered); err != nil {
 			t.Fatal(err)
 		}
 		if err := server.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL").Scan(&open); err != nil {

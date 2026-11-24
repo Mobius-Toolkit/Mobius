@@ -128,7 +128,7 @@ export const ListActiveAgentsResponse = S.Struct({
   "role": S.String.annotate({ description: 'Role is the Role as the sessions table names it, for example lead_chat' }),
   "startedAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'StartedAt is the start of the session' }),
   "title": S.String.annotate({ description: 'Title tells what the session works on, for example \"chat session\". It can be empty' }),
-  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'harness_start', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init and harness_start' }),
   "working": S.Boolean.annotate({ description: 'Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream issue as \"owner\/name\". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat' })
@@ -1571,7 +1571,7 @@ export const ListBoardTasksResponse = S.Struct({
   "totalFixRounds": S.Number.annotate({ description: 'TotalFixRounds is the number of fix rounds of the task, also the rounds before a reset of fixRounds' }),
   "totalReviewRounds": S.Number.annotate({ description: 'TotalReviewRounds is the number of review rounds of the task, also the rounds before a reset of reviewRounds' }),
   "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' }),
-  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'harness_start', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the task, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the full name of the repository of the Workstream issue' }),
   "workstreamTitle": S.String.annotate({ description: 'WorkstreamTitle is the title of the Workstream' })
@@ -2050,7 +2050,7 @@ export const ListAgentsResponse = S.Struct({
   "role": S.String.annotate({ description: 'Role is the Role as the sessions table names it, for example lead_chat' }),
   "startedAt": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'StartedAt is the start of the session' }),
   "title": S.String.annotate({ description: 'Title tells what the session works on, for example \"chat session\". It can be empty' }),
-  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init' }),
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'harness_start', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init and harness_start' }),
   "working": S.Boolean.annotate({ description: 'Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' }),
   "workstreamRepository": S.String.annotate({ description: 'WorkstreamRepository is the repository of the Workstream issue as \"owner\/name\". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat' })
@@ -2375,6 +2375,7 @@ export const ListTasksResponse = S.Struct({
   "workstreamTitle": S.NullOr(S.String).annotate({ description: 'WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null' })
 }).annotate({ description: 'Blocker is an open blocker of a task.' })).annotate({ description: 'BlockedBy are the open blockers of the task' }),
   "depth": S.Number.annotate({ description: 'Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true for a Project that has no end' }),
   "implementer": S.Union([S.Struct({
   "effort": S.String.annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),
@@ -2389,7 +2390,7 @@ export const ListTasksResponse = S.Struct({
   "state": S.String.annotate({ description: 'State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A Start that waits shows \"start waits\". A wait of a live task is in wait, not in state.' }),
   "title": S.String.annotate({ description: 'Title is the title of the task issue' }),
   "url": S.String.annotate({ description: 'URL is the GitHub URL of the task issue' }),
-  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, ci, lead, owner, start_implementer and owner_action' })
+  "wait": S.Literals(['', 'paused', 'start_off', 'drain', 'no_access', 'slot', 'check_slot', 'low_load', 'local_check', 'init', 'harness_start', 'ci', 'lead', 'owner', 'start_implementer', 'owner_action']).annotate({ description: 'Wait is the kind of the wait of the live task of the issue, or an empty string when it does not wait. The other values: paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init, harness_start, ci, lead, owner, start_implementer and owner_action' })
 }).annotate({ description: 'TaskLine is a task of a Workstream.' })).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 

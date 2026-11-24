@@ -251,6 +251,33 @@ test("the Agents page shows the state of a session that runs .mobius/init", asyn
   });
 });
 
+test("the Agents page shows the state of a session whose Harness starts", async ({ page }) => {
+  await withQueueReason(page, "starts devin", "harness_start", async () => {
+    await page.goto("/agents");
+    const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
+    await expect(entry.getByText("starts devin")).toBeVisible();
+    await expect(entry.getByText("starting", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
+});
+
+test("the Agents tab of a Workstream shows the state of a session whose Harness starts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await withQueueReason(page, "starts devin", "harness_start", async () => {
+    await page.goto("/workstreams/owner/shop/12");
+    await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+    const entry = page
+      .getByRole("complementary")
+      .getByRole("listitem")
+      .filter({ hasText: "starts devin" });
+    await expect(entry).toHaveCount(1);
+    await expect(entry.getByText("starting", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
+});
+
 test("the Agents tab of a Workstream shows the state of a session that waits for a low load", async ({
   page,
 }) => {

@@ -14,6 +14,7 @@ const line = (overrides: Partial<TaskLine>): TaskLine => ({
   blockedBy: [],
   startWait: "",
   depth: 0,
+  evergreen: false,
   implementer: null,
   kind: "task",
   number: 41,
