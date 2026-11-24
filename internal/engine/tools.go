@@ -213,14 +213,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					},
 				},
 				e.createIssue),
-			tool(e, c, "create_project",
-				"Create a Project: an independent piece of work of the Workstream, with its own goal. Mobius creates the issue with the label mobius:project in the repository of the Workstream, below the Workstream issue. Put a task issue in the Project with the Project issue as parent of create_issue.",
-				map[string]any{
-					"title":     map[string]any{"type": "string", "minLength": 1, "description": "The title of the Project."},
-					"body":      map[string]any{"type": "string", "description": "The body of the Project, with the sections Goal, Scope and Done, in this order."},
-					"evergreen": map[string]any{"type": "boolean", "description": "Optional. True makes the Project evergreen: it has no end, and close_project refuses it. Give it only when the Owner asks for it."},
-				},
-				e.createProject),
+			e.createProjectTool(c),
 			tool(e, c, "close_project",
 				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, a Project with a recurring task, and an evergreen Project.",
 				map[string]any{
@@ -594,6 +587,19 @@ func (e *Engine) sendMessageTool(c caller) mcp.Tool {
 		e.sendMessage)
 	sendMessage.Optional = []string{"id", "repository", "n"}
 	return sendMessage
+}
+
+func (e *Engine) createProjectTool(c caller) mcp.Tool {
+	createProject := tool(e, c, "create_project",
+		"Create a Project: an independent piece of work of the Workstream, with its own goal. Mobius creates the issue with the label mobius:project in the repository of the Workstream, below the Workstream issue. Put a task issue in the Project with the Project issue as parent of create_issue.",
+		map[string]any{
+			"title":     map[string]any{"type": "string", "minLength": 1, "description": "The title of the Project."},
+			"body":      map[string]any{"type": "string", "description": "The body of the Project, with the sections Goal, Scope and Done, in this order."},
+			"evergreen": map[string]any{"type": "boolean", "description": "Optional. True makes the Project evergreen: it has no end, and close_project refuses it. Give it only when the Owner asks for it."},
+		},
+		e.createProject)
+	createProject.Optional = []string{"evergreen"}
+	return createProject
 }
 
 var repositoryProperty = map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the issue."}

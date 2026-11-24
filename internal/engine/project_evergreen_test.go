@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"slices"
 	"testing"
@@ -169,4 +170,34 @@ func TestALabelProjectAfterTheLabelEvergreenAndAnAddAfterARemovalGiveAnEvergreen
 	})
 	fake.AddLabel(shop, 41, "mobius:project", "owner")
 	testkit.WaitFor(t, evergreen)
+}
+
+func TestCreateProjectMakesEvergreenOptionalInTheSchema(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
+
+	_, text := leadReply(t, server)
+
+	var list struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Required []string `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(text), &list); err != nil {
+		t.Fatalf("%v: %s", err, text)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == "create_project" {
+			slices.Sort(tool.InputSchema.Required)
+			if want := []string{"body", "title"}; !slices.Equal(tool.InputSchema.Required, want) {
+				t.Fatalf("required = %v, want %v", tool.InputSchema.Required, want)
+			}
+			return
+		}
+	}
+	t.Fatal("create_project is not in the tool list")
 }
