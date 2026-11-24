@@ -49,7 +49,7 @@ function renderRow(h: H, row: ActiveAgent): Html {
                     [h.Class("flex min-w-0 grow items-start gap-2")],
                     [
                       h.span(
-                        [h.Class(`mt-2 size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)],
+                        [h.Class(`mt-1.5 size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)],
                         [],
                       ),
                       h.span([h.Class("min-w-0 wrap-anywhere")], [`${agent.name} ${agent.title}`]),
@@ -58,7 +58,7 @@ function renderRow(h: H, row: ActiveAgent): Html {
                   renderStateBadge(h, { ...agent, state: "" }),
                 ],
               ),
-              chevronRightIcon(h, "mt-1 size-4 shrink-0"),
+              chevronRightIcon(h, "mt-0.5 size-4 shrink-0"),
             ],
           ),
           h.span([h.Class("text-sm text-muted-foreground")], [bindingText(agent)]),

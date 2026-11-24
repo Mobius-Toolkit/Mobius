@@ -67,7 +67,7 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
                 [
                   h.Class(
                     cn(
-                      "mt-2 size-2 shrink-0 rounded-full",
+                      "mt-1.5 size-2 shrink-0 rounded-full",
                       agent.endedAt ? "border border-muted-foreground" : waitDot(agent.wait),
                     ),
                   ),

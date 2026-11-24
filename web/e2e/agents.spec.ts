@@ -109,14 +109,11 @@ test("on a phone, a card of the Agents page puts a long badge under the name and
     await boxOf(wrapped.locator("svg")),
   ];
   expect(wrappedNameBox.height).toBeGreaterThan(shortNameBox.height * 1.5);
-  expect(wrappedDotBox.y).toBeGreaterThanOrEqual(wrappedNameBox.y);
-  expect(wrappedDotBox.y + wrappedDotBox.height).toBeLessThanOrEqual(
-    wrappedNameBox.y + shortNameBox.height,
-  );
-  expect(wrappedDotBox.y).toBeGreaterThanOrEqual(wrappedChevronBox.y);
-  expect(wrappedDotBox.y + wrappedDotBox.height).toBeLessThanOrEqual(
-    wrappedChevronBox.y + wrappedChevronBox.height,
-  );
+  const firstLineCenter = wrappedNameBox.y + shortNameBox.height / 2;
+  expect(Math.abs(wrappedDotBox.y + wrappedDotBox.height / 2 - firstLineCenter)).toBeLessThan(1);
+  expect(
+    Math.abs(wrappedChevronBox.y + wrappedChevronBox.height / 2 - firstLineCenter),
+  ).toBeLessThan(1);
 });
 
 test("a task that waits for a Harness pause shows the same badge on the Tasks board, in the Workstream tree and on the Agents page", async ({
@@ -336,8 +333,7 @@ test("the Agents tab of a Workstream keeps a long issue title on one line on a p
     Number.parseFloat(getComputedStyle(el).lineHeight),
   );
   expect(nameBox.height).toBeGreaterThan(lineHeight * 1.5);
-  expect(dotBox.y).toBeGreaterThanOrEqual(nameBox.y);
-  expect(dotBox.y + dotBox.height).toBeLessThanOrEqual(nameBox.y + lineHeight);
+  expect(Math.abs(dotBox.y + dotBox.height / 2 - (nameBox.y + lineHeight / 2))).toBeLessThan(1);
 });
 
 test.describe("the transcript of an agent on a phone", () => {
