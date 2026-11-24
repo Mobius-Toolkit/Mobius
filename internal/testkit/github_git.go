@@ -34,6 +34,7 @@ func (g *FakeGitHub) addEmptyRemote(fullName string) {
 		g.t.Fatal(err)
 	}
 	g.git(remote, "init", "--bare", "--initial-branch=main")
+	g.git(remote, "config", "receive.autogc", "false")
 }
 
 // addRemote makes the bare git repository of fullName with one commit on main.

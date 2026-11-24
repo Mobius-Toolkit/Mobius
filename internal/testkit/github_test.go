@@ -1072,3 +1072,19 @@ func TestReadingAPullRequestWritesNoObjectFilesToTheRemote(t *testing.T) {
 		t.Errorf("remote objects changed after read: before=%v after=%v", before, after)
 	}
 }
+
+func TestFakeRemotesDisableReceiveAutogc(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.AddEmptyRepository("owner/empty")
+
+	for _, fullName := range []string{"owner/shop", "owner/empty"} {
+		out, err := gitCommand(github.Remote(fullName), "config", "--get", "receive.autogc").Output()
+		if err != nil {
+			t.Fatalf("%s git config receive.autogc: %v", fullName, err)
+		}
+		if got := strings.TrimSpace(string(out)); got != "false" {
+			t.Errorf("%s receive.autogc = %q, want %q", fullName, got, "false")
+		}
+	}
+}
