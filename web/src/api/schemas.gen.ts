@@ -2375,6 +2375,7 @@ export const ListTasksResponse = S.Struct({
   "workstreamTitle": S.NullOr(S.String).annotate({ description: 'WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null' })
 }).annotate({ description: 'Blocker is an open blocker of a task.' })).annotate({ description: 'BlockedBy are the open blockers of the task' }),
   "depth": S.Number.annotate({ description: 'Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below' }),
+  "evergreen": S.Boolean.annotate({ description: 'Evergreen is true for a Project that has no end' }),
   "implementer": S.Union([S.Struct({
   "effort": S.String.annotate({ description: 'Effort is the effort level. It is empty when the Harness uses its own default or the model has no effort levels.' }),
   "harness": S.String.annotate({ description: 'Harness is the agent program' }),

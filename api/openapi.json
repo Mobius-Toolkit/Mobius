@@ -12153,6 +12153,10 @@
             "type": "integer",
             "description": "Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below"
           },
+          "evergreen": {
+            "type": "boolean",
+            "description": "Evergreen is true for a Project that has no end"
+          },
           "implementer": {
             "anyOf": [
               {
@@ -12235,6 +12239,7 @@
           "number",
           "title",
           "kind",
+          "evergreen",
           "state",
           "url",
           "startWait",

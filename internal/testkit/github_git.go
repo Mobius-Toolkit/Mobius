@@ -16,6 +16,10 @@ func (g *FakeGitHub) Remote(fullName string) string {
 	return filepath.Join(g.remotes, fullName+".git")
 }
 
+func (g *FakeGitHub) remoteURL(fullName string) string {
+	return "file://" + g.Remote(fullName)
+}
+
 // SetCloneURL makes url the clone URL of the repository fullName in the repository lists.
 func (g *FakeGitHub) SetCloneURL(fullName, url string) {
 	g.mu.Lock()
@@ -50,7 +54,7 @@ func (g *FakeGitHub) CommitFile(fullName, path, content, message string) {
 // RemoveFile commits the removal of the file path on main of the repository fullName.
 func (g *FakeGitHub) RemoveFile(fullName, path, message string) {
 	work := g.t.TempDir()
-	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
+	g.git(work, "clone", "--branch=main", g.remoteURL(fullName), ".")
 	g.git(work, "rm", path)
 	g.git(work, "commit", "-m", message)
 	g.git(work, "push", "origin", "HEAD:refs/heads/main")
@@ -69,7 +73,7 @@ func (g *FakeGitHub) CommitFileOnBranch(fullName, branch, path, content, message
 
 func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string, at time.Time) {
 	work := g.t.TempDir()
-	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
+	g.git(work, "clone", "--branch=main", g.remoteURL(fullName), ".")
 	file := filepath.Join(work, path)
 	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		g.t.Fatal(err)
@@ -93,7 +97,7 @@ func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string,
 // person does.
 func (g *FakeGitHub) PushCommit(fullName, branch, message string) {
 	work := g.t.TempDir()
-	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
+	g.git(work, "clone", "--branch=main", g.remoteURL(fullName), ".")
 	g.git(work, "commit", "--allow-empty", "-m", message)
 	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
 }
@@ -181,7 +185,7 @@ func (g *FakeGitHub) SetInit(fullName, script string) {
 
 func (g *FakeGitHub) setScript(fullName, name, script string) {
 	work := g.t.TempDir()
-	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
+	g.git(work, "clone", "--branch=main", g.remoteURL(fullName), ".")
 	file := filepath.Join(work, ".mobius", name)
 	if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
 		g.t.Fatal(err)
