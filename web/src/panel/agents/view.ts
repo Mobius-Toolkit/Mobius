@@ -61,13 +61,13 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
         [h.Class("flex flex-wrap items-center gap-x-2 gap-y-0.5")],
         [
           h.span(
-            [h.Class("flex min-w-0 grow items-center gap-2")],
+            [h.Class("flex min-w-0 grow items-start gap-2")],
             [
               h.span(
                 [
                   h.Class(
                     cn(
-                      "size-2 shrink-0 rounded-full",
+                      "mt-2 size-2 shrink-0 rounded-full",
                       agent.endedAt ? "border border-muted-foreground" : waitDot(agent.wait),
                     ),
                   ),

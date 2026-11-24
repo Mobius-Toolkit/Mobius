@@ -46,9 +46,12 @@ function renderRow(h: H, row: ActiveAgent): Html {
                 [h.Class("flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-0.5")],
                 [
                   h.span(
-                    [h.Class("flex min-w-0 grow items-center gap-2")],
+                    [h.Class("flex min-w-0 grow items-start gap-2")],
                     [
-                      h.span([h.Class(`size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)], []),
+                      h.span(
+                        [h.Class(`mt-2 size-2 shrink-0 rounded-full ${waitDot(agent.wait)}`)],
+                        [],
+                      ),
                       h.span([h.Class("min-w-0 wrap-anywhere")], [`${agent.name} ${agent.title}`]),
                     ],
                   ),

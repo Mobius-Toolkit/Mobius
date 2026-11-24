@@ -73,7 +73,8 @@ test("on a phone, a card of the Agents page puts a long badge under the name and
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await routeLongNameOfPaused(page);
+  const wrappedTitle = "owner/very-long-repository-name-that-wraps-on-a-phone";
+  await routeLongNameOfPaused(page, { issue: 41, title: wrappedTitle });
   await page.goto("/agents");
   const main = page.getByRole("main");
   const long = main.getByRole("button", { name: /Ticket #45 Pick the plan limits/ });
@@ -100,6 +101,22 @@ test("on a phone, a card of the Agents page puts a long badge under the name and
     await boxOf(short.getByText("queued", { exact: true })),
   ];
   expect(shortBadgeBox.y).toBeLessThan(shortNameBox.y + shortNameBox.height);
+
+  const wrapped = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
+  const [wrappedNameBox, wrappedDotBox, wrappedChevronBox] = [
+    await boxOf(wrapped.getByText(`implementer ${wrappedTitle}`, { exact: true })),
+    await boxOf(wrapped.locator("span.rounded-full")),
+    await boxOf(wrapped.locator("svg")),
+  ];
+  expect(wrappedNameBox.height).toBeGreaterThan(shortNameBox.height * 1.5);
+  expect(wrappedDotBox.y).toBeGreaterThanOrEqual(wrappedNameBox.y);
+  expect(wrappedDotBox.y + wrappedDotBox.height).toBeLessThanOrEqual(
+    wrappedNameBox.y + shortNameBox.height,
+  );
+  expect(wrappedDotBox.y).toBeGreaterThanOrEqual(wrappedChevronBox.y);
+  expect(wrappedDotBox.y + wrappedDotBox.height).toBeLessThanOrEqual(
+    wrappedChevronBox.y + wrappedChevronBox.height,
+  );
 });
 
 test("a task that waits for a Harness pause shows the same badge on the Tasks board, in the Workstream tree and on the Agents page", async ({
@@ -281,11 +298,13 @@ test("the Agents tab of a Workstream keeps a long issue title on one line on a p
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const title = "Read the pull request of a task in checks again at each poll ".repeat(4).trim();
+  const wrappedTitle = "owner/very-long-repository-name-that-wraps-on-a-phone";
   await page.route("**/api/workstreams/owner/shop/12/agents", async (route) => {
     const response = await route.fetch();
     const body = await response.json();
     for (const agent of body.data) {
       if (agent.issue === 41) {
+        agent.title = wrappedTitle;
         agent.issueTitle = title;
       }
     }
@@ -308,6 +327,17 @@ test("the Agents tab of a Workstream keeps a long issue title on one line on a p
   expect(await issueTitle.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
     true,
   );
+  const nameElement = entry.getByText(`Implementer ${wrappedTitle}`, { exact: true });
+  const [nameBox, dotBox] = [
+    await boxOf(nameElement),
+    await boxOf(entry.locator("span.rounded-full")),
+  ];
+  const lineHeight = await nameElement.evaluate((el) =>
+    Number.parseFloat(getComputedStyle(el).lineHeight),
+  );
+  expect(nameBox.height).toBeGreaterThan(lineHeight * 1.5);
+  expect(dotBox.y).toBeGreaterThanOrEqual(nameBox.y);
+  expect(dotBox.y + dotBox.height).toBeLessThanOrEqual(nameBox.y + lineHeight);
 });
 
 test.describe("the transcript of an agent on a phone", () => {
