@@ -59,3 +59,20 @@ func TestAnAddOfNeedsHumanByATrustedUserToTheIssueOfAWorkingTaskHasNoEffectAndTh
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }
+
+func TestAnAddOfWorkingByATrustedUserToATreeIssueWithNoLiveTaskGetsRemovedBySendStateLabels(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	server := startCopied(t, fake)
+
+	fake.AddLabel(shop, 41, "mobius:working", "owner")
+
+	testkit.WaitFor(t, func() bool { return fake.LabelRemovedBy(shop, 41, "mobius:working", testkit.AppSlug+"[bot]") })
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'state_labels' AND actor = 'owner' AND change = 'labeled' AND number = 41"); got != 1 {
+		t.Errorf("incoming changes of the add = %d, want 1", got)
+	}
+}

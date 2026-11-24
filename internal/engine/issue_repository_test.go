@@ -59,6 +59,7 @@ func TestTheCoordinatorMovesAnIssueOfAnotherRepositoryBelowAWorkstream(t *testin
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := issueRepositoryShop(t, fake, call("move_issue", `{ repository = "owner/garden", n = 7, workstream = 12 }`))
+	turnStartOff(t, server)
 
 	session := run(t, server, coordinatorSpec(t), "Move it.")
 
