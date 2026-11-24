@@ -25,6 +25,7 @@ import {
   waitText,
   withdrawDraft,
 } from "./actions.js";
+import { routeLongNameOfPaused } from "./agents.js";
 import { waitForEvergreen } from "./evergreen.js";
 import {
   checkupRoute,
@@ -1513,9 +1514,10 @@ test("screenshots", async ({ page }) => {
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
       ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
-      page.getByText("Implementer #41 Add plan model").filter({ visible: true }),
+      page.getByRole("link", { name: "#41" }).filter({ visible: true }).first(),
+      page.getByText("devin · swe-1.5 · high", { exact: true }).filter({ visible: true }).first(),
       page
-        .getByText(/^devin · swe-1\.5 · high · Sep \d+, \d\d:\d\d [AP]M/)
+        .getByText(/^Sep \d+, \d\d:\d\d [AP]M · waits for a low load/)
         .filter({ visible: true })
         .first(),
       chatTray,
@@ -1539,7 +1541,8 @@ test("screenshots", async ({ page }) => {
         ? [drain, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
       main.getByText("No messages. Write to start a chat session."),
-      page.getByText("Implementer #85 Water the new beds").filter({ visible: true }),
+      page.getByRole("link", { name: "#85" }).filter({ visible: true }),
+      page.getByText("Water the new beds", { exact: true }).filter({ visible: true }),
       page.getByText(/closes in 42 min/).filter({ visible: true }),
       page.getByText("kept", { exact: true }).filter({ visible: true }),
     ],
@@ -3238,6 +3241,23 @@ test("screenshots", async ({ page }) => {
     },
   );
   await setQueueReason(page, "", "");
+  await routeLongNameOfPaused(page);
+  await screenshot(
+    page,
+    "agents-long-badge",
+    "/agents",
+    (device) => [
+      ...frame(device, drain),
+      main.getByText("implementer of the shop plans"),
+      main.getByText(/^paused until Sep 28, 12:00\sPM$/),
+    ],
+    async () => {
+      await main
+        .getByRole("button", { name: /Ticket #45 Pick the plan limits/ })
+        .scrollIntoViewIfNeeded();
+    },
+  );
+  await page.unroute("**/api/agents");
   await screenshot(
     page,
     "transcript",
