@@ -352,3 +352,34 @@ func TestAFailedRemovalOfTheQuestionLabelAfterWontDoRetriesOnTheNextPoll(t *test
 		t.Errorf("close_pending after retry = %d, %v", closePending, err)
 	}
 }
+
+func TestTheClosureItemsStillHaveAnOpenProject(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddSubIssueOf(shop, 12, 21, "Plan limits")
+	fake.AddLabel(shop, 21, "mobius:project", "owner")
+	fake.AddSubIssueOf(shop, 21, 22, "Show the plan limit")
+	fake.AddSubIssueOf(shop, 12, 23, "Old plan limits")
+	fake.AddLabel(shop, 23, "mobius:project", "owner")
+	fake.CloseIssueAs(shop, 23, "completed")
+	server := startCopied(t, fake)
+
+	items := closure(t, server)
+
+	want := []closureItem{
+		{Kind: "issue", Repository: shop, Number: 21, Title: "Plan limits"},
+		{Kind: "issue", Repository: shop, Number: 22, Title: "Show the plan limit"},
+		{Kind: "issue", Repository: shop, Number: 41, Title: "Add plan model"},
+		{Kind: "issue", Repository: shop, Number: 12, Title: "Integrate loyalty plans"},
+	}
+	if len(items) != len(want) {
+		t.Fatalf("items = %+v, want %+v", items, want)
+	}
+	for i, item := range items {
+		item.URL = ""
+		if item != want[i] {
+			t.Errorf("item[%d] = %+v, want %+v", i, item, want[i])
+		}
+	}
+}
