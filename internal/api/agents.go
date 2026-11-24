@@ -50,8 +50,8 @@ type Agent struct {
 	QueueReason string `gork:"queueReason"`
 	// PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause
 	PausedUntil *time.Time `gork:"pausedUntil"`
-	// Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check and init
-	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init ci lead owner start_implementer owner_action"`
+	// Wait is the kind of the wait of the session, or an empty string while it does not wait. A session has only the values paused, start_off, drain, no_access, slot, check_slot, low_load, local_check, init and harness_start
+	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// Working is true while the session works. A chat session works while a turn runs. Another open session works
 	// while it does not wait for a slot, for a check slot or for the end of a usage limit
 	Working bool `gork:"working"`

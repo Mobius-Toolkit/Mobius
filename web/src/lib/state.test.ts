@@ -21,6 +21,7 @@ describe("displayState", () => {
     ["low_load", "waits for load"],
     ["local_check", "checks"],
     ["init", "setup"],
+    ["harness_start", "starting"],
     ["ci", "waits for CI"],
     ["lead", "waits for Lead"],
     ["owner", "waits for Owner"],

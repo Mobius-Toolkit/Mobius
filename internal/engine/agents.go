@@ -538,11 +538,21 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		}
 		servers = runnerMcpServers(selected)
 	}
+	starting, err := e.setQueueWait(ctx, a.id, queueWait{waitHarnessStart, "starts " + runner.Program(a.binding.Harness)})
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Node: new(e.node(starting))})
 	session, err := runner.Start(ctx, a.binding.Harness, a.binding.Context, shortCacheRole(spec.Role), chromeRole(spec.Role, a.binding.Harness), spec.Dir, e.config.DataDir, e.agents.Path, mcp.URL(e.agents.Addr, a.key), servers, ghTokenURL, ghMark, mcp.PortURL(e.agents.Addr, a.key), a.update)
+	started, clearErr := e.setQueueWait(ctx, a.id, queueWait{})
 	if err != nil {
 		return err
 	}
 	a.session = session
+	if clearErr != nil {
+		return clearErr
+	}
+	e.publish(Change{Node: new(e.node(started))})
 	return e.queries.SetACPSessionID(ctx, store.SetACPSessionIDParams{AcpSessionID: sql.NullString{String: session.ID(), Valid: true}, ID: a.id})
 }
 
@@ -1180,9 +1190,9 @@ func (e *Engine) working(n Node) bool {
 		e.chatsMu.Lock()
 		defer e.chatsMu.Unlock()
 		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
-		return ok && c.writing && !session.QueueWait.Valid
+		return ok && c.writing && (!session.QueueWait.Valid || Wait(session.QueueWait.String) == waitHarnessStart)
 	}
-	return !session.QueueWait.Valid || slices.Contains([]Wait{waitLocalCheck, waitInit}, Wait(session.QueueWait.String))
+	return !session.QueueWait.Valid || slices.Contains([]Wait{waitLocalCheck, waitInit, waitHarnessStart}, Wait(session.QueueWait.String))
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.

@@ -79,6 +79,9 @@ function renderProject(h: H, model: Model, line: TaskLine, progress: Progress): 
         ],
         [line.title],
       ),
+      line.evergreen
+        ? h.span([h.Class("shrink-0 text-sm text-muted-foreground")], ["evergreen"])
+        : h.empty,
       h.span(
         [h.Class("shrink-0 text-sm text-muted-foreground")],
         [`${progress.done}/${progress.all}`],

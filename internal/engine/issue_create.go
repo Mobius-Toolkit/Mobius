@@ -117,6 +117,7 @@ func (e *Engine) addIssueToCreate(ctx context.Context, repository github.Reposit
 			Workstream:       sql.NullInt64{Int64: workstreamID, Valid: true},
 			Parent:           parentID,
 			Kind:             issueKind(labels),
+			Evergreen:        issueKind(labels) == projectKind && slices.Contains(labels, evergreenLabel),
 			Triage:           curator,
 			StartRequestedAt: startAt,
 			StartRequestedBy: startBy,
