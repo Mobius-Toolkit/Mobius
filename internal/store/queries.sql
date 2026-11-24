@@ -1695,7 +1695,7 @@ SELECT m.workstream, m.time, m.text,
                         AND p.id < m.id AND p.author IN ('Lead', 'tell_owner')
                       ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS lead_text
 FROM chat_messages m
-WHERE m.repository = sqlc.arg(repository) AND m.author = 'Owner' AND julianday(m.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+WHERE m.repository = sqlc.arg(repository) AND m.author = 'Owner' AND m.display_only = 0 AND julianday(m.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
 ORDER BY m.id;
 
 -- name: ListToolCallsSince :many
