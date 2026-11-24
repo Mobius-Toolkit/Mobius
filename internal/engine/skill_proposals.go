@@ -44,12 +44,12 @@ type rejectSkillProposalInput struct {
 }
 
 func (e *Engine) proposeSkillTool(c caller) mcp.Tool {
-	return toolOf(e, c, noRepository, "propose_skill",
+	propose := toolOf(e, c, noRepository, "propose_skill",
 		"Propose a new skill or a change of a skill for the skill repository of the organization. Call it after you wrote a script or a command that later sessions can use again. To change a skill, read its copy in the skill folder of your working directory, change the copy, and send the full folder: a file that you do not send goes away. Mobius sends the proposal to the Lead of the Workstream \"Skills\". The tool writes nothing to GitHub. A change reaches the agents only after the Owner approves its pull request. Before you propose a new skill, read the name and the description of each skill in your skill folder. When one has the same purpose, send a change of that skill with its name.",
 		map[string]any{
 			"name":       map[string]any{"type": "string", "pattern": skillName.String(), "description": "The name of the skill folder. It has lowercase letters, digits and hyphens."},
 			"reason":     map[string]any{"type": "string", "minLength": 1, "description": "What the skill does, and why later sessions need it."},
-			"repository": map[string]any{"type": "string", "description": "Optional. The full name of the repository (owner/name) in the organization. Give it when the skill is only for the code of that repository. Else give an empty string."},
+			"repository": map[string]any{"type": "string", "description": "Optional. The full name of the repository (owner/name) in the organization. Give it when the skill is only for the code of that repository. Else leave it out."},
 			"files": map[string]any{
 				"type":        "array",
 				"minItems":    1,
@@ -66,6 +66,8 @@ func (e *Engine) proposeSkillTool(c caller) mcp.Tool {
 			},
 		},
 		e.proposeSkill)
+	propose.Optional = []string{"repository"}
+	return propose
 }
 
 func (e *Engine) rejectSkillProposalTool(c caller) mcp.Tool {

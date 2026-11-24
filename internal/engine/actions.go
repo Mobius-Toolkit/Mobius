@@ -141,10 +141,12 @@ func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 	description := "Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message. A new call replaces the waiting action of this tool, and the result names the replaced action."
 	properties := workstreamProperties
+	var optional []string
 	switch c.role {
 	case CoordinatorRole:
 		description += " Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label."
 		properties = coordinatorWorkstreamProperties
+		optional = []string{"labels"}
 	case TriagerRole:
 		description = "Create a Workstream in the issue repository of the organization: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue. A new call replaces the waiting action of this tool, and the result names the replaced action."
 	}
@@ -152,13 +154,15 @@ func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 	if c.role == TriagerRole {
 		resolve = e.triagerWorkstreamRepository
 	}
-	return approvedTool(e, c, resolve, "create_workstream", description,
+	workstream := approvedTool(e, c, resolve, "create_workstream", description,
 		properties,
 		func(_ context.Context, _ github.Repository, input workstreamInput) (string, error) {
 			return `Create the Workstream "` + input.Title + `"`, nil
 		},
 		checkWorkstream,
 		e.createWorkstream)
+	workstream.Optional = optional
+	return workstream
 }
 
 func (e *Engine) moveTaskTool(c caller) mcp.Tool {
@@ -202,7 +206,7 @@ var (
 )
 
 func (e *Engine) createRecurringTaskTool(c caller) mcp.Tool {
-	return approvedTool(e, c, e.callerRepository, "create_recurring_task",
+	return withOptional(approvedTool(e, c, e.callerRepository, "create_recurring_task",
 		"Add a recurring task to this Workstream. At each time of the cron expression, you get an event with the text. With a project, the event names the Project, and you create the issues of each run below that Project. "+recurringToolRules+" Each call adds its own waiting action.",
 		map[string]any{"cron": cronProperty, "text": recurringTextProperty, "project": recurringProjectProperty},
 		func(ctx context.Context, _ github.Repository, input createRecurringInput) (string, error) {
@@ -214,11 +218,11 @@ func (e *Engine) createRecurringTaskTool(c caller) mcp.Tool {
 			return "Add a recurring task" + in + ": next " + times, err
 		},
 		checkCreateRecurring,
-		e.createRecurringTask)
+		e.createRecurringTask), "project")
 }
 
 func (e *Engine) updateRecurringTaskTool(c caller) mcp.Tool {
-	return approvedTool(e, c, e.callerRepository, "update_recurring_task",
+	return withOptional(approvedTool(e, c, e.callerRepository, "update_recurring_task",
 		"Change the cron expression, the text and the Project of a recurring task of this Workstream. A call with no project gives the task no Project. "+recurringToolRules+" A new call with the same id replaces the waiting action for that task, and the result names the replaced action.",
 		map[string]any{"id": recurringIDProperty, "cron": cronProperty, "text": recurringTextProperty, "project": recurringProjectProperty},
 		func(ctx context.Context, _ github.Repository, input updateRecurringInput) (string, error) {
@@ -230,7 +234,7 @@ func (e *Engine) updateRecurringTaskTool(c caller) mcp.Tool {
 			return fmt.Sprintf("Change the recurring task %d%s: next %s", input.ID, in, times), err
 		},
 		checkUpdateRecurring,
-		e.updateRecurringTask)
+		e.updateRecurringTask), "project")
 }
 
 func (e *Engine) deleteRecurringTaskTool(c caller) mcp.Tool {

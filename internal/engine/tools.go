@@ -159,7 +159,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The work for the Operator, with the context that it needs."},
 				},
 				e.startOperator),
-			taskTool(e, c, "ask",
+			withOptional(taskTool(e, c, "ask",
 				"Ask the people on a task issue, or on the Workstream issue, a question. For a task issue with no live task, ask on the Workstream issue, and name the task issue in the text. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. A new question on an issue replaces the open question of that issue in the Inbox. Thus put all open questions of one issue into one call. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
 					"repository": repositoryProperty,
@@ -167,7 +167,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue. With questions, the context of the questions."},
 					"questions":  questionsProperty,
 				},
-				e.ask),
+				e.ask), "questions"),
 			taskTool(e, c, "close_question",
 				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. An answer of the Owner on GitHub closes the question, so call no close_question then. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
 				map[string]any{
@@ -197,7 +197,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"reason":     map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
 				},
 				e.closeTask),
-			taskTool(e, c, "create_issue",
+			withOptional(taskTool(e, c, "create_issue",
 				"Create an issue in a repository of the organization, below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
 					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) of the new issue."},
@@ -212,7 +212,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 						"properties":  implementerSettingProperties,
 					},
 				},
-				e.createIssue),
+				e.createIssue), "implementer"),
 			e.createProjectTool(c),
 			tool(e, c, "close_project",
 				"Close a Project of the Workstream as completed. Mobius posts the report as a comment on the Project issue and closes it. It refuses an issue that is not a Project of this Workstream, a Project with an open sub-issue, a Project with a recurring task, and an evergreen Project.",
@@ -499,13 +499,13 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
 				},
 				e.tellOwner),
-			toolOf(e, c, noRepository, "ask",
+			withOptional(toolOf(e, c, noRepository, "ask",
 				"Ask the Owner a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius adds an Inbox item for the Owner. The tool returns at once. The answer arrives later as a chat message of the Owner.",
 				map[string]any{
 					"text":      map[string]any{"type": "string", "minLength": 1, "description": "The question for the Owner. With questions, the context of the questions."},
 					"questions": questionsProperty,
 				},
-				e.coordinatorAsk),
+				e.coordinatorAsk), "questions"),
 			toolOf(e, c, noRepository, "withdraw", withdrawDescription,
 				map[string]any{
 					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The ID of your open question or pending action."},
@@ -514,6 +514,11 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 		}
 	}
 	return nil
+}
+
+func withOptional(tool mcp.Tool, optional ...string) mcp.Tool {
+	tool.Optional = optional
+	return tool
 }
 
 var questionsProperty = map[string]any{

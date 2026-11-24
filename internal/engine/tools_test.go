@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -131,6 +132,93 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("tools of %s = %q", c.spec.Role, got)
+		}
+	}
+}
+
+func TestOptionalParametersAreNotRequiredInTheSchema(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nlist_tools = true\n", func(cfg *config.Config) {
+		cfg.Roles.Diagnoser = cfg.Roles.Curator
+	})
+	role := func(name string) engine.Spec {
+		spec := leadSpec(t)
+		spec.Role = name
+		return spec
+	}
+	cases := []struct {
+		spec  engine.Spec
+		tools map[string][]string
+	}{
+		{
+			leadSpec(t),
+			map[string][]string{
+				"ask":                   {"questions"},
+				"create_issue":          {"implementer"},
+				"create_recurring_task": {"project"},
+				"propose_skill":         {"repository"},
+				"update_recurring_task": {"project"},
+			},
+		},
+		{
+			engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()},
+			map[string][]string{
+				"ask":               {"questions"},
+				"create_workstream": {"labels"},
+				"propose_skill":     {"repository"},
+			},
+		},
+		{engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}, map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.ReviewerRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.ImplementerRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.ResearcherRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.JudgeRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.CuratorRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.DiagnoserRole), map[string][]string{"propose_skill": {"repository"}}},
+		{role(engine.OperatorRole), map[string][]string{"propose_skill": {"repository"}}},
+	}
+	type schemaList struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]any `json:"properties"`
+				Required   []string       `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	for _, c := range cases {
+		session := run(t, server, c.spec, "List the tools")
+		text := reply(t, server, session)
+		var list schemaList
+		if err := json.Unmarshal([]byte(text), &list); err != nil {
+			t.Fatalf("%s: %v: %s", c.spec.Role, err, text)
+		}
+		found := map[string]bool{}
+		for _, tool := range list.Tools {
+			optional, ok := c.tools[tool.Name]
+			if !ok {
+				continue
+			}
+			found[tool.Name] = true
+			for _, name := range optional {
+				if _, has := tool.InputSchema.Properties[name]; !has {
+					t.Errorf("%s %s: property %q missing from %v", c.spec.Role, tool.Name, name, slices.Sorted(maps.Keys(tool.InputSchema.Properties)))
+				}
+			}
+			want := slices.DeleteFunc(slices.Sorted(maps.Keys(tool.InputSchema.Properties)), func(name string) bool {
+				return slices.Contains(optional, name)
+			})
+			got := slices.Clone(tool.InputSchema.Required)
+			slices.Sort(got)
+			if !slices.Equal(got, want) {
+				t.Errorf("%s %s: required = %v, want %v", c.spec.Role, tool.Name, got, want)
+			}
+		}
+		for name := range c.tools {
+			if !found[name] {
+				t.Errorf("%s: %s is not in the tool list", c.spec.Role, name)
+			}
 		}
 	}
 }
@@ -609,6 +697,20 @@ func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 		t.Errorf("labels of #13 = %v", labels)
 	}
 	waitForIssue(t, fake, 14, "Plain", "No extra label.", []string{"mobius:workstream"})
+}
+
+func TestCoordinatorCreateWorkstreamWithOmittedLabelsAddsOnlyTheWorkstreamLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Plain", brief = "No extra label." }`)+seenScript)
+
+	run(t, server, coordinatorSpec(t), "Create.")
+	done := approveNext(t, server, 1)
+
+	if done.State != "done" || done.Result != "Created the Workstream #13." {
+		t.Errorf("action = %+v", done)
+	}
+	waitForIssue(t, fake, 13, "Plain", "No extra label.", []string{"mobius:workstream"})
 }
 
 func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
