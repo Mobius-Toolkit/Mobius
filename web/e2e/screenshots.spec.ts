@@ -4442,6 +4442,22 @@ test("screenshots", async ({ page }) => {
       )
       .toBe(true);
   };
+  const ownerDecision = (decision: string, title: string) =>
+    main
+      .locator("[data-message]")
+      .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
+      .filter({ hasText: title })
+      .filter({ has: page.getByText(decision, { exact: true }) });
+  const showDecision = (decision: string, title: string) => async () => {
+    await expect(ownerDecision(decision, title)).toBeVisible();
+    await showChatEnd(page);
+    await expect(ownerDecision(decision, title)).toBeInViewport();
+  };
+  const showCardInView = async (title: string) => {
+    await showEnd(title)();
+    await cardOf(page, title).evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await expect(cardOf(page, title)).toBeInViewport({ ratio: 1 });
+  };
 
   await page.setViewportSize(viewports.desktop);
   await page.goto("/chat");
@@ -4595,6 +4611,9 @@ test("screenshots", async ({ page }) => {
       waits(2),
       cardOf(page, unknownTitle).getByText("Rejected", { exact: true }),
       cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
+      ownerDecision("Rejected", unknownTitle).getByRole("img", {
+        name: "Sent from the Inbox at 09:30 AM",
+      }),
     ],
     async (device) => {
       if (device === "desktop") {
@@ -4603,34 +4622,50 @@ test("screenshots", async ({ page }) => {
         await expect(panel).toBeHidden();
         await skipNotice(page, noticeOf(page, "Rejected: "));
         await fixRecordTimes(page);
+        await page.goto("/chat");
       }
       const card = cardOf(page, unknownTitle);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
       await expect(waits(2)).toBeVisible();
-      await showEnd(unknownTitle)();
+      await expect(ownerDecision("Rejected", unknownTitle)).toHaveCount(1);
+      if (device === "desktop") {
+        await showEnd(unknownTitle)();
+        await expect(card).toBeInViewport({ ratio: 1 });
+        await expect(ownerDecision("Rejected", unknownTitle)).toBeInViewport({ ratio: 1 });
+      } else {
+        await showCardInView(unknownTitle);
+      }
     },
   );
-  const unknownAction = await cardOf(page, unknownTitle).getAttribute("data-action");
-  const setUnknownAction = async (state: string, message: string) => {
-    const query = new URLSearchParams({ state, message });
-    expect((await page.request.put(`/e2e/actions/${unknownAction}/state?${query}`)).ok()).toBe(
-      true,
-    );
+  // The Lead action has no decision, so the chat shows no message of the Owner for it. The state stays only for the
+  // screenshot.
+  const leadAction = await cardOf(page, leadTitle).getAttribute("data-action");
+  const setLeadAction = async (state: string) => {
+    const query = new URLSearchParams({ state, message: "" });
+    expect((await page.request.put(`/e2e/actions/${leadAction}/state?${query}`)).ok()).toBe(true);
   };
-  await setUnknownAction("withdrawn", "");
+  await setLeadAction("withdrawn");
   await screenshot(
     page,
     "action-withdrawn",
     "/chat",
     (device) => [
       ...approvalReady(device, "3"),
-      waits(2),
-      cardOf(page, unknownTitle).getByText("Withdrawn by the agent", { exact: true }),
-      cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
+      waits(1),
+      cardOf(page, leadTitle).getByText("Withdrawn by the agent", { exact: true }),
+      cardOf(page, leadTitle).getByRole("button", { name: "Details" }),
     ],
-    showEnd(unknownTitle),
+    async () => {
+      await showCardInView(leadTitle);
+      await expect(
+        main
+          .locator("[data-message]")
+          .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
+          .filter({ hasText: leadTitle }),
+      ).toHaveCount(0);
+    },
   );
-  await setUnknownAction("rejected", "Wait for the migration of #12.");
+  await setLeadAction("pending");
 
   // The fake Coordinator asks a question with options. The answer ends the question.
   await page.goto("/chat");
@@ -4867,17 +4902,6 @@ test("screenshots", async ({ page }) => {
     ],
     showBriefCard,
   );
-  const ownerDecision = (decision: string, title: string) =>
-    main
-      .locator("[data-message]")
-      .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
-      .filter({ hasText: title })
-      .filter({ has: page.getByText(decision, { exact: true }) });
-  const showDecision = (decision: string, title: string) => async () => {
-    await expect(ownerDecision(decision, title)).toBeVisible();
-    await showChatEnd(page);
-    await expect(ownerDecision(decision, title)).toBeInViewport();
-  };
   await screenshot(
     page,
     "action-approved-owner-message",

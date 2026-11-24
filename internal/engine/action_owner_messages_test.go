@@ -103,9 +103,7 @@ func TestTheOwnerDecidesAnActionOfTheTriagerAndNoChatGetsAnOwnerMessage(t *testi
 	}
 	waitForNoItem(t, server, "approval")
 	waitForPolls(t, fake)
-	for _, key := range []engine.ChatKey{coordinatorChat, leadChat} {
-		if got := displayOnlyMessages(t, server, key); len(got) != 0 {
-			t.Errorf("messages of %+v = %+v", key, got)
-		}
+	if got := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE display_only = 1"); got != 0 {
+		t.Errorf("display-only messages = %d, want 0", got)
 	}
 }
