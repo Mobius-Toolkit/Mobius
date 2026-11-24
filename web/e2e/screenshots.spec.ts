@@ -3232,7 +3232,11 @@ test("screenshots", async ({ page }) => {
     page,
     "transcript-connecting",
     "/agents",
-    (device) => [...frame(device, drain), main.getByText("Connecting…")],
+    (device) => [
+      ...frame(device, drain),
+      main.getByText("Connecting…"),
+      main.getByText("The plan prices are in cents now."),
+    ],
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
   await page.unroute("**/api/agents/*/transcript/events");
