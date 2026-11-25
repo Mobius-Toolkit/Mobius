@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"math"
@@ -25,8 +24,12 @@ import (
 // declineRule is a Lead that declines the task of #41.
 const declineRule = "[[prompts]]\nwhen = \"Decline it\"\ncall = { tool = \"decline\", arguments = { repository = \"owner/shop\", n = 41, reason = \"No.\" } }\n\n"
 
+// keptFindingsRule is leadFindings for a message of the Owner that the Lead gets now. The chat history of a new Lead session
+// shows an earlier message as "Owner (time):\nSend the findings to #41", so the rule needs the blank line before the text.
+var keptFindingsRule = strings.Replace(leadFindings, "when = \"", "when = \"\\n\\n", 1)
+
 // keptLead starts a fix round and can decline the task.
-const keptLead = noFinding + declineRule + leadFindings + leadStarts
+var keptLead = noFinding + declineRule + keptFindingsRule + leadStarts
 
 // counting is a fake Harness script that counts each process of the Implementer in the file starts next to it.
 const counting = "skip_tools_list = 1000\n"
@@ -140,6 +143,28 @@ func sessionCost(t *testing.T, server *testserver.Server, session int64) float64
 		t.Fatal(err)
 	}
 	return cost
+}
+
+// logRoundsOnFailure logs the task of #41 with its round counters, its Implementer sessions, the events and messages
+// of the Lead chat and the tool calls of the Lead sessions when the test fails.
+func logRoundsOnFailure(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		logRows(t, server, "task", "SELECT state, review_rounds, fix_rounds, worker_restarts, lead_findings FROM tasks WHERE repository = ? AND issue = 41 ORDER BY id", shop)
+		logRows(t, server, "Implementer session", "SELECT id, started_at, ended_at, end_reason, continued FROM sessions WHERE role = ? AND workstream = 12 ORDER BY id", engine.ImplementerRole)
+		logRows(t, server, "Lead event", "SELECT id, kind, time, delivered_at, held, substr(payload, 1, 60) AS payload FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		logRows(t, server, "Lead chat", "SELECT id, author, time, substr(text, 1, 60) AS text FROM chat_messages WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			for _, line := range transcript(t, server, session.ID) {
+				if line.Kind == "mcp_call" {
+					t.Logf("Lead session %d call: %s", session.ID, line.Raw)
+				}
+			}
+		}
+	})
 }
 
 // waitForIssueBody waits until the copied row of the issue has body. A fix round reads the body from that row.
@@ -666,25 +691,7 @@ func TestAShortPromptHasTheEarlierReportAfterAConflictRound(t *testing.T) {
 	merges := "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\n" +
 		"shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n\n"
 	server, _ := keptServer(t, fake, merges+fixWithCost+commitsWithReport, noChange)
-	t.Cleanup(func() {
-		if !t.Failed() {
-			return
-		}
-		task, err := store.New(server.DB).GetLiveTask(context.Background(), store.GetLiveTaskParams{Repository: shop, Issue: 41})
-		if err != nil {
-			t.Logf("task: %v", err)
-		} else {
-			t.Logf("task: state = %s, review rounds = %d, fix rounds = %d, Lead findings = %q", task.State, task.ReviewRounds, task.FixRounds, task.LeadFindings)
-		}
-		view, err := server.Engine.ChatView(context.Background(), leadChat, 0)
-		if err != nil {
-			t.Logf("Lead chat: %v", err)
-			return
-		}
-		for _, message := range view.Messages {
-			t.Logf("Lead chat: %s: %s", message.Author, message.Text)
-		}
-	})
+	logRoundsOnFailure(t, server)
 	firstRound(t, server, fake)
 	waitForKept(t, server, 41)
 
@@ -742,9 +749,15 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 		"shell = \"echo more >> plan.txt && git commit -q -am 'Add more'\"\n\n"
 	testkit.InstallFakeHarness(t, dataDir, "devin", counting+options+commitsMore+commits)
 	restarted := testserver.Start(t, dataDir, fake.URL)
+	logRoundsOnFailure(t, restarted)
 	restarted.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, restarted.Engine.AccessChecked)
 	waitForTask(t, restarted, 41, "approval")
+	// The event ready_for_approval starts a new Lead session. Its first prompt has the first message in its chat history.
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, restarted, leadChat, engine.LeadRole)
+		return len(sessions) >= 3 && len(rows(t, restarted, sessions[2].ID, "mcp_call")) > 0
+	})
 	waitForImplementerSessions(t, restarted, 3)
 	waitForKept(t, restarted, 41)
 	waitForIssueBody(t, restarted, 41, "Plans have a new price.")
