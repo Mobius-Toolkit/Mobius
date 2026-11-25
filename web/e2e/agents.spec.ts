@@ -959,6 +959,12 @@ test.describe("the header of the Transcript of an agent", () => {
           Number.parseFloat(getComputedStyle(element).lineHeight),
         );
         expect((await boxOf(heading)).height).toBeGreaterThan(lineHeight * 1.5);
+      } else {
+        const subtitle = page.getByRole("main").getByText(roleSubtitle, { exact: true });
+        const lineHeight = await subtitle.evaluate((element) =>
+          Number.parseFloat(getComputedStyle(element).lineHeight),
+        );
+        expect((await boxOf(subtitle)).height).toBeGreaterThanOrEqual(lineHeight);
       }
       expect(
         await page.evaluate(
@@ -967,6 +973,31 @@ test.describe("the header of the Transcript of an agent", () => {
       ).toBe(true);
     });
   }
+
+  test("truncates a long subtitle on a phone and keeps the page from scrolling to the side", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await changeAgent(page, (agent) => {
+      agent.title = "of-a-repository-with-a-very-long-name-that-has-no-break";
+      agent.model = "a-model-with-a-very-long-name-that-has-no-break";
+    });
+    await page.goto("/agents");
+    await openAgentsCard(page);
+    const subtitle = page
+      .getByRole("main")
+      .getByText(/^Implementer of-a-repository/)
+      .filter({ visible: true });
+    await expect(subtitle).toBeVisible();
+    expect(await subtitle.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(
+      true,
+    );
+    expect(
+      await page.evaluate(
+        `document.getElementById('content').scrollWidth <= document.getElementById('content').clientWidth`,
+      ),
+    ).toBe(true);
+  });
 });
 
 test.describe("the back button on a desktop", () => {

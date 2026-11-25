@@ -113,7 +113,7 @@ export function view(model: Model, h: H): Html {
       h.div(
         [
           h.Class(
-            "flex flex-col gap-6 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.125rem)]",
+            "flex min-w-0 flex-col gap-6 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.125rem)]",
           ),
         ],
         [
@@ -125,7 +125,7 @@ export function view(model: Model, h: H): Html {
             transcriptSubtitle(transcript.agent),
           ),
           h.p(
-            [h.Class(`-mb-3 truncate text-sm text-muted-foreground md:hidden ${inset}`)],
+            [h.Class(`-mb-3 shrink-0 truncate text-sm text-muted-foreground md:hidden ${inset}`)],
             [transcriptSubtitle(transcript.agent)],
           ),
           h.submodel({
