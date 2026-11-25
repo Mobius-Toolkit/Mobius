@@ -19,6 +19,7 @@ func serverSection() string {
 			"The option -i of sed needs an argument for the suffix of the backup file. For no backup, use an empty suffix: sed -i '' 's|old|new|' file\n" +
 			"The commands a, i and c of the BSD sed need a backslash and a new line before the text."
 	}
+	text += "\nPut each pattern for a command in quotes, for example --include='*.go'. The shell can be zsh, and zsh does not run a command with an unquoted pattern that matches no file."
 	return fmt.Sprintf("# Server\n\n%s\n\n", text)
 }
 
