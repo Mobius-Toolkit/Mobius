@@ -155,8 +155,8 @@ func logRoundsOnFailure(t *testing.T, server *testserver.Server) {
 		}
 		logRows(t, server, "task", "SELECT state, review_rounds, fix_rounds, worker_restarts, lead_findings FROM tasks WHERE repository = ? AND issue = 41 ORDER BY id", shop)
 		logRows(t, server, "Implementer session", "SELECT id, started_at, ended_at, end_reason, continued FROM sessions WHERE role = ? AND workstream = 12 ORDER BY id", engine.ImplementerRole)
-		logRows(t, server, "Lead event", "SELECT id, kind, time, delivered_at, held, substr(payload, 1, 60) AS payload FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
-		logRows(t, server, "Lead chat", "SELECT id, author, time, substr(text, 1, 60) AS text FROM chat_messages WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		logRows(t, server, "Lead event", "SELECT id, kind, time, delivered_at, held, payload FROM lead_events WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
+		logRows(t, server, "Lead chat", "SELECT id, author, time, text FROM chat_messages WHERE repository = ? AND workstream = 12 ORDER BY id", shop)
 		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
 			for _, line := range transcript(t, server, session.ID) {
 				if line.Kind == "mcp_call" {
@@ -733,6 +733,7 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 	// The fix round hangs, so that the test can stop the server while worker_input holds the old issue body.
 	hang := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nhang = true\n\n"
 	server, dataDir := keptServer(t, fake, hang+commits, noChange)
+	logRoundsOnFailure(t, server)
 	firstRound(t, server, fake)
 	waitForKept(t, server, 41)
 
@@ -742,6 +743,8 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 		return len(sessions) == 2 && len(promptTexts(t, server, sessions[1].ID)) == 1
 	})
 	server.Stop()
+	leadSessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	lastLead := leadSessions[len(leadSessions)-1].ID
 
 	// The restart sends worker_input with the issue body of its round, so the kept session reads no new body.
 	fake.SetBody(shop, 41, "Plans have a new price.")
@@ -749,14 +752,14 @@ func TestAShortPromptHasTheIssueBodyOfARestartedRound(t *testing.T) {
 		"shell = \"echo more >> plan.txt && git commit -q -am 'Add more'\"\n\n"
 	testkit.InstallFakeHarness(t, dataDir, "devin", counting+options+commitsMore+commits)
 	restarted := testserver.Start(t, dataDir, fake.URL)
-	logRoundsOnFailure(t, restarted)
 	restarted.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, restarted.Engine.AccessChecked)
 	waitForTask(t, restarted, 41, "approval")
 	// The event ready_for_approval starts a new Lead session. Its first prompt has the first message in its chat history.
 	testkit.WaitFor(t, func() bool {
-		sessions := chatSessions(t, restarted, leadChat, engine.LeadRole)
-		return len(sessions) >= 3 && len(rows(t, restarted, sessions[2].ID, "mcp_call")) > 0
+		return slices.ContainsFunc(chatSessions(t, restarted, leadChat, engine.LeadRole), func(session store.Session) bool {
+			return session.ID > lastLead && len(rows(t, restarted, session.ID, "mcp_call")) > 0
+		})
 	})
 	waitForImplementerSessions(t, restarted, 3)
 	waitForKept(t, restarted, 41)
