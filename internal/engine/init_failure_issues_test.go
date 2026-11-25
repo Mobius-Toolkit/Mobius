@@ -216,3 +216,66 @@ func TestRepairsOffHoldsTheIssueOfAnInitFailureAndRepairsOnDispatchesIt(t *testi
 		t.Errorf("task = %+v", task)
 	}
 }
+
+// openBreak makes an open break of the CI of the default branch that is not hard yet, so it stops no task.
+func openBreak(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) int64 {
+	t.Helper()
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	return run
+}
+
+func TestAnInitFailureWhileTheCIOfTheDefaultBranchHasAnOpenBreakGivesNoRecordAndNoIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addMaintenanceWorkstream(fake, maintenance)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetInit(shop, failingInit)
+	openBreak(t, server, fake)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	session := endedImplementers(t, server, 1)[0]
+	if steps := waitForSteps(t, server, "init", 1); !slices.Equal(stepResults(steps), []string{"fail"}) {
+		t.Errorf("init steps = %+v", steps)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 || !strings.HasPrefix(prompts[0], "# Setup failed") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	waitForPolls(t, fake)
+	if count := countRows(t, server, "SELECT count(*) FROM init_failures"); count != 0 {
+		t.Errorf("init failures = %d", count)
+	}
+	if created := createdIssues(fake); created != 0 {
+		t.Errorf("created issues = %d", created)
+	}
+}
+
+func TestAnInitFailureAfterTheEndOfTheBreakOfTheCIGivesTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addMaintenanceWorkstream(fake, maintenance)
+	dataDir := t.TempDir()
+	server := connectRetriedTask(t, fake, dataDir)
+	fake.SetInit(shop, failingInit)
+	openBreak(t, server, fake)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	endedImplementersOf41(t, server, 1)
+	waitForPolls(t, fake)
+	if count := countRows(t, server, "SELECT count(*) FROM init_failures"); count != 0 {
+		t.Fatalf("init failures = %d", count)
+	}
+	passMain(fake)
+	testkit.WaitFor(t, func() bool { return countRows(t, server, "SELECT count(*) FROM ci_breaks WHERE ended_at = ''") == 0 })
+
+	retryTask(t, fake, dataDir, 1, server)
+
+	number := ciBreakIssue(t, fake)
+	if title, _ := fake.Issue(shop, number); title != "Fix the setup script .mobius/init of owner/shop" {
+		t.Errorf("title = %q", title)
+	}
+	if created := createdIssues(fake); created != 1 {
+		t.Errorf("created issues = %d", created)
+	}
+}
