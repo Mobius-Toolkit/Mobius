@@ -1088,3 +1088,46 @@ func TestFakeRemotesDisableReceiveAutogc(t *testing.T) {
 		}
 	}
 }
+
+func TestAnOpenHoldReleasesAtCleanup(t *testing.T) {
+	t.Run("HoldComment", func(t *testing.T) {
+		done := make(chan struct{})
+		var release func()
+		t.Cleanup(func() {
+			<-done
+			release()
+		})
+		github := NewFakeGitHub(t)
+		github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+		token := installationToken(t, github)
+		reached, rel := github.HoldComment("owner/shop", 12)
+		release = rel
+		go func() {
+			defer close(done)
+			send(t, http.MethodPost, github.URL+"/repos/owner/shop/issues/12/comments", token, `{"body":"Hello"}`, nil)
+		}()
+		<-reached
+	})
+
+	t.Run("HoldNext", func(t *testing.T) {
+		done := make(chan struct{})
+		var release func()
+		t.Cleanup(func() {
+			<-done
+			release()
+		})
+		github := NewFakeGitHub(t)
+		github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+		token := installationToken(t, github)
+		release = github.HoldNext("GET /repos/{owner}/{repo}/issues/{number}")
+		go func() {
+			defer close(done)
+			send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues/12", token, "", nil)
+		}()
+		WaitFor(t, func() bool {
+			github.mu.Lock()
+			defer github.mu.Unlock()
+			return github.routeHolds["GET /repos/{owner}/{repo}/issues/{number}"] == nil
+		})
+	})
+}
