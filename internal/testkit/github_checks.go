@@ -655,8 +655,8 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	h := g.pullHolds[key]
 	delete(g.pullHolds, key)
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -701,8 +701,8 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 		g.mergeHolds[held] = queue[1:]
 	}
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
@@ -796,11 +796,8 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	if h := g.updateAnswerHold; h != nil {
 		g.updateAnswerHold = nil
 		g.mu.Unlock()
-		ok := h.wait(r.Context())
+		h.wait()
 		g.mu.Lock()
-		if !ok {
-			return
-		}
 	}
 	message(w, http.StatusAccepted, "Updating pull request branch.")
 }

@@ -351,8 +351,8 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	h := g.reviewHolds[held]
 	delete(g.reviewHolds, held)
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -458,9 +458,7 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Unlock()
 	for _, h := range holds {
-		if !h.wait(r.Context()) {
-			return
-		}
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

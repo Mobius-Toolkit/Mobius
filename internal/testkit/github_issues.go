@@ -3,7 +3,6 @@ package testkit
 import (
 	"bytes"
 	"cmp"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -108,7 +107,7 @@ type slugJSON struct {
 	Slug string `json:"slug"`
 }
 
-// hold makes a request wait until release or request cancel.
+// hold makes a request wait until release.
 type hold struct {
 	// reached closes when the request arrives.
 	reached chan struct{}
@@ -125,15 +124,10 @@ func (g *FakeGitHub) newHold() (*hold, func()) {
 	return h, release
 }
 
-// wait closes reached and waits until release or ctx ends. It reports false when ctx ended first.
-func (h *hold) wait(ctx context.Context) bool {
+// wait closes reached and waits until release closes.
+func (h *hold) wait() {
 	close(h.reached)
-	select {
-	case <-h.release:
-		return true
-	case <-ctx.Done():
-		return false
-	}
+	<-h.release
 }
 
 type issueJSON struct {
@@ -1325,8 +1319,8 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	h := g.issueHolds[key]
 	delete(g.issueHolds, key)
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1580,8 +1574,8 @@ func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
 	h := g.holds[key]
 	delete(g.holds, key)
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1678,8 +1672,8 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	h := g.commentHolds[held]
 	delete(g.commentHolds, held)
 	g.mu.Unlock()
-	if h != nil && !h.wait(r.Context()) {
-		return
+	if h != nil {
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
