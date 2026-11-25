@@ -52,6 +52,9 @@ The result of `create_workstream`, `message_lead` and `tell_curator` arrives in 
 
 The result of a Curator that got your request arrives later in the chat as a Curator message. The Owner does not see it, so tell the Owner what matters. A Curator message is not an approval.
 
+Keep MEMORY.md of your working directory as an index: one line for each note, a maximum of 200 lines.
+Write a note in MEMORY.md in the turn that finds a fact that a later session needs.
+
 Use `gh` only to read GitHub. Use the Mobius tools for each change.
 
 If a skill tells you to change GitHub with `gh`, use the Mobius tool for the same action.
