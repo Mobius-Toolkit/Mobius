@@ -212,9 +212,9 @@ func TestMergeQueueUpdateAndMerge(t *testing.T) {
 }
 
 // TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns verifies that the head of the queue stays the head
-// while the approval of its updated head runs. The fake GitHub holds the comment of that approval, and the polls of the
-// hold see the task in ready_for_review. The task does not leave the queue, the next task does not get an update, and
-// after the release the head merges first.
+// while the approval of its updated head runs. The fake GitHub holds the comment of that approval; when the hold does not
+// stop the poll, the polls of the hold see the task in ready_for_review. The task does not leave the queue, the next task
+// does not get an update, and after the release the head merges first.
 func TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns(t *testing.T) {
 	t.Parallel()
 	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldComment)
@@ -225,6 +225,25 @@ func TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns(t *tes
 func TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns(t *testing.T) {
 	t.Parallel()
 	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldReview)
+}
+
+// pollSentComment tells whether the poll's sendOutgoingChanges sent the held approval comment. The poll reads the
+// comments of the pull request before it posts (read=true), whereas approve's sendNow does not (read=false), and while
+// the poll is held in addComment no poll can finish.
+func pollSentComment(requests []testkit.Request, pr int64) bool {
+	commentsPath := fmt.Sprintf("/repos/%s/issues/%d/comments", shop, pr)
+	sawRead := false
+	for _, r := range requests {
+		if r.Path != commentsPath {
+			continue
+		}
+		if r.Method == http.MethodGet {
+			sawRead = true
+		} else if r.Method == http.MethodPost && r.Status == 0 && sawRead {
+			return true
+		}
+	}
+	return false
 }
 
 // headKeepsItsPlaceWhileApprovalRuns runs the test of the two functions above. hold holds the next write of its kind on the
@@ -240,13 +259,18 @@ func headKeepsItsPlaceWhileApprovalRuns(t *testing.T, hold func(*testkit.FakeGit
 
 	sendChat(t, server, leadChat, "Approve #41")
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).MergeQueuedAt.Valid })
+	beforeRequests := len(fake.Requests())
 	// The next write on the pull request is the one of the approval again, after the update of the branch.
 	reached, release := hold(fake, shop, pr41)
 	sendChat(t, server, leadChat, "Approve #43")
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 43).MergeQueuedAt.Valid })
 	<-reached
 	queuedAt := liveTask(t, server, 41).MergeQueuedAt
-	waitForPolls(t, fake)
+	if pollSentComment(fake.Requests()[beforeRequests:], pr41) {
+		testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).State == "ready_for_review" })
+	} else {
+		waitForPolls(t, fake)
+	}
 
 	if task := liveTask(t, server, 41); task.State != "ready_for_review" || task.MergeQueuedAt != queuedAt {
 		t.Errorf("task 41 state = %s, merge_queued_at = %v, want ready_for_review and %v", task.State, task.MergeQueuedAt, queuedAt)
