@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"mime/multipart"
@@ -249,32 +248,17 @@ func TestSendChatRefusesARequestThatIsTooLarge(t *testing.T) {
 
 func TestTheMessageEventHasTheImageCount(t *testing.T) {
 	server := startChat(t)
-	reply, err := server.Client.Get(server.URL + "/api/events")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = reply.Body.Close() }()
-	events := bufio.NewReader(reply.Body)
+	events := openLiveEvents(t, server)
 
 	if status, text := sendChat(t, server, "Look", testImage{"image/gif", []byte("gif data")}); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, text)
 	}
 
 	for {
-		var event strings.Builder
-		for {
-			line, err := events.ReadString('\n')
-			if err != nil {
-				t.Fatalf("read event: %v", err)
-			}
-			if line == "\n" {
-				break
-			}
-			event.WriteString(line)
-		}
-		if strings.Contains(event.String(), "event: message\n") {
-			if !strings.Contains(event.String(), `"images":1`) {
-				t.Errorf("event = %q", event.String())
+		event := readLiveEvent(t, events)
+		if strings.Contains(event, "event: message\n") {
+			if !strings.Contains(event, `"images":1`) {
+				t.Errorf("event = %q", event)
 			}
 			return
 		}

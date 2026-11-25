@@ -40,7 +40,7 @@ jobs:
 
       - run: .mobius/check
 
-      - run: go list ./... | grep -v '/internal/engine$' | xargs go test -timeout 30m
+      - run: go list ./... | grep -v '/internal/engine$' | xargs go test -timeout 20m
         shell: bash
 
   engine:
@@ -72,7 +72,7 @@ jobs:
 
       - shell: bash
         run: |
-          go test -json -timeout 30m -run "^($(cat names.txt))\$" ./internal/engine \
+          go test -json -timeout 20m -run "^($(cat names.txt))\$" ./internal/engine \
             | tee engine-${{ matrix.shard }}.json \
             | jq -rj 'select(.Action == "output") | .Output'
 
