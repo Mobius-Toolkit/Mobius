@@ -4,12 +4,13 @@ import { queueDetail } from "@/lib/agents";
 import { bindingText } from "@/lib/harness";
 import { waitDot } from "@/lib/state";
 import { dayClock } from "@/lib/time";
+import { transcriptSubtitle, transcriptTitle } from "@/transcript/title";
 import * as Transcript from "@/transcript/view";
 import { renderStateBadge } from "@/ui/badge";
 import { chevronRightIcon } from "@/ui/icons";
 import { inset, renderErrorBadge, renderPageHeader } from "@/ui/page";
 import { Message } from "./message";
-import { titleOf, type Model } from "./model";
+import type { Model } from "./model";
 import type { ActiveAgent, ActiveAgents } from "./schemas";
 
 type H = HtmlBuilder<Message>;
@@ -110,9 +111,23 @@ export function view(model: Model, h: H): Html {
   return Option.match(model.transcript, {
     onSome: (transcript) =>
       h.div(
-        [h.Class("grid gap-6")],
         [
-          renderPageHeader(h, titleOf(transcript), Message.ClickedBack()),
+          h.Class(
+            "flex min-w-0 flex-col gap-6 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.125rem)]",
+          ),
+        ],
+        [
+          renderPageHeader(
+            h,
+            transcriptTitle(transcript.agent),
+            Message.ClickedBack(),
+            undefined,
+            transcriptSubtitle(transcript.agent),
+          ),
+          h.p(
+            [h.Class(`-mb-3 shrink-0 truncate text-sm text-muted-foreground md:hidden ${inset}`)],
+            [transcriptSubtitle(transcript.agent)],
+          ),
           h.submodel({
             slotId: "transcript",
             model: transcript,

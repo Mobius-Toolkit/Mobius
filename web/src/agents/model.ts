@@ -18,6 +18,3 @@ export const initialModel: Model = {
   request: 1,
   transcript: Option.none(),
 };
-
-export const titleOf = (transcript: Transcript.Model) =>
-  `${transcript.agent.name} ${transcript.agent.title}`;
