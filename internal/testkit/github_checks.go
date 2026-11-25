@@ -189,10 +189,10 @@ func (g *FakeGitHub) AutoCloseOnMerge(repository string, pull, issue int64) {
 func (g *FakeGitHub) HoldMerge(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	key := issueKey{repository, number}
 	g.mergeHolds[key] = append(g.mergeHolds[key], h)
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 // MergeCalls gives the number of requests to merge a pull request.
@@ -643,9 +643,9 @@ func (g *FakeGitHub) headOf(repository string, number int64) string {
 func (g *FakeGitHub) HoldPullRequest(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.pullHolds[issueKey{repository, number}] = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
@@ -656,8 +656,7 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	delete(g.pullHolds, key)
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -703,8 +702,7 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
@@ -798,8 +796,7 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	if h := g.updateAnswerHold; h != nil {
 		g.updateAnswerHold = nil
 		g.mu.Unlock()
-		close(h.reached)
-		<-h.release
+		h.wait()
 		g.mu.Lock()
 	}
 	message(w, http.StatusAccepted, "Updating pull request branch.")
@@ -859,9 +856,9 @@ func (g *FakeGitHub) ReleaseBranchUpdates() {
 func (g *FakeGitHub) HoldBranchUpdateAnswer() (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.updateAnswerHold = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.

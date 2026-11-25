@@ -333,9 +333,9 @@ func (g *FakeGitHub) FailReviews(status, times int) {
 func (g *FakeGitHub) HoldReview(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.reviewHolds[issueKey{repository, number}] = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 // submitReview adds the review and its inline comments as the token owner.
@@ -352,8 +352,7 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	delete(g.reviewHolds, held)
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -402,10 +401,10 @@ type graphqlComment struct {
 func (g *FakeGitHub) HoldReviewThreads(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	key := issueKey{repository, number}
 	g.threadHolds[key] = append(g.threadHolds[key], h)
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 // SetGraphQLPageSize makes each connection of the GraphQL answers give at most size nodes in a page.
@@ -459,8 +458,7 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Unlock()
 	for _, h := range holds {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

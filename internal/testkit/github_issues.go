@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -106,12 +107,27 @@ type slugJSON struct {
 	Slug string `json:"slug"`
 }
 
-// hold makes a request for the events of an issue wait.
+// hold makes a request wait until release.
 type hold struct {
 	// reached closes when the request arrives.
 	reached chan struct{}
 	// release makes the request go on when it closes.
 	release chan struct{}
+}
+
+// newHold makes a hold whose release is idempotent and runs at test cleanup, so a failed test ends with no open
+// handler in httptest.Server.Close.
+func (g *FakeGitHub) newHold() (*hold, func()) {
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(h.release) })
+	g.t.Cleanup(release)
+	return h, release
+}
+
+// wait closes reached and waits until release closes.
+func (h *hold) wait() {
+	close(h.reached)
+	<-h.release
 }
 
 type issueJSON struct {
@@ -1281,9 +1297,9 @@ func (g *FakeGitHub) PollOf(kind string, number int64) int {
 func (g *FakeGitHub) HoldIssue(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.issueHolds[issueKey{repository, number}] = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 // HoldComment makes the next request to add a comment to the issue or pull request number wait. The channel closes when
@@ -1291,9 +1307,9 @@ func (g *FakeGitHub) HoldIssue(repository string, number int64) (<-chan struct{}
 func (g *FakeGitHub) HoldComment(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.commentHolds[issueKey{repository, number}] = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
@@ -1304,8 +1320,7 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	delete(g.issueHolds, key)
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1547,9 +1562,9 @@ func (g *FakeGitHub) removeBlockedBy(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) HoldIssueEvents(repository string, number int64) (<-chan struct{}, func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	h, release := g.newHold()
 	g.holds[issueKey{repository, number}] = h
-	return h.reached, func() { close(h.release) }
+	return h.reached, release
 }
 
 func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
@@ -1560,8 +1575,7 @@ func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
 	delete(g.holds, key)
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -1659,8 +1673,7 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	delete(g.commentHolds, held)
 	g.mu.Unlock()
 	if h != nil {
-		close(h.reached)
-		<-h.release
+		h.wait()
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

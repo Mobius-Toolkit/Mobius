@@ -481,7 +481,9 @@ func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
 	defer g.mu.Unlock()
 	hold := make(chan struct{})
 	g.routeHolds[pattern] = hold
-	return func() { close(hold) }
+	release = sync.OnceFunc(func() { close(hold) })
+	g.t.Cleanup(release)
+	return release
 }
 
 // HoldNextOf makes the next request to the route pattern with the URL path path wait until the returned function is
