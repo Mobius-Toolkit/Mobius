@@ -218,11 +218,10 @@ func TestRepairsOffHoldsTheIssueOfAnInitFailureAndRepairsOnDispatchesIt(t *testi
 }
 
 // openBreak makes an open break of the CI of the default branch that is not hard yet, so it stops no task.
-func openBreak(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) int64 {
+func openBreak(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
 	t.Helper()
 	run := fake.AddWorkflowRun(shop, failedMainRun(7))
 	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
-	return run
 }
 
 func TestAnInitFailureWhileTheCIOfTheDefaultBranchHasAnOpenBreakGivesNoRecordAndNoIssue(t *testing.T) {
