@@ -32,11 +32,10 @@ func TestAHardBreakWithAnIssueGivesOneCIStopAndItsEndSendsTheEventWithAnEmptyLis
 	github := testkit.NewFakeGitHub(t)
 	server := startWithApp(t, github, "User")
 	github.AddIssue(shop, 30, "Fix the failed workflow")
-	github.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", WorkflowID: 7, Branch: "main", Status: "completed", Conclusion: "failure"})
-	if _, err := server.DB.Exec(`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, issue, started_at) VALUES
-		(?, 7, 'ci', 1, 'https://github.com/owner/shop/actions/runs/1', 1, '2026-10-04T10:00:00Z', 'hard', 30, '2026-10-04T10:00:00Z'),
-		(?, 8, 'lint', 2, '', 1, '2026-10-04T10:00:00Z', 'hard', 0, '2026-10-04T10:00:00Z'),
-		(?, 9, 'docs', 3, '', 1, '2026-10-04T10:00:00Z', 'flaky', 31, '2026-10-04T10:00:00Z')`, shop, shop, shop); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, run_event, rerun_at, result, issue, started_at) VALUES
+		(?, 7, 'ci', 1, 'https://github.com/owner/shop/actions/runs/1', 1, 'push', '2026-10-04T10:00:00Z', 'hard', 30, '2026-10-04T10:00:00Z'),
+		(?, 8, 'lint', 2, '', 1, '', '2026-10-04T10:00:00Z', 'hard', 0, '2026-10-04T10:00:00Z'),
+		(?, 9, 'docs', 3, '', 1, '', '2026-10-04T10:00:00Z', 'flaky', 31, '2026-10-04T10:00:00Z')`, shop, shop, shop); err != nil {
 		t.Fatal(err)
 	}
 
