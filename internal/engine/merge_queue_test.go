@@ -212,9 +212,10 @@ func TestMergeQueueUpdateAndMerge(t *testing.T) {
 }
 
 // TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns verifies that the head of the queue stays the head
-// while the approval of its updated head runs. The fake GitHub holds the comment of that approval; when the hold does not
-// stop the poll, the polls of the hold see the task in ready_for_review. The task does not leave the queue, the next task
-// does not get an update, and after the release the head merges first.
+// while the approval of its updated head runs. The fake GitHub holds the comment of that approval; if a poll sends that
+// comment, the test moves the hold to the review of the approval so the polls of the hold see the task in
+// ready_for_review. The task does not leave the queue, the next task does not get an update, and after the release the
+// head merges first.
 func TestMergeQueueHeadKeepsItsPlaceWhileTheCommentOfItsApprovalAgainRuns(t *testing.T) {
 	t.Parallel()
 	headKeepsItsPlaceWhileApprovalRuns(t, (*testkit.FakeGitHub).HoldComment)
@@ -228,8 +229,7 @@ func TestMergeQueueHeadKeepsItsPlaceWhileTheReviewOfItsApprovalAgainRuns(t *test
 }
 
 // pollSentComment tells whether the poll's sendOutgoingChanges sent the held approval comment. The poll reads the
-// comments of the pull request before it posts (read=true), whereas approve's sendNow does not (read=false), and while
-// the poll is held in addComment no poll can finish.
+// comments of the pull request before it posts (read=true), whereas approve's sendNow does not (read=false).
 func pollSentComment(requests []testkit.Request, pr int64) bool {
 	commentsPath := fmt.Sprintf("/repos/%s/issues/%d/comments", shop, pr)
 	sawRead := false
@@ -265,12 +265,14 @@ func headKeepsItsPlaceWhileApprovalRuns(t *testing.T, hold func(*testkit.FakeGit
 	sendChat(t, server, leadChat, "Approve #43")
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 43).MergeQueuedAt.Valid })
 	<-reached
-	queuedAt := liveTask(t, server, 41).MergeQueuedAt
 	if pollSentComment(fake.Requests()[beforeRequests:], pr41) {
-		testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).State == "ready_for_review" })
-	} else {
-		waitForPolls(t, fake)
+		reachedReview, releaseReview := fake.HoldReview(shop, pr41)
+		release()
+		<-reachedReview
+		release = releaseReview
 	}
+	queuedAt := liveTask(t, server, 41).MergeQueuedAt
+	waitForPolls(t, fake)
 
 	if task := liveTask(t, server, 41); task.State != "ready_for_review" || task.MergeQueuedAt != queuedAt {
 		t.Errorf("task 41 state = %s, merge_queued_at = %v, want ready_for_review and %v", task.State, task.MergeQueuedAt, queuedAt)
