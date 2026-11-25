@@ -7,7 +7,6 @@ import { inboxRows } from "@/lib/inboxRows";
 import { settingsPages } from "@/lib/settings";
 import { unreadCount } from "@/lib/unread";
 import { Message as AgentsMessage } from "@/agents/message";
-import { titleOf as agentTitle } from "@/agents/model";
 import { Message as CheckupMsg } from "@/checkup/message";
 import { fixButtonOf } from "@/checkup/model";
 import {
@@ -30,6 +29,7 @@ import {
   settingsIcon,
 } from "@/ui/icons";
 import { pageTitle } from "@/settings/memory/model";
+import { transcriptTitle } from "@/transcript/title";
 import { renderAutopilotSheet, shownAutopilot } from "./autopilot";
 import { renderCIStops } from "./ciStops";
 import { Message } from "./message";
@@ -162,7 +162,7 @@ function renderPhoneTopBar(
         return { title: "Agents" };
       }
       return {
-        title: agentTitle(transcript.value),
+        title: transcriptTitle(transcript.value.agent),
         onBack: Message.GotAgentsMessage({ message: AgentsMessage.BackRequested() }),
       };
     },

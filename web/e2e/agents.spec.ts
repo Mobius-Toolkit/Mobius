@@ -375,7 +375,7 @@ test.describe("the transcript of an agent on a phone", () => {
       .getByRole("button", { name: /Ticket #41 Add plan model/ })
       .click();
     const bar = page.getByRole("banner");
-    await expect(bar.getByRole("heading")).not.toHaveText("Agents");
+    await expect(bar.getByRole("heading")).toHaveText("#41 Add plan model");
     await expect(page.getByRole("main").getByRole("button", { name: "Back" })).toBeHidden();
     await bar.getByRole("button", { name: "Back" }).click();
     await expect(page).toHaveURL("/agents");
@@ -615,7 +615,7 @@ for (const { name: device, size } of devices) {
       const tab = page.locator('[data-slot="tabs-content"]').filter({ visible: true });
       await expect(tab.locator('[data-slot="card"]')).toHaveCount(0);
       await expect(tab.getByRole("button", { name: "Back" })).toBeVisible();
-      await expect(tab.locator(".line-clamp-2")).toContainText("implementer");
+      await expect(tab.locator(".line-clamp-2")).toContainText("#41 Add plan model");
       const note = tab.getByText("Read only. The Owner talks only to the Lead.");
       const tabBox = await boxOf(tab);
       const noteBox = await boxOf(note);
@@ -780,6 +780,172 @@ async function expectLeftOf(back: Locator, title: Locator) {
   expect(backBox.x + backBox.width).toBeLessThanOrEqual(titleBox.x);
 }
 
+const roleSubtitle = "Implementer · devin · swe-1.5 · high";
+const longIssueTitle = "Read the pull request of a task in checks again at each poll "
+  .repeat(4)
+  .trim();
+
+async function changeAgent(page: Page, change: (agent: Record<string, unknown>) => void) {
+  await page.route("**/api/agents", async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    for (const group of body.data.groups) {
+      for (const row of group.agents) {
+        if (row.agent.issue === 41) {
+          change(row.agent);
+        }
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+}
+
+const openAgentsCard = (page: Page, name: RegExp = /Ticket #41 Add plan model/) =>
+  page.getByRole("main").getByRole("button", { name }).click();
+
+test.describe("the header of the Transcript of an agent", () => {
+  test("shows the task as the title and the role as the subtitle in the Workstream panel on a desktop", async ({
+    page,
+  }) => {
+    const panel = await openPanelTranscript(page);
+    await expect(panel.locator(".line-clamp-2")).toHaveText("#41 Add plan model");
+    await expect(panel.getByText(roleSubtitle, { exact: true })).toBeVisible();
+  });
+
+  test("shows the task as the title and the role as the subtitle in the Workstream panel on a phone", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/workstreams/owner/shop/12");
+    await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+    await page.getByRole("tab", { name: "Agents" }).filter({ visible: true }).click();
+    await page
+      .getByRole("button", { name: /^Implementer #41 Add plan model/ })
+      .filter({ visible: true })
+      .click();
+    const tab = page.locator('[data-slot="tabs-content"]').filter({ visible: true });
+    await expect(tab.locator(".line-clamp-2")).toHaveText("#41 Add plan model");
+    await expect(tab.getByText(roleSubtitle, { exact: true })).toBeVisible();
+  });
+
+  test("shows the task as the title and the role as the subtitle on the Agents page on a desktop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/agents");
+    await openAgentsCard(page);
+    const main = page.getByRole("main");
+    await expect(
+      main.getByRole("heading", { name: "#41 Add plan model", exact: true }),
+    ).toBeVisible();
+    const subtitle = main.getByText(roleSubtitle, { exact: true }).filter({ visible: true });
+    await expect(subtitle).toBeVisible();
+    const [headingBox, subtitleBox] = [
+      await boxOf(main.getByRole("heading")),
+      await boxOf(subtitle),
+    ];
+    expect(subtitleBox.y).toBeGreaterThanOrEqual(headingBox.y + headingBox.height);
+    expect(subtitleBox.x).toBe(headingBox.x);
+  });
+
+  test("shows the task in the top bar and the role in a muted line under it on the Agents page on a phone", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/agents");
+    await openAgentsCard(page);
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("heading")).toHaveText("#41 Add plan model");
+    const subtitle = page
+      .getByRole("main")
+      .getByText(roleSubtitle, { exact: true })
+      .filter({ visible: true });
+    await expect(subtitle).toBeVisible();
+    const [barBox, subtitleBox] = [await boxOf(bar), await boxOf(subtitle)];
+    expect(subtitleBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height);
+    await expect(page.getByRole("main").getByRole("heading")).toBeHidden();
+  });
+
+  test("has the repository in the title for an issue in another repository than its Workstream", async ({
+    page,
+  }) => {
+    await changeAgent(page, (agent) => {
+      agent.repository = "owner/site";
+    });
+    await page.goto("/agents");
+    await openAgentsCard(page);
+    await expect(
+      page.getByRole("main").getByRole("heading", { name: "owner/site#41 Add plan model" }),
+    ).toBeVisible();
+  });
+
+  test("is only the reference when the issue has no title", async ({ page }) => {
+    await changeAgent(page, (agent) => {
+      agent.issueTitle = null;
+    });
+    await page.goto("/agents");
+    await openAgentsCard(page);
+    await expect(
+      page.getByRole("main").getByRole("heading", { name: "#41", exact: true }),
+    ).toBeVisible();
+  });
+
+  test("shows the role as the title and only the Harness as the subtitle for an agent with no issue", async ({
+    page,
+  }) => {
+    await changeAgent(page, (agent) => {
+      agent.issue = null;
+      agent.issueTitle = null;
+      agent.name = "researcher";
+      agent.title = "of the plans";
+    });
+    await page.goto("/agents");
+    await openAgentsCard(page, /researcher of the plans/);
+    const main = page.getByRole("main");
+    await expect(
+      main.getByRole("heading", { name: "Researcher of the plans", exact: true }),
+    ).toBeVisible();
+    await expect(
+      main.getByText("devin · swe-1.5 · high", { exact: true }).filter({ visible: true }),
+    ).toBeVisible();
+  });
+
+  for (const { name, size, issueTitle } of [
+    { name: "a phone", size: { width: 390, height: 844 }, issueTitle: "Add plan model" },
+    {
+      name: "a desktop with a title of two lines",
+      size: { width: 1280, height: 720 },
+      issueTitle: longIssueTitle,
+    },
+  ]) {
+    test(`keeps the log and the read only line in the viewport of the Agents page on ${name}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      // The status line of a pause is above the page and takes height.
+      await page.route("**/api/pauses", (route) => route.fulfill({ json: { data: [] } }));
+      await changeAgent(page, (agent) => {
+        agent.issueTitle = issueTitle;
+      });
+      await openLog(page, "/agents", async () => openAgentsCard(page));
+      const note = page.getByText("Read only. The Owner talks only to the Lead.");
+      await expect(note).toBeInViewport({ ratio: 1 });
+      if (size.width > 768) {
+        const heading = page.getByRole("main").getByRole("heading");
+        const lineHeight = await heading.evaluate((element) =>
+          Number.parseFloat(getComputedStyle(element).lineHeight),
+        );
+        expect((await boxOf(heading)).height).toBeGreaterThan(lineHeight * 1.5);
+      }
+      expect(
+        await page.evaluate(
+          `document.documentElement.scrollHeight <= document.documentElement.clientHeight && document.getElementById('content').scrollHeight <= document.getElementById('content').clientHeight`,
+        ),
+      ).toBe(true);
+    });
+  }
+});
+
 test.describe("the back button on a desktop", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -787,7 +953,7 @@ test.describe("the back button on a desktop", () => {
     const panel = await openPanelTranscript(page);
     const back = panel.getByRole("button", { name: "Back" });
     const title = panel.locator(".line-clamp-2");
-    await expect(title).toContainText("implementer");
+    await expect(title).toContainText("#41 Add plan model");
     await expectLeftOf(back, title);
     await back.click();
     await expect(
@@ -803,7 +969,7 @@ test.describe("the back button on a desktop", () => {
     const main = page.getByRole("main");
     await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
     const back = main.getByRole("button", { name: "Back" });
-    await expectLeftOf(back, main.getByRole("heading", { name: /^implementer/ }));
+    await expectLeftOf(back, main.getByRole("heading", { name: "#41 Add plan model" }));
     await back.click();
     await expect(main.getByRole("button", { name: /Ticket #41 Add plan model/ })).toBeVisible();
     await expect(back).toBeHidden();
@@ -862,7 +1028,7 @@ test.describe("the back button on a desktop", () => {
     await withQueueReason(page, "waits for a low load", "low_load", async () => {
       const panel = await openPanelTranscript(page, /waits for a low load/);
       const title = panel.locator(".line-clamp-2");
-      await expect(title).toContainText("implementer");
+      await expect(title).toContainText("#41 Add plan model");
       const titleBox = await boxOf(title);
       expect(titleBox.width).toBeGreaterThan(100);
       const startBox = await boxOf(panel.getByRole("button", { name: "Start the check now" }));

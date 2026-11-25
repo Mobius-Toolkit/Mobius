@@ -25,18 +25,28 @@ export function renderBackButton<M>(h: HtmlBuilder<M>, back: M): Html {
 }
 
 // The phone shows the title of a page in the top bar. back is the Message of the back button, and action is a control
-// after the title.
+// after the title. subtitle is a muted line under the title.
 export function renderPageHeader<M>(
   h: HtmlBuilder<M>,
   title: string,
   back?: M,
   action?: Html,
+  subtitle?: string,
 ): Html {
+  const heading = h.h2(
+    [h.Class("line-clamp-2 min-w-0 grow text-base font-semibold wrap-anywhere")],
+    [title],
+  );
   return h.div(
     [h.Class("hidden items-center gap-2 md:flex")],
     [
       back === undefined ? h.empty : renderBackButton(h, back),
-      h.h2([h.Class("line-clamp-2 min-w-0 grow text-base font-semibold wrap-anywhere")], [title]),
+      subtitle === undefined
+        ? heading
+        : h.div(
+            [h.Class("min-w-0 grow")],
+            [heading, h.p([h.Class("truncate text-sm text-muted-foreground")], [subtitle])],
+          ),
       action ?? h.empty,
     ],
   );

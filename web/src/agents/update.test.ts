@@ -132,7 +132,7 @@ describe("the Transcript of an agent", () => {
         expect(Option.getOrThrow(m.transcript).agent.id).toBe(7);
       }),
       StoryCommand.expectExact(
-        ReportTitle({ title: "Implementer Task 39" }),
+        ReportTitle({ title: "#39" }),
         FetchLog({ id: 7, known: Option.none() }),
       ),
       resolveOpened,

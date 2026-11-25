@@ -12,6 +12,7 @@ import { Message } from "./message";
 import type { Model } from "./model";
 import { TranscriptLog } from "./mount";
 import type { Line } from "./schemas";
+import { transcriptSubtitle, transcriptTitle } from "./title";
 
 type H = HtmlBuilder<Message>;
 
@@ -153,8 +154,6 @@ function renderLog(h: H, model: Model, className: string): Html {
   );
 }
 
-const title = (model: Model) => `${model.agent.name} ${model.agent.title}`;
-
 export const viewPanel = defineView<Model, Message>((model, h) =>
   h.div(
     [h.Class("flex min-h-0 grow flex-col gap-2")],
@@ -164,8 +163,17 @@ export const viewPanel = defineView<Model, Message>((model, h) =>
         [
           renderBackButton(h, Message.ClickedBack()),
           h.div(
-            [h.Class("line-clamp-2 min-w-0 grow text-base leading-snug font-medium")],
-            [title(model)],
+            [h.Class("min-w-0 grow")],
+            [
+              h.div(
+                [h.Class("line-clamp-2 text-base leading-snug font-medium wrap-anywhere")],
+                [transcriptTitle(model.agent)],
+              ),
+              h.div(
+                [h.Class("truncate text-sm text-muted-foreground")],
+                [transcriptSubtitle(model.agent)],
+              ),
+            ],
           ),
         ],
       ),
@@ -189,7 +197,7 @@ export const viewPage = defineView<Model, Message>((model, h) =>
       renderLog(
         h,
         model,
-        cn(inset, "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-9.875rem)]"),
+        cn(inset, "max-md:max-h-[calc(100svh-12rem)] md:max-h-[calc(100svh-11.875rem)]"),
       ),
     ],
   ),

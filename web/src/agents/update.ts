@@ -4,10 +4,11 @@ import * as Update from "foldkit/update";
 import { FetchLog } from "@/transcript/commands";
 import { OutMessage as TranscriptOutMessage } from "@/transcript/message";
 import { initialModel as initialTranscript } from "@/transcript/model";
+import { transcriptTitle } from "@/transcript/title";
 import { reflectStartable, update as updateTranscript } from "@/transcript/update";
 import { FetchAgents, ReportTitle, RequestLogin } from "./commands";
 import { Message, toGotTranscriptMessage } from "./message";
-import { titleOf, type Model } from "./model";
+import type { Model } from "./model";
 
 type UpdateReturn = Update.Return<Model, Message>;
 
@@ -66,7 +67,7 @@ export function update(model: Model, message: Message): UpdateReturn {
       return {
         model: { ...model, transcript: Option.some(transcript) },
         commands: [
-          ReportTitle({ title: titleOf(transcript) }),
+          ReportTitle({ title: transcriptTitle(agent) }),
           ...Command.mapMessages(
             [FetchLog({ id: agent.id, known: Option.none() })],
             toGotTranscriptMessage,
