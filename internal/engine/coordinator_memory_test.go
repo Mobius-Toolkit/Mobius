@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ shell = "printf -- '- [Unit](unit.md)\n' > MEMORY.md && printf 'Cents.\n' > unit
 
 	first := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	folder := filepath.Join(dataDir, "coordinators", "owner")
-	if note, err := os.ReadFile(filepath.Join(folder, "unit.md")); err != nil || string(note) != "Cents.\n" {
+	if note, err := fs.ReadFile(os.DirFS(folder), "unit.md"); err != nil || string(note) != "Cents.\n" {
 		t.Errorf("unit.md = %q, %v", note, err)
 	}
 	if prompt := promptTexts(t, server, first.ID)[0]; strings.Contains(prompt, "- [Unit](unit.md)") {
@@ -42,7 +43,7 @@ shell = "printf -- '- [Unit](unit.md)\n' > MEMORY.md && printf 'Cents.\n' > unit
 	if want := "# MEMORY.md\n\n- [Unit](unit.md)\n\n"; !strings.Contains(promptTexts(t, server, second.ID)[0], want) {
 		t.Errorf("prompt = %s", promptTexts(t, server, second.ID)[0])
 	}
-	if note, err := os.ReadFile(filepath.Join(folder, "unit.md")); err != nil || string(note) != "Cents.\n" {
+	if note, err := fs.ReadFile(os.DirFS(folder), "unit.md"); err != nil || string(note) != "Cents.\n" {
 		t.Errorf("unit.md after the second session = %q, %v", note, err)
 	}
 }
@@ -69,7 +70,7 @@ shell = "printf 'owner\n' > organization.txt"
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Owner done.exit 0")
 	waitForChat(t, server, engine.ChatKey{Organization: "other"}, "Coordinator", "Other done.exit 0")
 	for _, organization := range []string{"owner", "other"} {
-		note, err := os.ReadFile(filepath.Join(dataDir, "coordinators", organization, "organization.txt"))
+		note, err := fs.ReadFile(os.DirFS(filepath.Join(dataDir, "coordinators", organization)), "organization.txt")
 		if err != nil || string(note) != organization+"\n" {
 			t.Errorf("organization.txt of %s = %q, %v", organization, note, err)
 		}
