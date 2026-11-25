@@ -239,14 +239,26 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"effort":     implementerSettingProperties["effort"],
 				},
 				e.setImplementerBinding),
-			taskTool(e, c, "edit_issue_body",
-				"Set the body of a task issue of the Workstream. Mobius stores the body in the database and writes it to GitHub with the link line of the Lead chat.",
+			withOptional(taskTool(e, c, "edit_issue_body",
+				"Set the full body of a task issue of the Workstream, or make exact replacements in its stored body. Give exactly one of body and replacements. Mobius stores the body in the database and writes it to GitHub with the link line of the Lead chat. To change a part of the body, use replacements with the text of read_issue as old. Mobius refuses the call and changes nothing when an old text does not occur exactly one time.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"body":       map[string]any{"type": "string", "description": "The full new body of the task issue, with no link line of the Lead chat."},
+					"body":       map[string]any{"type": "string", "description": "Optional. The full new body of the task issue, with no link line of the Lead chat."},
+					"replacements": map[string]any{
+						"type":        "array",
+						"description": "Optional. Exact replacements in the stored body. Mobius applies them in their order, and each one acts on the result of the one before. Each old text is literal and must occur exactly one time at its turn.",
+						"items": map[string]any{
+							"type":     "object",
+							"required": []string{"old", "new"},
+							"properties": map[string]any{
+								"old": map[string]any{"type": "string", "description": "The text to replace."},
+								"new": map[string]any{"type": "string", "description": "The new text. An empty text removes the old text."},
+							},
+						},
+					},
 				},
-				e.editIssueBody),
+				e.editIssueBody), "body", "replacements"),
 			taskTool(e, c, "update_blockers",
 				"Set the open blockers of an existing issue of the Workstream. Mobius adds each issue of blocked_by that is not a blocker yet, and removes each open blocker that is not in blocked_by. It refuses a blocker that closes a cycle of blockers. Read the current blockers with list_tasks first. An empty blocked_by removes each open blocker. A second call with the same list changes nothing.",
 				map[string]any{
@@ -940,8 +952,14 @@ type setProjectInput struct {
 
 type editIssueBodyInput struct {
 	repositoryInput
-	N    int64  `json:"n"`
-	Body string `json:"body"`
+	N            int64             `json:"n"`
+	Body         string            `json:"body"`
+	Replacements []bodyReplacement `json:"replacements"`
+}
+
+type bodyReplacement struct {
+	Old string `json:"old"`
+	New string `json:"new"`
 }
 
 type workstreamInput struct {
@@ -1514,11 +1532,14 @@ func (e *Engine) setProject(ctx context.Context, c caller, repository github.Rep
 	)
 }
 
-// editIssueBody sets the body of the task issue input.N in repository in the database and sends the body with the link
-// line of the Lead chat to GitHub.
+// editIssueBody sets the body of the task issue input.N in repository in the database, or makes the replacements of
+// input in its stored body, and sends the body with the link line of the Lead chat to GitHub.
 func (e *Engine) editIssueBody(ctx context.Context, c caller, repository github.Repository, input editIssueBodyInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
+	}
+	if (input.Body == "") == (len(input.Replacements) == 0) {
+		return "", refuse("Give exactly one of body and replacements.")
 	}
 	workstreamIssue, err := e.queries.HasWorkstream(ctx, store.HasWorkstreamParams{Repository: repository.FullName, Number: input.N})
 	if err != nil {
@@ -1550,7 +1571,7 @@ func (e *Engine) editIssueBody(ctx context.Context, c caller, repository github.
 	if !row.Workstream.Valid || !strings.EqualFold(row.WorkstreamRepository.String, c.repository) || row.WorkstreamNumber.Int64 != c.workstream {
 		return "", refuse("%s#%d is not in this Workstream.", repository.FullName, input.N)
 	}
-	id, err := e.setIssueBody(ctx, repository, row.ID, input.Body)
+	id, err := e.setIssueBody(ctx, repository, row.ID, input.Body, input.Replacements)
 	if err != nil {
 		return "", err
 	}
@@ -1560,8 +1581,9 @@ func (e *Engine) editIssueBody(ctx context.Context, c caller, repository github.
 	)
 }
 
-// setIssueBody stores body on the issue row id and adds an outgoing body change, then sends it at once.
-func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository, id int64, body string) (int64, error) {
+// setIssueBody stores body on the issue row id and adds an outgoing body change, then sends it at once. With no body, it
+// makes replacements in the stored body.
+func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository, id int64, body string, replacements []bodyReplacement) (int64, error) {
 	e.copyWrite.Lock()
 	var changeID int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -1577,6 +1599,18 @@ func (e *Engine) setIssueBody(ctx context.Context, repository github.Repository,
 		}
 		if !row.WorkstreamRepository.Valid || !row.WorkstreamNumber.Valid {
 			return refuse("%s#%d is not in this Workstream.", row.Repository, row.Number.Int64)
+		}
+		if len(replacements) > 0 {
+			body = row.Body
+			for i, r := range replacements {
+				if r.Old == "" {
+					return refuse("The old text of replacement %d is empty.", i+1)
+				}
+				if n := strings.Count(body, r.Old); n != 1 {
+					return refuse("The old text %q of replacement %d occurs %d times in the body of %s#%d. It must occur one time.", r.Old, i+1, n, row.Repository, row.Number.Int64)
+				}
+				body = strings.Replace(body, r.Old, r.New, 1)
+			}
 		}
 		clean := runner.WithoutMark(e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(body)))
 		if _, err := q.SetIssueBody(ctx, store.SetIssueBodyParams{Body: clean, ID: id}); err != nil {

@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func editBodyCall(when, arguments string) string {
@@ -156,19 +158,7 @@ func TestEditIssueBodyRemovesTheFooterOfACreatedIssueFromItsInput(t *testing.T) 
 	fake.AddIssue(shop, 41, "Plan table")
 	fake.AddSubIssue(shop, 12, 41)
 	start(t, server, leadSpec(t))
-	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0.1.0"}, nil)
-	connection, err := client.Connect(t.Context(), &sdk.StreamableClientTransport{Endpoint: mcpURL(t, dataDir)}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = connection.Close() })
-	callTool := func(name string, arguments map[string]any) string {
-		result, err := connection.CallTool(t.Context(), &sdk.CallToolParams{Name: name, Arguments: arguments})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return result.Content[0].(*sdk.TextContent).Text
-	}
+	callTool := mcpCaller(t, dataDir)
 	created := callTool("create_issue", map[string]any{"repository": "owner/shop", "title": "Add plan model", "body": "Plans have a price.", "parent": "owner/shop#12", "blocked_by": []string{}})
 	if created != "Created owner/shop#42." {
 		t.Fatalf("create_issue = %q", created)
@@ -193,5 +183,161 @@ func TestEditIssueBodyRemovesTheFooterOfACreatedIssueFromItsInput(t *testing.T) 
 	}
 	if dbBody != "Plans have a name." {
 		t.Errorf("issues.body = %q", dbBody)
+	}
+}
+
+func mcpCaller(t *testing.T, dataDir string) func(name string, arguments map[string]any) string {
+	t.Helper()
+	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	connection, err := client.Connect(t.Context(), &sdk.StreamableClientTransport{Endpoint: mcpURL(t, dataDir)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	return func(name string, arguments map[string]any) string {
+		result, err := connection.CallTool(t.Context(), &sdk.CallToolParams{Name: name, Arguments: arguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Content[0].(*sdk.TextContent).Text
+	}
+}
+
+// editBodyServer starts a Lead with issue 41 in the Workstream 12, whose body on GitHub is body, and waits until the
+// database has that body.
+func editBodyServer(t *testing.T, body string) (*testserver.Server, *testkit.FakeGitHub, func(name string, arguments map[string]any) string) {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectWith(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n", withUIURL)
+	fake.AddIssue(shop, 41, "Plan table")
+	fake.SetBody(shop, 41, body)
+	fake.AddSubIssue(shop, 12, 41)
+	start(t, server, leadSpec(t))
+	testkit.WaitFor(t, func() bool { return storedBody(t, server, 41) == body })
+	return server, fake, mcpCaller(t, dataDir)
+}
+
+func storedBody(t *testing.T, server *testserver.Server, number int) string {
+	t.Helper()
+	var body string
+	_ = server.DB.QueryRow("SELECT body FROM issues WHERE repository = ? AND number = ?", shop, number).Scan(&body)
+	return body
+}
+
+func bodyChanges(t *testing.T, server *testserver.Server) int {
+	t.Helper()
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM outgoing_changes WHERE field = 'body'").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func TestEditIssueBodyReplacementsChangeTwoPartsOfTheBody(t *testing.T) {
+	t.Parallel()
+	server, fake, callTool := editBodyServer(t, "Goal\nPrice: 5\nUnit: cents\nOwner: ops")
+
+	got := callTool("edit_issue_body", map[string]any{"repository": "owner/shop", "n": 41, "body": "", "replacements": []map[string]string{
+		{"old": "Price: 5", "new": "Price: 7 (see Unit)"},
+		{"old": "(see Unit)", "new": "(in cents)"},
+	}})
+
+	if got != "Changed the body of owner/shop#41." {
+		t.Errorf("edit_issue_body = %q", got)
+	}
+	want := "Goal\nPrice: 7 (in cents)\nUnit: cents\nOwner: ops"
+	if body := storedBody(t, server, 41); body != want {
+		t.Errorf("issues.body = %q, want %q", body, want)
+	}
+	if _, gotGH := fake.Issue(shop, 41); gotGH != want+"\n\n"+chatLink {
+		t.Errorf("github body = %q", gotGH)
+	}
+}
+
+func TestEditIssueBodyReplacementWithAnEmptyNewRemovesTheText(t *testing.T) {
+	t.Parallel()
+	server, fake, callTool := editBodyServer(t, "Keep this.\nRemove this line.\nKeep that.")
+
+	got := callTool("edit_issue_body", map[string]any{"repository": "owner/shop", "n": 41, "replacements": []map[string]string{
+		{"old": "Remove this line.\n", "new": ""},
+	}})
+
+	if got != "Changed the body of owner/shop#41." {
+		t.Errorf("edit_issue_body = %q", got)
+	}
+	if body := storedBody(t, server, 41); body != "Keep this.\nKeep that." {
+		t.Errorf("issues.body = %q", body)
+	}
+	if _, gotGH := fake.Issue(shop, 41); gotGH != "Keep this.\nKeep that.\n\n"+chatLink {
+		t.Errorf("github body = %q", gotGH)
+	}
+}
+
+func TestEditIssueBodyReplacementsInACreatedIssueKeepOneFooter(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectWith(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n", withUIURL)
+	fake.AddIssue(shop, 41, "Plan table")
+	fake.AddSubIssue(shop, 12, 41)
+	start(t, server, leadSpec(t))
+	callTool := mcpCaller(t, dataDir)
+	created := callTool("create_issue", map[string]any{"repository": "owner/shop", "title": "Add plan model", "body": "Plans have a price.", "parent": "owner/shop#12", "blocked_by": []string{}})
+	if created != "Created owner/shop#42." {
+		t.Fatalf("create_issue = %q", created)
+	}
+
+	got := callTool("edit_issue_body", map[string]any{"repository": "owner/shop", "n": 42, "replacements": []map[string]string{
+		{"old": "price", "new": "name"},
+	}})
+
+	if got != "Changed the body of owner/shop#42." {
+		t.Errorf("edit_issue_body = %q", got)
+	}
+	if _, gotGH := fake.Issue(shop, 42); gotGH != "Plans have a name.\n\n"+chatLink {
+		t.Errorf("github body = %q", gotGH)
+	}
+	if body := storedBody(t, server, 42); body != "Plans have a name." {
+		t.Errorf("issues.body = %q", body)
+	}
+}
+
+func TestEditIssueBodyRefusesABadCallAndChangesNothing(t *testing.T) {
+	t.Parallel()
+	const original = "alpha beta\nbeta gamma"
+	server, fake, callTool := editBodyServer(t, original)
+	changes := bodyChanges(t, server)
+
+	for _, c := range []struct {
+		name      string
+		arguments map[string]any
+		want      string
+	}{
+		{"old does not occur", map[string]any{"replacements": []map[string]string{{"old": "delta", "new": "x"}}},
+			"The old text \"delta\" of replacement 1 occurs 0 times in the body of owner/shop#41. It must occur one time."},
+		{"old occurs two times", map[string]any{"replacements": []map[string]string{{"old": "beta", "new": "x"}}},
+			"The old text \"beta\" of replacement 1 occurs 2 times in the body of owner/shop#41. It must occur one time."},
+		{"old is empty", map[string]any{"replacements": []map[string]string{{"old": "", "new": "x"}}},
+			"The old text of replacement 1 is empty."},
+		{"body and replacements", map[string]any{"body": "New", "replacements": []map[string]string{{"old": "alpha", "new": "x"}}},
+			"Give exactly one of body and replacements."},
+		{"none", map[string]any{"body": "", "replacements": []map[string]string{}},
+			"Give exactly one of body and replacements."},
+		{"refusal after a valid replacement", map[string]any{"replacements": []map[string]string{{"old": "alpha", "new": "beta"}, {"old": "beta", "new": "x"}}},
+			"The old text \"beta\" of replacement 2 occurs 3 times in the body of owner/shop#41. It must occur one time."},
+	} {
+		arguments := map[string]any{"repository": "owner/shop", "n": 41}
+		maps.Copy(arguments, c.arguments)
+		if got := callTool("edit_issue_body", arguments); got != c.want {
+			t.Errorf("%s: edit_issue_body = %q, want %q", c.name, got, c.want)
+		}
+		if body := storedBody(t, server, 41); body != original {
+			t.Errorf("%s: issues.body = %q", c.name, body)
+		}
+		if _, gotGH := fake.Issue(shop, 41); gotGH != original {
+			t.Errorf("%s: github body = %q", c.name, gotGH)
+		}
+		if got := bodyChanges(t, server); got != changes {
+			t.Errorf("%s: outgoing body changes = %d, want %d", c.name, got, changes)
+		}
 	}
 }
