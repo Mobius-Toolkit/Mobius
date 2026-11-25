@@ -207,12 +207,13 @@ func TestALeadDoesNotStartWhenTheFetchFailsAndTheBareCloneHasNoDefaultBranch(t *
 // assertServerSection fails when prompt has no section for the operating system of the test, directly before after.
 func assertServerSection(t *testing.T, name, prompt, after string) {
 	t.Helper()
-	want := []string{"# Server\n\nThe server runs " + runtime.GOOS + ".\n\n" + after}
+	const patternRule = "Put each pattern for a command in quotes, for example --include='*.go'. The shell can be zsh, and zsh does not run a command with an unquoted pattern that matches no file."
+	want := []string{"# Server\n\nThe server runs " + runtime.GOOS + ".\n" + patternRule + "\n\n" + after}
 	if runtime.GOOS == "darwin" {
 		want = []string{
 			"# Server\n\nThe server runs macOS.",
 			"sed -i '' 's|old|new|' file\n",
-			"The commands a, i and c of the BSD sed need a backslash and a new line before the text.\n\n" + after,
+			"The commands a, i and c of the BSD sed need a backslash and a new line before the text.\n" + patternRule + "\n\n" + after,
 		}
 	}
 	for _, part := range want {
