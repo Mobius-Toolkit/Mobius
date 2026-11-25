@@ -194,11 +194,7 @@ export const viewPage = defineView<Model, Message>((model, h) =>
         [h.Class(cn(inset, "flex flex-wrap items-center gap-2 empty:hidden"))],
         renderStartCheck(h, model),
       ),
-      renderLog(
-        h,
-        model,
-        cn(inset, "max-md:max-h-[calc(100svh-12rem)] md:max-h-[calc(100svh-11.875rem)]"),
-      ),
+      renderLog(h, model, inset),
     ],
   ),
 );

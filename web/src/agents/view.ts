@@ -111,7 +111,11 @@ export function view(model: Model, h: H): Html {
   return Option.match(model.transcript, {
     onSome: (transcript) =>
       h.div(
-        [h.Class("grid gap-6")],
+        [
+          h.Class(
+            "flex flex-col gap-6 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.125rem)]",
+          ),
+        ],
         [
           renderPageHeader(
             h,

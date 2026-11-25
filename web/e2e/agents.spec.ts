@@ -910,12 +910,24 @@ test.describe("the header of the Transcript of an agent", () => {
     ).toBeVisible();
   });
 
-  for (const { name, size, issueTitle } of [
+  for (const { name, size, issueTitle, start } of [
     { name: "a phone", size: { width: 390, height: 844 }, issueTitle: "Add plan model" },
+    {
+      name: "a phone with the start button",
+      size: { width: 390, height: 844 },
+      issueTitle: "Add plan model",
+      start: true,
+    },
     {
       name: "a desktop with a title of two lines",
       size: { width: 1280, height: 720 },
       issueTitle: longIssueTitle,
+    },
+    {
+      name: "a desktop with a title of two lines and the start button",
+      size: { width: 1280, height: 720 },
+      issueTitle: longIssueTitle,
+      start: true,
     },
   ]) {
     test(`keeps the log and the read only line in the viewport of the Agents page on ${name}`, async ({
@@ -926,9 +938,20 @@ test.describe("the header of the Transcript of an agent", () => {
       await page.route("**/api/pauses", (route) => route.fulfill({ json: { data: [] } }));
       await changeAgent(page, (agent) => {
         agent.issueTitle = issueTitle;
+        if (start) {
+          agent.wait = "low_load";
+        }
       });
       await openLog(page, "/agents", async () => openAgentsCard(page));
       const note = page.getByText("Read only. The Owner talks only to the Lead.");
+      await expect(page.getByRole("button", { name: "Start the check now" })).toHaveCount(
+        start ? 1 : 0,
+      );
+      if (start) {
+        await expect(page.getByRole("button", { name: "Start the check now" })).toBeInViewport({
+          ratio: 1,
+        });
+      }
       await expect(note).toBeInViewport({ ratio: 1 });
       if (size.width > 768) {
         const heading = page.getByRole("main").getByRole("heading");
