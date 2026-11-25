@@ -960,7 +960,10 @@ test.describe("the header of the Transcript of an agent", () => {
         );
         expect((await boxOf(heading)).height).toBeGreaterThan(lineHeight * 1.5);
       } else {
-        const subtitle = page.getByRole("main").getByText(roleSubtitle, { exact: true });
+        const subtitle = page
+          .getByRole("main")
+          .getByText(roleSubtitle, { exact: true })
+          .filter({ visible: true });
         const lineHeight = await subtitle.evaluate((element) =>
           Number.parseFloat(getComputedStyle(element).lineHeight),
         );
