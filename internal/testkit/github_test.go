@@ -1090,40 +1090,71 @@ func TestFakeRemotesDisableReceiveAutogc(t *testing.T) {
 }
 
 func TestAnOpenHoldReleasesAtCleanup(t *testing.T) {
+	startRequest := func(t *testing.T, done chan struct{}, method, url, token, body string) {
+		t.Helper()
+		go func() {
+			defer close(done)
+			var payload io.Reader
+			if body != "" {
+				payload = strings.NewReader(body)
+			}
+			request, err := http.NewRequest(method, url, payload)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			request.Header.Set("Authorization", "Bearer "+token)
+			reply, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			_ = reply.Body.Close()
+		}()
+	}
+
 	t.Run("HoldComment", func(t *testing.T) {
-		done := make(chan struct{})
-		var release func()
-		t.Cleanup(func() {
-			<-done
-			release()
-		})
 		github := NewFakeGitHub(t)
 		github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
 		token := installationToken(t, github)
+		done := make(chan struct{})
+		var release func()
+		t.Cleanup(func() {
+			defer release()
+			WaitFor(t, func() bool {
+				select {
+				case <-done:
+					return true
+				default:
+					return false
+				}
+			})
+		})
 		reached, rel := github.HoldComment("owner/shop", 12)
 		release = rel
-		go func() {
-			defer close(done)
-			send(t, http.MethodPost, github.URL+"/repos/owner/shop/issues/12/comments", token, `{"body":"Hello"}`, nil)
-		}()
+		startRequest(t, done, http.MethodPost, github.URL+"/repos/owner/shop/issues/12/comments", token, `{"body":"Hello"}`)
 		<-reached
 	})
 
 	t.Run("HoldNext", func(t *testing.T) {
-		done := make(chan struct{})
-		var release func()
-		t.Cleanup(func() {
-			<-done
-			release()
-		})
 		github := NewFakeGitHub(t)
 		github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
 		token := installationToken(t, github)
+		done := make(chan struct{})
+		var release func()
+		t.Cleanup(func() {
+			defer release()
+			WaitFor(t, func() bool {
+				select {
+				case <-done:
+					return true
+				default:
+					return false
+				}
+			})
+		})
 		release = github.HoldNext("GET /repos/{owner}/{repo}/issues/{number}")
-		go func() {
-			defer close(done)
-			send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues/12", token, "", nil)
-		}()
+		startRequest(t, done, http.MethodGet, github.URL+"/repos/owner/shop/issues/12", token, "")
 		WaitFor(t, func() bool {
 			github.mu.Lock()
 			defer github.mu.Unlock()
