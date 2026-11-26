@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -155,20 +158,16 @@ func isTriageEvent(event *gh.IssueEvent) bool {
 
 // applyTriageChange sets the triage state from the incoming change of the label mobius:triage, when its actor is a
 // trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back. A change
-// changes nothing when the issue on GitHub has the other label state, because a later write made the event old. The
-// poll can read the event after the copy of the tree gave the row its state from the label, and after Mobius changed
-// the label.
+// changes nothing when the Mobius App wrote the label later, because the row already has that state. The poll can read
+// the event after the copy of the tree gave the row its state from the label.
 func (e *Engine) applyTriageChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	repository = e.changeRepository(change.Repository, repository)
 	if !e.trustedUser(change.Actor) {
 		return e.writeBack(ctx, repository, change)
 	}
-	issue, err := repository.Issue(ctx, change.Number)
-	if err != nil {
+	old, err := e.triageWrittenLater(ctx, repository, change)
+	if err != nil || old {
 		return err
-	}
-	if issue != nil && hasLabel(issue, triageLabel) != (change.Change == labeledChange) {
-		return nil
 	}
 	var at time.Time
 	if change.Change == labeledChange {
@@ -184,6 +183,23 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	}
 	_, err = e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
 	return err
+}
+
+// triageWrittenLater tells if the issue of the incoming change has a later event of the label mobius:triage from the
+// Mobius App.
+func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
+	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
+	if err != nil {
+		return false, err
+	}
+	events, err := repository.IssueEvents(ctx, change.Number)
+	if err != nil {
+		return false, err
+	}
+	app := appLogin(repository.AppSlug)
+	return slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
+		return event.GetID() > id && isTriageEvent(event) && strings.EqualFold(event.GetActor().GetLogin(), app)
+	}), nil
 }
 
 // issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before

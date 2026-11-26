@@ -201,6 +201,27 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheCopyOfTheTreeAddsItsRowBeforeThePoll
 	}
 }
 
+func TestARemovalOfMobiusTriageByATrustedUserAndThenAnAddByAnUntrustedUserInOnePollEndWithNoTriageState(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.AddLabel(shop, 41, "mobius:triage", "owner")
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).Triage && doneChangesOfPersons(t, server) == 1 })
+	// The next poll reads both events together.
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.RemoveLabel(shop, 41, "mobius:triage", "owner")
+		fake.AddLabel(shop, 41, "mobius:triage", "mallory")
+	})
+
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 3 })
+	waitForPolls(t, fake)
+
+	if issueRowOf(t, server, shop, 41).Triage || slices.Contains(fake.Labels(shop, 41), "mobius:triage") {
+		t.Error(triageState(t, server, fake, 41))
+	}
+}
+
 func TestARefusedWriteOfMobiusTriageLeavesTheLabelsOfTheRowAndMarksTheChangeRefused(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
