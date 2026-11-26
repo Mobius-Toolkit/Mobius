@@ -680,7 +680,9 @@ test("the Tools page shows the pause badge for a Harness that no role uses, with
   await routeCheckup(page, [{ ...tool, harness: "" }, dsh], { owner: healthy, plants: healthy });
   await page.route("**/api/pauses", (route) =>
     route.fulfill({
-      json: { data: [{ harness: "dsh", users: [], pausedUntil: "2026-09-29T08:30:00Z" }] },
+      json: {
+        data: [{ harness: "dsh", users: [], pausedUntil: "2026-09-29T08:30:00Z", reason: "" }],
+      },
     }),
   );
   await page.route("**/api/events", (route) =>
