@@ -275,8 +275,8 @@ func (a *Agent) pauseText(until time.Time, subscription bool) string {
 }
 
 // authStatus handles an account notification of Claude Code. An account that is not the Claude subscription pauses
-// the Harness for noTimeWait, before the turn fails. A logged out account also makes the turn end as a turn with the
-// subscription error. The Claude subscription ends that pause.
+// the Harness for noTimeWait, before the turn fails. It does not change the turn that runs: a turn that ends with no
+// error keeps its reply and is not sent again. The Claude subscription ends that pause.
 func (a *Agent) authStatus(status runner.AuthStatus) {
 	ctx := context.Background()
 	if status.Kind == "account" {
@@ -294,10 +294,6 @@ func (a *Agent) authStatus(status runner.AuthStatus) {
 	}
 	a.mu.Lock()
 	a.account = account
-	if a.turn && status.Kind == "none" {
-		a.limited = true
-		a.subscription = true
-	}
 	a.mu.Unlock()
 	until := time.Now().UTC().Add(noTimeWait)
 	log.Printf("account of %s is %s: pause until %s", a.binding.Harness, account, until.Format(timeFormat))

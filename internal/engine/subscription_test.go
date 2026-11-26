@@ -73,6 +73,24 @@ func requirePauseReason(t *testing.T, server *testserver.Server, want string) {
 	t.Error("the API has no pause of claude-code")
 }
 
+func TestALoggedOutNotificationInATurnThatRepliesNormallyKeepsTheReplyAndSendsNoPromptAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nnotices = ['''{\"method\": \"auth/status_update\", \"params\": {\"state\": \"unauthenticated\"}}''']\nreply = [\"Done.\"]\n", keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Done."}) })
+	testkit.WaitFor(t, func() bool { return ownerMessageDelivered(t, server) })
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	if got := promptTexts(t, server, sessions[0].ID); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
+	}
+	if !claudeCodePaused(t, server) {
+		t.Error("the notification did not pause Claude Code")
+	}
+}
+
 func TestAUsageLimitPauseHasNoReason(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

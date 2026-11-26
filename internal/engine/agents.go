@@ -702,9 +702,11 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if errors.As(err, &incomplete) && a.limited {
 			err = nil
 		}
-		// The adapter of Claude Code ends the turn of the subscription error with the error "Authentication required".
+		// The adapter of Claude Code ends a turn that the subscription cannot serve with the error "Authentication
+		// required", also when it sent no reply text.
 		var requestErr *acp.RequestError
-		if a.subscription && errors.As(err, &requestErr) && requestErr.Code == acp.NewAuthRequired(nil).Code {
+		if a.binding.Harness == config.ClaudeCode && errors.As(err, &requestErr) && requestErr.Code == acp.NewAuthRequired(nil).Code {
+			a.subscription = true
 			err = nil
 		}
 		if err == nil {
