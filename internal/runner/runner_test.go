@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -23,6 +25,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("MOBIUS_FAKE_SLEEPER") == "1" {
+		os.Exit(sleepWithPid())
+	}
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(GH(os.Args[1:], os.Getenv))
 	}
@@ -30,6 +35,9 @@ func TestMain(m *testing.M) {
 		os.Exit(Port(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 	}
 	if filepath.Base(os.Args[0]) == "check" {
+		if os.Getenv("MOBIUS_FAKE_DETACHED") == "1" {
+			os.Exit(waitWithDetached())
+		}
 		os.Exit(printNiceValue())
 	}
 	if dataDir := os.Getenv("MOBIUS_FETCH_HELPER"); dataDir != "" {
@@ -123,6 +131,12 @@ var dshSensitiveEnv = regexp.MustCompile(`(?i)KEY|PASSWORD|SECRET|TOKEN`)
 
 func dshDropsEnv(name string) bool {
 	return dshSensitiveEnv.MatchString(name) || strings.HasPrefix(strings.ToUpper(name), "DSH_")
+}
+
+func TestTheMarkEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
+	if dshDropsEnv(markEnv) {
+		t.Errorf("dsh drops %s from the environment of a shell command", markEnv)
+	}
 }
 
 func TestTheGHEnvironmentOfAnAgentPassesTheDSHEnvironmentFilter(t *testing.T) {
@@ -503,6 +517,118 @@ func TestModelsOfAnotherHarnessStayAsTheAgentGivesThem(t *testing.T) {
 	}
 }
 
+// killDetached kills the detached process of dir at the end of the test, also when the test fails.
+func killDetached(t *testing.T, dir string) {
+	t.Cleanup(func() {
+		if pid, ok := readPid(filepath.Join(dir, detachedPidFile)); ok {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+}
+
+// startAgentWithDetached starts a fake agent that starts a detached process, and gives its working directory.
+func startAgentWithDetached(t *testing.T) (*Session, string) {
+	dir := fakeAgentDir(t)
+	t.Setenv("MOBIUS_FAKE_DETACHED", "1")
+	killDetached(t, dir)
+	session, err := Start(context.Background(), config.ClaudeCode, 0, false, false, dir, dir, dir, "http://127.0.0.1:1/mcp/key", nil, "", "", "", func(json.RawMessage, bool) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(session.Close)
+	return session, dir
+}
+
+func TestClosingASessionAlsoStopsAProcessThatLeadsItsOwnSession(t *testing.T) {
+	session, dir := startAgentWithDetached(t)
+	pid := waitForPid(t, filepath.Join(dir, detachedPidFile))
+
+	session.Close()
+
+	waitForStop(t, pid)
+}
+
+func TestClosingASessionAfterTheAgentEndedByItselfStopsItsDetachedProcessWithSIGTERM(t *testing.T) {
+	session, dir := startAgentWithDetached(t)
+	pid := waitForPid(t, filepath.Join(dir, detachedPidFile))
+	if err := session.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+
+	session.Close()
+
+	waitForStop(t, pid)
+	if _, err := os.Stat(filepath.Join(dir, detachedPidFile+".term")); err != nil {
+		t.Errorf("the detached process got no SIGTERM: %v", err)
+	}
+}
+
+func TestClosingASessionLeavesAProcessThatTheSessionDidNotStart(t *testing.T) {
+	other := t.TempDir()
+	killDetached(t, other)
+	if err := startDetached(other); err != nil {
+		t.Fatal(err)
+	}
+	pid := waitForPid(t, filepath.Join(other, detachedPidFile))
+	session, dir := startAgentWithDetached(t)
+	waitForPid(t, filepath.Join(dir, detachedPidFile))
+
+	session.Close()
+
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Errorf("the process of another session stopped: %v", err)
+	}
+}
+
+func checkWorktree(t *testing.T) string {
+	t.Helper()
+	worktree := t.TempDir()
+	if err := os.Mkdir(filepath.Join(worktree, ".mobius"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(executable, filepath.Join(worktree, ".mobius", "check")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOBIUS_FAKE_DETACHED", "1")
+	killDetached(t, worktree)
+	return worktree
+}
+
+func TestACheckThatEndsByItselfLeavesNoDetachedProcess(t *testing.T) {
+	worktree := checkWorktree(t)
+	t.Setenv("MOBIUS_FAKE_CHECK_EXITS", "1")
+
+	_, passed, err := Check(t.Context(), t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
+
+	if err != nil || !passed {
+		t.Fatalf("Check = %v, %v; want a pass", passed, err)
+	}
+	waitForStop(t, waitForPid(t, filepath.Join(worktree, detachedPidFile)))
+}
+
+func TestTheEndOfACheckAlsoStopsAProcessThatLeadsItsOwnSession(t *testing.T) {
+	worktree := checkWorktree(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ended := make(chan error, 1)
+	go func() {
+		_, _, err := Check(ctx, t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
+		ended <- err
+	}()
+	pid := waitForPid(t, filepath.Join(worktree, detachedPidFile))
+
+	cancel()
+
+	if err := <-ended; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Check error = %v, want a cancel", err)
+	}
+	waitForStop(t, pid)
+}
+
 func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testing.T) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_HANG", "1")
@@ -726,9 +852,61 @@ func replaceLogin(ctx context.Context) error {
 	return os.WriteFile(login, nil, 0o600)
 }
 
+// detachedPidFile is the file in the working directory of the fake agent or the check to which the detached process
+// writes its pid.
+const detachedPidFile = "detached-pid"
+
+// startDetached starts a copy of the test program in a new session, as the web server of Playwright is. The copy writes
+// its pid to detachedPidFile and waits. The program is not a system program, so ps shows its environment on macOS.
+func startDetached(dir string) error {
+	sleeper := exec.Command("/bin/sh", "-c", `exec "$MOBIUS_TEST_BINARY"`)
+	sleeper.Env = append(os.Environ(), "MOBIUS_TEST_BINARY="+os.Args[0], "MOBIUS_FAKE_SLEEPER=1")
+	sleeper.Dir = dir
+	sleeper.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return sleeper.Start()
+}
+
+// sleepWithPid writes its pid to detachedPidFile and waits for SIGTERM. Then it writes the file detachedPidFile.term,
+// as a program that removes its temporary directory at SIGTERM does.
+func sleepWithPid() int {
+	terms := make(chan os.Signal, 1)
+	signal.Notify(terms, syscall.SIGTERM)
+	if err := os.WriteFile(detachedPidFile, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		return 1
+	}
+	<-terms
+	if err := os.WriteFile(detachedPidFile+".term", nil, 0o600); err != nil {
+		return 1
+	}
+	return 0
+}
+
+// waitWithDetached is the .mobius/check of the check tests. It starts a detached process, and then waits, or exits when
+// MOBIUS_FAKE_CHECK_EXITS is 1.
+func waitWithDetached() int {
+	if err := startDetached(""); err != nil {
+		return 1
+	}
+	if os.Getenv("MOBIUS_FAKE_CHECK_EXITS") == "1" {
+		for {
+			if _, ok := readPid(detachedPidFile); ok {
+				return 0
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	time.Sleep(time.Hour)
+	return 0
+}
+
 func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
 	if os.Getenv("MOBIUS_FAKE_KEYCHAIN") == "1" {
 		if err := replaceLogin(ctx); err != nil {
+			return acp.InitializeResponse{}, err
+		}
+	}
+	if os.Getenv("MOBIUS_FAKE_DETACHED") == "1" {
+		if err := startDetached(""); err != nil {
 			return acp.InitializeResponse{}, err
 		}
 	}
