@@ -100,11 +100,11 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"action":     map[string]any{"type": "string", "minLength": 1, "description": "The action of the Owner, as an instruction, for example \"Run `wrangler login` on the Mobius server\"."},
-					"next":       map[string]any{"type": "string", "enum": []string{"review", "fix_round", "implementer"}, "description": "The step after the action. review: a Reviewer reviews the current head again, for a task with a pull request in checks, approval, ready_for_review or needs_human. fix_round: Mobius continues the task as for a Resume, for the same states. implementer: the task is dispatched again, and you get a dispatch event with \"action of the Owner done of\", for a task in dispatched."},
+					"next":       map[string]any{"type": "string", "enum": []string{"review", "fix_round", "implementer"}, "description": "The step after the action. review: a Reviewer reviews the current head again, for a task with an open pull request in dispatched, checks, approval, ready_for_review or needs_human. fix_round: Mobius continues the task as for a Resume, for a task with a pull request in checks, approval, ready_for_review or needs_human. implementer: the task is dispatched again, and you get a dispatch event with \"action of the Owner done of\", for a task in dispatched."},
 				},
 				e.markOwnerAction),
 			taskTool(e, c, "clear_owner_action",
-				"Clear an action of the Owner that you marked with mark_owner_action, when the action is not needed any more. Mobius starts the step that you named, dismisses the Inbox item and adds a record to the chat. It refuses a task with no open action that you marked.",
+				"Clear each open action of the Owner of a task, also one that the Reviewer marked, when the action is not needed any more. Mobius starts the step of the action (next), dismisses the Inbox item and adds a record to the chat. It refuses a task with no open action of the Owner.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},

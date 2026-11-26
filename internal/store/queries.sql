@@ -860,6 +860,15 @@ ON CONFLICT (integration, external_id) DO NOTHING;
 -- name: HasIncomingChange :one
 SELECT EXISTS (SELECT 1 FROM incoming_changes WHERE integration = 'github' AND external_id = ?);
 
+-- The external id of a triage change is the id of its event, and a later event has a higher id.
+-- name: HasLaterTriageChangeOfActor :one
+SELECT EXISTS (
+    SELECT 1 FROM incoming_changes
+    WHERE integration = 'github' AND repository = sqlc.arg(repository) AND number = CAST(sqlc.arg(number) AS INTEGER)
+      AND field = 'triage' AND actor = sqlc.arg(actor) COLLATE NOCASE
+      AND CAST(external_id AS INTEGER) > CAST(sqlc.arg(after) AS INTEGER)
+);
+
 -- name: ListPendingIncomingChanges :many
 SELECT * FROM incoming_changes WHERE repository = ? AND status = 'pending' ORDER BY id;
 
@@ -2570,3 +2579,14 @@ SELECT organization, kind FROM missing_workstream_dismissals;
 
 -- name: AddMissingWorkstreamDismissal :exec
 INSERT OR IGNORE INTO missing_workstream_dismissals (organization, kind) VALUES (?, ?);
+
+-- name: AddDrainRefusal :exec
+INSERT INTO drain_refusals (organization, repository, workstream, tool, arguments, created_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListDrainRefusals :many
+SELECT * FROM drain_refusals ORDER BY id;
+
+-- name: DeleteDrainRefusals :exec
+DELETE FROM drain_refusals
+WHERE organization = ? AND repository = ? AND workstream = ? AND id <= ?;

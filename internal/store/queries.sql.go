@@ -452,6 +452,32 @@ func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) 
 	return err
 }
 
+const addDrainRefusal = `-- name: AddDrainRefusal :exec
+INSERT INTO drain_refusals (organization, repository, workstream, tool, arguments, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type AddDrainRefusalParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Tool         string
+	Arguments    string
+	CreatedAt    string
+}
+
+func (q *Queries) AddDrainRefusal(ctx context.Context, arg AddDrainRefusalParams) error {
+	_, err := q.db.ExecContext(ctx, addDrainRefusal,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Tool,
+		arg.Arguments,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addFixRound = `-- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1, total_fix_rounds = total_fix_rounds + 1 WHERE id = ?1 AND fix_rounds < ?2
 `
@@ -2346,6 +2372,28 @@ DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < j
 
 func (q *Queries) DeleteDoneIncomingChanges(ctx context.Context, julianday interface{}) error {
 	_, err := q.db.ExecContext(ctx, deleteDoneIncomingChanges, julianday)
+	return err
+}
+
+const deleteDrainRefusals = `-- name: DeleteDrainRefusals :exec
+DELETE FROM drain_refusals
+WHERE organization = ? AND repository = ? AND workstream = ? AND id <= ?
+`
+
+type DeleteDrainRefusalsParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	ID           int64
+}
+
+func (q *Queries) DeleteDrainRefusals(ctx context.Context, arg DeleteDrainRefusalsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteDrainRefusals,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.ID,
+	)
 	return err
 }
 
@@ -5801,6 +5849,35 @@ func (q *Queries) HasIncomingChange(ctx context.Context, externalID string) (boo
 	return exists, err
 }
 
+const hasLaterTriageChangeOfActor = `-- name: HasLaterTriageChangeOfActor :one
+SELECT EXISTS (
+    SELECT 1 FROM incoming_changes
+    WHERE integration = 'github' AND repository = ?1 AND number = CAST(?2 AS INTEGER)
+      AND field = 'triage' AND actor = ?3 COLLATE NOCASE
+      AND CAST(external_id AS INTEGER) > CAST(?4 AS INTEGER)
+)
+`
+
+type HasLaterTriageChangeOfActorParams struct {
+	Repository string
+	Number     int64
+	Actor      string
+	After      int64
+}
+
+// The external id of a triage change is the id of its event, and a later event has a higher id.
+func (q *Queries) HasLaterTriageChangeOfActor(ctx context.Context, arg HasLaterTriageChangeOfActorParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasLaterTriageChangeOfActor,
+		arg.Repository,
+		arg.Number,
+		arg.Actor,
+		arg.After,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasLeadEvent = `-- name: HasLeadEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
@@ -7652,6 +7729,41 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, workstreamRepo
 			&i.Withdrawn,
 			&i.Metadata,
 			&i.AnsweredInChat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDrainRefusals = `-- name: ListDrainRefusals :many
+SELECT id, organization, repository, workstream, tool, arguments, created_at FROM drain_refusals ORDER BY id
+`
+
+func (q *Queries) ListDrainRefusals(ctx context.Context) ([]DrainRefusal, error) {
+	rows, err := q.db.QueryContext(ctx, listDrainRefusals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DrainRefusal
+	for rows.Next() {
+		var i DrainRefusal
+		if err := rows.Scan(
+			&i.ID,
+			&i.Organization,
+			&i.Repository,
+			&i.Workstream,
+			&i.Tool,
+			&i.Arguments,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

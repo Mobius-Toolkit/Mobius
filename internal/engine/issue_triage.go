@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -154,11 +155,17 @@ func isTriageEvent(event *gh.IssueEvent) bool {
 }
 
 // applyTriageChange sets the triage state from the incoming change of the label mobius:triage, when its actor is a
-// trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back.
+// trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back. A change
+// changes nothing when the Mobius App wrote the label later, because the row already has that state. The poll can read
+// the event after the copy of the tree gave the row its state from the label.
 func (e *Engine) applyTriageChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	repository = e.changeRepository(change.Repository, repository)
 	if !e.trustedUser(change.Actor) {
 		return e.writeBack(ctx, repository, change)
+	}
+	old, err := e.triageWrittenLater(ctx, repository, change)
+	if err != nil || old {
+		return err
 	}
 	var at time.Time
 	if change.Change == labeledChange {
@@ -167,14 +174,28 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 			return err
 		}
 		if metadata.At != "" {
-			var err error
 			if at, err = time.Parse(time.RFC3339Nano, metadata.At); err != nil {
 				return err
 			}
 		}
 	}
-	_, err := e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
+	_, err = e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
 	return err
+}
+
+// triageWrittenLater tells if the poll read a later event of the label mobius:triage from the Mobius App for the issue
+// of the incoming change.
+func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
+	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
+	if err != nil {
+		return false, err
+	}
+	return e.queries.HasLaterTriageChangeOfActor(ctx, store.HasLaterTriageChangeOfActorParams{
+		Repository: change.Repository,
+		Number:     change.Number,
+		Actor:      appLogin(repository.AppSlug),
+		After:      id,
+	})
 }
 
 // issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before

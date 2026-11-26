@@ -1233,10 +1233,23 @@ func (e *Engine) stopAtLimit(ctx context.Context, r round, limit string) error {
 	rounds := e.config.MaxFixRounds
 	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
+	next := fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber())
+	return e.stopForLimit(ctx, r, summary, reason, next)
+}
+
+// stopBeforeReview hands the task of the round to a human, because max_fix_rounds review rounds are done and Mobius
+// does not start the Reviewer. The pull request can have no open item.
+func (e *Engine) stopBeforeReview(ctx context.Context, r round) error {
+	summary := fmt.Sprintf("The pull request needs a review after %d review rounds. Mobius did not start the Reviewer.", e.config.MaxFixRounds)
+	reason := fmt.Sprintf("the pull request needs a review after %d review rounds. Mobius did not start the Reviewer. Mobius set the Mobius check to failure and added mobius:needs-human.", e.config.MaxFixRounds)
+	return e.stopForLimit(ctx, r, summary, reason, "Resume, or close the pull request. Resume resets the round count.")
+}
+
+func (e *Engine) stopForLimit(ctx context.Context, r round, summary, reason, next string) error {
 	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task, r.title, reason), "", stopNotice{
 		reason:       "Round limit",
 		text:         summary,
-		next:         fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
+		next:         next,
 		checkTitle:   "Round limit",
 		checkSummary: summary,
 		createCheck:  true,

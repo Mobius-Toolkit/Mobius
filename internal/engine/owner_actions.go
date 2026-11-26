@@ -129,7 +129,7 @@ func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository githu
 		return "", refuse("The task of #%d is %s, not dispatched.", input.N, task.State)
 	case input.Next != "implementer" && !task.PullRequest.Valid:
 		return "", refuse("The task of #%d has no pull request.", input.N)
-	case input.Next != "implementer" && task.State == "dispatched":
+	case input.Next == "fix_round" && task.State == "dispatched":
 		return "", refuse("The task of #%d is dispatched, not checks, approval, ready_for_review or needs_human.", input.N)
 	}
 	text, number := action, int64(0)
@@ -137,6 +137,9 @@ func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository githu
 		pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
 		if err != nil {
 			return "", err
+		}
+		if task.State == "dispatched" && input.Next == "review" && pullRequest.GetState() != "open" {
+			return "", refuse("The pull request of #%d is not open.", input.N)
 		}
 		text, number = fmt.Sprintf("%s\n%s", action, pullRequest.GetHTMLURL()), task.PullRequest.Int64
 	}
@@ -187,8 +190,8 @@ func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note
 	return e.closeOwnerAction(ctx, item, action, note, record)
 }
 
-// clearOwnerAction starts the next step of the open action that the Lead marked on the task, as a Done of the Owner
-// does.
+// clearOwnerAction starts the next step of the open action of the task, from the Lead or from the Reviewer, as a Done
+// of the Owner does.
 func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -201,11 +204,10 @@ func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository gith
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(actions, func(action store.OwnerAction) bool { return action.Role == LeadRole })
-	if i < 0 || task.State != "owner_action" {
-		return "", refuse("The task of #%d has no open action that the Lead marked.", input.N)
+	if len(actions) == 0 || task.State != "owner_action" {
+		return "", refuse("The task of #%d has no open action of the Owner.", input.N)
 	}
-	action := actions[i]
+	action := actions[0]
 	item, err := e.queries.GetInboxItem(ctx, action.InboxItem)
 	if err != nil {
 		return "", err

@@ -34,8 +34,9 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 	if empty(input.Question) {
 		return "", refuse("question must not be empty.")
 	}
-	if e.draining() {
-		return "", refuse("Mobius prepares an upgrade, so no Researcher starts now.")
+	arguments := repositoryQuestionInput{repositoryInput{repository.FullName}, input}
+	if err := e.refuseInDrain(ctx, c, "start_researcher", "Researcher", arguments); err != nil {
+		return "", err
 	}
 	if c.agent.spec.Role == TriagerRole && slices.Contains(c.agent.questions, input.Question) {
 		return "", refuse("You already started a Researcher with this question in this session. Do not call start_researcher again for it.")
