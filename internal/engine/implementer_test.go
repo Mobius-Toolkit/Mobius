@@ -68,6 +68,19 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		t.Logf("access checked = %t", server.Engine.AccessChecked())
+		logRows(t, server, "cursor", "SELECT endpoint, since FROM sync_cursors WHERE repository = ?", shop)
+		logRows(t, server, "task", "SELECT id, issue, state, worker, worker_restarts FROM tasks ORDER BY id")
+		logRows(t, server, "session", "SELECT id, role, end_reason, queue_reason FROM sessions ORDER BY id")
+		logRows(t, server, "lead event", "SELECT id, kind, delivered_at FROM lead_events ORDER BY id")
+		logRows(t, server, "pending change", "SELECT id, field, number, issue, workstream FROM outgoing_changes WHERE status = 'pending' ORDER BY id")
+		logRows(t, server, "pause", "SELECT harness, paused_until FROM harness_pauses")
+		logRows(t, server, "access check", "SELECT title, reason FROM inbox_items WHERE kind = 'access check'")
+	})
 	server.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, server.Engine.AccessChecked)
 	return server, dataDir
