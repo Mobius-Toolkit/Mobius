@@ -206,7 +206,7 @@ func TestFindGHSkipsEachGHThatIsThisProgram(t *testing.T) {
 
 func TestTheHandlerGivesTheRawParamsOfEachUpdate(t *testing.T) {
 	var got []string
-	handle := handler(func(params json.RawMessage, _ bool) { got = append(got, string(params)) }, &wire{})
+	handle := handler(func(params json.RawMessage, _ bool) { got = append(got, string(params)) }, func(AuthStatus) {}, &wire{})
 	params := `{"sessionId":"s","update":{"sessionUpdate":"a_future_kind","x":[1, 2]}}`
 
 	result, err := handle(context.Background(), "session/update", json.RawMessage(params))

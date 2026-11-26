@@ -17,6 +17,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -255,16 +256,66 @@ func limitText(harness config.Harness, until time.Time) string {
 }
 
 // subscriptionText is the Mobius message of the subscription error of Claude Code with the end of the pause until.
-func subscriptionText(until time.Time) string {
-	return fmt.Sprintf("Claude Code cannot use the Claude subscription. The Owner must pay or renew at https://claude.ai/settings/billing. Mobius sends the prompt again at %s.", until.UTC().Format(timeFormat))
+// account is the account that Claude Code uses, or "" when it is not known.
+func subscriptionText(until time.Time, account string) string {
+	if account != "" {
+		account = " The account is: " + account + "."
+	}
+	return fmt.Sprintf("Claude Code cannot use the Claude subscription.%s The Owner must pay or renew at https://claude.ai/settings/billing. Mobius sends the prompt again at %s.", account, until.UTC().Format(timeFormat))
 }
 
 // pauseText gives the message of the pause of a until until.
 func (a *Agent) pauseText(until time.Time, subscription bool) string {
 	if subscription {
-		return subscriptionText(until)
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return subscriptionText(until, a.account)
 	}
 	return limitText(a.binding.Harness, until)
+}
+
+// authStatus handles an account notification of Claude Code. An account that is not the Claude subscription pauses
+// the Harness for noTimeWait, before the turn fails. A logged out account also makes the turn end as a turn with the
+// subscription error. The Claude subscription ends that pause.
+func (a *Agent) authStatus(status runner.AuthStatus) {
+	ctx := context.Background()
+	if status.Kind == "account" {
+		a.mu.Lock()
+		a.account = ""
+		a.mu.Unlock()
+		if err := a.engine.endAuthPause(ctx); err != nil {
+			log.Printf("end the pause of %s after the notification of the Claude subscription: %v", a.binding.Harness, err)
+		}
+		return
+	}
+	account := status.Label
+	if status.Detail != "" {
+		account += " (" + status.Detail + ")"
+	}
+	a.mu.Lock()
+	a.account = account
+	if a.turn && status.Kind == "none" {
+		a.limited = true
+		a.subscription = true
+	}
+	a.mu.Unlock()
+	until := time.Now().UTC().Add(noTimeWait)
+	log.Printf("account of %s is %s: pause until %s", a.binding.Harness, account, until.Format(timeFormat))
+	if err := a.pauseForSession(ctx, until, true); err != nil {
+		log.Printf("pause %s for the account %s: %v", a.binding.Harness, account, err)
+	}
+}
+
+// endAuthPause ends the pause that the last account problem started, unless it ended or another pause replaced it.
+func (e *Engine) endAuthPause(ctx context.Context) error {
+	e.pausing.Lock()
+	pause := e.authPause
+	e.authPause = store.HarnessPause{}
+	e.pausing.Unlock()
+	if pause.Harness == "" {
+		return nil
+	}
+	return e.endPauseSince(ctx, &pause)
 }
 
 // pause pauses the Harness of a until the time until. The first pause also adds a message in the chat of the
@@ -311,6 +362,9 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time, subscript
 	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
+	}
+	if subscription {
+		e.authPause = pause
 	}
 	e.publish(Change{Pauses: true})
 	return nil

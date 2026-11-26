@@ -30,6 +30,8 @@
 //
 //	[[prompts]]
 //	when = "text"           # answers each prompt that contains text; the prompts with no when answer in order
+//	notices = ['{"method": "auth/status_update", "params": {"state": "unauthenticated"}}']
+//	                        # the JSON of each notification that is not a session/update, before the updates
 //	updates = ['{"sessionUpdate": "plan", "entries": []}']  # the JSON of each session/update before the reply
 //	reply = ["text"]        # one agent message chunk for each text
 //	shell = "gh issue list" # runs in /bin/sh; the reply gets its stdout, its stderr and "exit <code>"
@@ -52,6 +54,9 @@
 //	                        # does for a turn that it starts alone
 //	later = { wait_for = "/tmp/go", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
 //	                        # with wait_for, the agent waits for the file instead of the time after
+//	later = { wait_for = "/tmp/go", notices = ['{"method": "auth/status_update", "params": {"state": "unknown"}}'] }
+//	                        # with notices, the agent sends the notifications before the updates; a turn that ends with
+//	                        # an error also starts its later
 //	later = { after = "100ms", call = { tool = "cannot_do", arguments = { reason = "No." } } }
 //	                        # with call, the agent calls the tool of the Mobius MCP server before it sends the updates
 //	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
@@ -135,6 +140,7 @@ type prompt struct {
 	When       string       `toml:"when"`
 	Reply      []string     `toml:"reply"`
 	Updates    []string     `toml:"updates"`
+	Notices    []string     `toml:"notices"`
 	Hang       bool         `toml:"hang"`
 	StopReason string       `toml:"stop_reason"`
 	Busy       string       `toml:"busy"`
@@ -158,6 +164,7 @@ type promptResult struct {
 type later struct {
 	After   string   `toml:"after"`
 	WaitFor string   `toml:"wait_for"`
+	Notices []string `toml:"notices"`
 	Updates []string `toml:"updates"`
 	Absorb  bool     `toml:"absorb"`
 	Call    *call    `toml:"call"`
@@ -722,13 +729,13 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 		a.steered = nil
 	}
 	a.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
 	if turn.Later != nil {
 		if err := a.startLater(request.SessionID, mcpURL, *turn.Later); err != nil {
 			return nil, acp.NewInternalError(err.Error())
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	result := promptResult{StopReason: stopReason}
 	if turn.Usage != "" {
@@ -809,6 +816,11 @@ func (a *agent) startLater(sessionID, mcpURL string, l later) error {
 				return
 			}
 		}
+		for _, notice := range l.Notices {
+			if err := a.notify(context.Background(), notice); err != nil {
+				return
+			}
+		}
 		for _, update := range l.Updates {
 			if err := a.send(context.Background(), sessionID, json.RawMessage(update)); err != nil {
 				break
@@ -818,7 +830,27 @@ func (a *agent) startLater(sessionID, mcpURL string, l later) error {
 	return nil
 }
 
+// notify sends the notification in notice, a JSON object with the fields method and params.
+func (a *agent) notify(ctx context.Context, notice string) error {
+	var notification struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(notice), &notification); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	conn := a.conn
+	a.mu.Unlock()
+	return conn.SendNotification(ctx, notification.Method, notification.Params)
+}
+
 func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel, steered chan struct{}) (acp.StopReason, *acp.RequestError) {
+	for _, notice := range turn.Notices {
+		if err := a.notify(ctx, notice); err != nil {
+			return "", acp.NewInternalError(err.Error())
+		}
+	}
 	for _, update := range turn.Updates {
 		if err := a.send(ctx, sessionID, json.RawMessage(update)); err != nil {
 			return "", acp.NewInternalError(err.Error())

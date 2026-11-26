@@ -1,6 +1,9 @@
 package engine_test
 
 import (
+	"log"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,9 +32,98 @@ reply = ["Seen."]
 reply = ["Noted."]
 `
 
-func subscriptionMessage(until time.Time) string {
-	return "Claude Code cannot use the Claude subscription. The Owner must pay or renew at https://claude.ai/settings/billing. " +
+// subscriptionMessage gives the chat message of the pause. account is the account in the message, or "".
+func subscriptionMessage(until time.Time, account string) string {
+	if account != "" {
+		account = " The account is: " + account + "."
+	}
+	return "Claude Code cannot use the Claude subscription." + account + " The Owner must pay or renew at https://claude.ai/settings/billing. " +
 		"Mobius sends the prompt again at " + until.UTC().Format("2006-01-02 15:04 UTC") + "."
+}
+
+const (
+	ownerEmail = "owner@example.com"
+
+	// accountNotice is the notification of the adapter for the Claude subscription.
+	accountNotice = `{"method": "auth/status_update", "params": {"state": "authenticated", "accounts": [{"label": "Claude Max", "active": true, "email": "` + ownerEmail + `", "_meta": {"claudeCode": {"kind": "account", "plan": "max"}}}]}}`
+)
+
+// accountProblem is the first prompt of Claude Code: it gets the notification notice and then the error "Authentication
+// required". After the file gate exists, the agent sends the notification of the Claude subscription. The same prompt
+// again and the next prompt do the work.
+func accountProblem(notice, gate string) string {
+	return "[[prompts]]\nnotices = ['''" + notice + "''']\nerror = { code = -32000, message = \"Authentication required\" }\n" +
+		"later = { wait_for = '" + gate + "', notices = ['''" + accountNotice + "'''] }\n\n" +
+		"[[prompts]]\nreply = [\"Noted.\"]\n"
+}
+
+// requireAccountPause sends a chat message to the Lead, and checks that the notification notice pauses Claude Code with
+// the message that names account, with no email and no ERROR line in logged. Then it checks that the notification of
+// the Claude subscription ends the pause, and that the prompt goes again.
+func requireAccountPause(t *testing.T, notice, account string) {
+	t.Helper()
+	logged := &logBuffer{}
+	log.SetOutput(logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	gate := filepath.Join(t.TempDir(), "gate")
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, accountProblem(notice, gate), keepSessionOpen)
+	before := time.Now().UTC()
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	var untilText string
+	if err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&untilText); err != nil {
+		t.Fatal(err)
+	}
+	until := parseTime(t, untilText)
+	if until.Before(before.Add(30*time.Minute)) || until.After(time.Now().UTC().Add(30*time.Minute)) {
+		t.Errorf("until = %v, before = %v", until, before)
+	}
+	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
+	want := subscriptionMessage(until, account)
+	if got := chatTexts(t, server, "Mobius"); got[0] != want {
+		t.Errorf("Mobius chat messages = %q, want %q", got, want)
+	}
+	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
+		t.Errorf("Lead chat messages = %q", got)
+	}
+	if ownerMessageDelivered(t, server) {
+		t.Error("the Owner message has a delivery time while the turn waits for the end of the pause")
+	}
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	if len(sessions) != 1 || sessions[0].EndReason.Valid {
+		t.Errorf("sessions = %+v", sessions)
+	}
+
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Noted."}) })
+	if claudeCodePaused(t, server) {
+		t.Error("the pause did not end")
+	}
+	if got := promptTexts(t, server, sessions[0].ID); len(got) != 2 || got[0] != got[1] {
+		t.Errorf("prompts = %q", got)
+	}
+	if strings.Contains(logged.String(), ownerEmail) || strings.Contains(want, ownerEmail) {
+		t.Errorf("an email is in the log or in the message: %s", logged.String())
+	}
+	if strings.Contains(logged.String(), "ERROR") {
+		t.Errorf("log = %s", logged.String())
+	}
+}
+
+// Serial: the test sets the output of the standard logger.
+func TestAnAuthStatusUpdateWithStateUnauthenticatedPausesClaudeCodeUntilTheClaudeSubscriptionNotification(t *testing.T) {
+	requireAccountPause(t, `{"method": "auth/status_update", "params": {"state": "unauthenticated"}}`, "Not logged in")
+}
+
+// Serial: the test sets the output of the standard logger.
+func TestAnExtensionAuthStatusUpdateWithKindNonePausesClaudeCodeUntilTheClaudeSubscriptionNotification(t *testing.T) {
+	requireAccountPause(t, `{"method": "_auth/status_update", "params": {"authStatus": {"kind": "none", "label": "Not logged in", "detail": "Run claude login", "account": {"email": "`+ownerEmail+`"}}}}`, "Not logged in (Run claude login)")
 }
 
 func TestAClaudeCodeTurnWithTheSubscriptionErrorPausesClaudeCodeAndSendsThePromptAgainAfterThePause(t *testing.T) {
@@ -52,8 +144,8 @@ func TestAClaudeCodeTurnWithTheSubscriptionErrorPausesClaudeCodeAndSendsThePromp
 		t.Errorf("until = %v, before = %v", until, before)
 	}
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	if got := chatTexts(t, server, "Mobius"); got[0] != subscriptionMessage(until) {
-		t.Errorf("Mobius chat messages = %q, want %q", got, subscriptionMessage(until))
+	if got := chatTexts(t, server, "Mobius"); got[0] != subscriptionMessage(until, "") {
+		t.Errorf("Mobius chat messages = %q, want %q", got, subscriptionMessage(until, ""))
 	}
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
 		t.Errorf("Lead chat messages = %q", got)

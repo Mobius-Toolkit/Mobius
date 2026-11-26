@@ -185,6 +185,9 @@ type Agent struct {
 	// subscription tells that the reply text of the last turn is the subscription error of Claude Code. It stays after
 	// the turn, so the chat can read it when the session fails. The next prompt clears it.
 	subscription bool
+	// account is the label and the detail of the last account notification that is not the Claude subscription, or ""
+	// after a notification of the Claude subscription.
+	account string
 	// delivery is the id of the chat message of the turn that has no delivery time yet, or 0.
 	delivery int64
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
@@ -555,6 +558,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		return err
 	}
 	a.session = session
+	session.SetAuth(a.authStatus)
 	if clearErr != nil {
 		return clearErr
 	}
@@ -584,6 +588,7 @@ func (a *Agent) continueSession(ctx context.Context, k *keptSession) error {
 	a.report = k.report
 	a.addSessionSkills(ctx, k.copiedSkills)
 	a.session.SetUpdates(a.update)
+	a.session.SetAuth(a.authStatus)
 	a.engine.agents.MCP.SetCaller(a.key, a.mcpCaller())
 	if err := a.engine.queries.SetACPSessionID(ctx, store.SetACPSessionIDParams{AcpSessionID: sql.NullString{String: k.session.ID(), Valid: true}, ID: a.id}); err != nil {
 		return err

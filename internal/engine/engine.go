@@ -155,6 +155,8 @@ type Engine struct {
 	// pausing makes one pause of two sessions that reach the same usage limit, and one Inbox item of two checks on a
 	// full disk.
 	pausing sync.Mutex
+	// authPause is the pause of the last account problem of Claude Code (guarded by pausing).
+	authPause store.HarnessPause
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
 	// pauseWaitersMu guards pauseWaiters.
