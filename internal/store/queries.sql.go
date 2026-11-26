@@ -888,6 +888,19 @@ func (q *Queries) AddMissingWorkstreamDismissal(ctx context.Context, arg AddMiss
 	return err
 }
 
+const addNetworkPause = `-- name: AddNetworkPause :execrows
+INSERT INTO network_pause (id, lost_at) VALUES (1, ?)
+ON CONFLICT (id) DO NOTHING
+`
+
+func (q *Queries) AddNetworkPause(ctx context.Context, lostAt string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addNetworkPause, lostAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addOutgoingChange = `-- name: AddOutgoingChange :one
 INSERT INTO outgoing_changes (integration, repository, number, workstream, issue, reply_to, field, text, status, created_at) VALUES ('github', ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
 RETURNING id
@@ -2490,6 +2503,18 @@ DELETE FROM mcp_server_oauth WHERE server = ?
 func (q *Queries) DeleteMcpServerOAuth(ctx context.Context, server int64) error {
 	_, err := q.db.ExecContext(ctx, deleteMcpServerOAuth, server)
 	return err
+}
+
+const deleteNetworkPause = `-- name: DeleteNetworkPause :execrows
+DELETE FROM network_pause WHERE id = 1
+`
+
+func (q *Queries) DeleteNetworkPause(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteNetworkPause)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteOldOwnWrites = `-- name: DeleteOldOwnWrites :exec
@@ -4624,6 +4649,17 @@ func (q *Queries) GetMergeQueueHead(ctx context.Context, repository string) (Tas
 		&i.TotalReviewRounds,
 	)
 	return i, err
+}
+
+const getNetworkPause = `-- name: GetNetworkPause :one
+SELECT lost_at FROM network_pause WHERE id = 1
+`
+
+func (q *Queries) GetNetworkPause(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, getNetworkPause)
+	var lost_at string
+	err := row.Scan(&lost_at)
+	return lost_at, err
 }
 
 const getNewestCommentChange = `-- name: GetNewestCommentChange :one

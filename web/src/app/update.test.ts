@@ -14,6 +14,7 @@ import { Message as SelectionMessage } from "@/ui/selection";
 import {
   CheckUpgrade,
   FetchCIStops,
+  FetchNetwork,
   FetchPauses,
   FetchSwitches,
   GoBack,
@@ -193,6 +194,7 @@ describe("router update logic", () => {
         Message.UpgradeInfoLoaded({ version: null, drain: null, upgrade: null }),
       ),
       StoryCommand.resolve(FetchPauses, Message.PausesChanged({ pauses: [] })),
+      StoryCommand.resolve(FetchNetwork, Message.NetworkChanged({ network: { lostAt: null } })),
       StoryCommand.resolve(FetchCIStops, Message.CIStopsChanged({ stops: [] })),
       StoryCommand.resolve(
         FetchSwitches,
@@ -873,6 +875,23 @@ describe("the users of a pause banner", () => {
     const { model: next } = update(expanded, Message.UrlChanged({ url: urlOf("/settings/roles") }));
 
     expect(next.pausesExpanded).toEqual([]);
+  });
+});
+
+describe("the network banner", () => {
+  const lostAt = "2026-09-28T12:00:00Z";
+
+  it("shows the time of the loss and goes away at the end of the pause", () => {
+    const lost = update(
+      createModel("/tasks"),
+      Message.NetworkChanged({ network: { lostAt } }),
+    ).model;
+
+    expect(lost.networkLostAt).toEqual(Option.some(lostAt));
+
+    const back = update(lost, Message.NetworkChanged({ network: { lostAt: null } })).model;
+
+    expect(back.networkLostAt).toEqual(Option.none());
   });
 });
 

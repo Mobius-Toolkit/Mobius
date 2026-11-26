@@ -1,6 +1,6 @@
 import { Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { pausedText } from "@/lib/state";
+import { networkText, pausedText } from "@/lib/state";
 import { renderButton } from "@/ui/button";
 import { chevronDownIcon, chevronRightIcon } from "@/ui/icons";
 import { renderErrorBadge } from "@/ui/page";
@@ -79,6 +79,21 @@ function renderUser(h: HtmlBuilder<Message>, user: PauseUser): Html {
         ? userText(user)
         : h.a([h.Href(path), h.Class("underline")], [userText(user)]),
     ],
+  );
+}
+
+export function renderNetwork(h: HtmlBuilder<Message>, model: Model): Html {
+  if (Option.isNone(model.networkLostAt)) {
+    return h.empty;
+  }
+  return h.div(
+    [
+      h.DataAttribute("network", "lost"),
+      h.Class(
+        "min-w-0 rounded-lg border border-amber-500/40 bg-amber-100 px-3 py-2 text-xs wrap-anywhere text-amber-900 md:text-sm dark:bg-amber-950 dark:text-amber-200",
+      ),
+    ],
+    [networkText(model.networkLostAt.value)],
   );
 }
 

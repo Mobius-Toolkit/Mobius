@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentWait } from "@/api/api.gen";
-import { displayState, pausedText, waitDot } from "./state";
+import { displayState, networkText, pausedText, waitDot } from "./state";
 import { dayClock } from "./time";
 
 const until = "2026-09-28T12:00:00Z";
@@ -8,6 +8,14 @@ const until = "2026-09-28T12:00:00Z";
 describe("pausedText", () => {
   it("gives the end of the pause", () => {
     expect(pausedText(until)).toBe(`paused until ${dayClock(until)}`);
+  });
+});
+
+describe("networkText", () => {
+  it("gives the time of the loss", () => {
+    expect(networkText(until)).toBe(
+      `No network since ${dayClock(until)}. Mobius waits for the network.`,
+    );
   });
 });
 

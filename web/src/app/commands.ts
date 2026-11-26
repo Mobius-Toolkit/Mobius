@@ -6,6 +6,7 @@ import {
   cancelUpgrade,
   completeWorkstream,
   getDrain,
+  getNetwork,
   getRelease,
   getSwitches,
   getUpgrade,
@@ -133,6 +134,21 @@ export const FetchPauses = Command.define("FetchPauses", {
       return Message.PausesChanged({ pauses: [] });
     }),
     Effect.catchTag("RequestFailed", () => Effect.succeed(Message.PausesChanged({ pauses: [] }))),
+  ),
+});
+
+export const FetchNetwork = Command.define("FetchNetwork", {
+  messages: [Message.NetworkChanged],
+  execute: request(() => getNetwork()).pipe(
+    Effect.map((res) => {
+      if (res.status === 200) {
+        return Message.NetworkChanged({ network: res.data.data });
+      }
+      return Message.NetworkChanged({ network: { lostAt: null } });
+    }),
+    Effect.catchTag("RequestFailed", () =>
+      Effect.succeed(Message.NetworkChanged({ network: { lostAt: null } })),
+    ),
   ),
 });
 

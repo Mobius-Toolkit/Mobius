@@ -2590,3 +2590,13 @@ SELECT * FROM drain_refusals ORDER BY id;
 -- name: DeleteDrainRefusals :exec
 DELETE FROM drain_refusals
 WHERE organization = ? AND repository = ? AND workstream = ? AND id <= ?;
+
+-- name: GetNetworkPause :one
+SELECT lost_at FROM network_pause WHERE id = 1;
+
+-- name: AddNetworkPause :execrows
+INSERT INTO network_pause (id, lost_at) VALUES (1, ?)
+ON CONFLICT (id) DO NOTHING;
+
+-- name: DeleteNetworkPause :execrows
+DELETE FROM network_pause WHERE id = 1;

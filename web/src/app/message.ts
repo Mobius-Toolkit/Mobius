@@ -11,6 +11,7 @@ import {
   InboxItem,
   NeedsHuman,
   Pause,
+  Network,
   Switches,
   Unread,
   Upgrade,
@@ -102,6 +103,7 @@ export const Message = defineMessageUnion({
   ResumePauseRequested: { harness: Schema.String },
   ResumePauseSucceeded: { harness: Schema.String },
   ResumePauseFailed: { harness: Schema.String, error: Schema.String },
+  NetworkChanged: { network: Network },
 
   SwitchesChanged: { switches: Switches },
   ToggleSwitchRequested: { kind: SwitchKind, on: Schema.Boolean },

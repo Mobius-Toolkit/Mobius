@@ -724,3 +724,9 @@ func (r Repository) issuePage(ctx context.Context, query url.Values, etag string
 		}
 	}
 }
+
+// Reach makes one call to GitHub with publicClient. It gives an error only when the call fails.
+func (g *GitHub) Reach(ctx context.Context) error {
+	_, _, err := g.publicClient().Meta.Zen(ctx)
+	return err
+}

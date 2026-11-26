@@ -1426,7 +1426,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends a ping at once, and then each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, each Workstream that the Coordinator chat created, and each change of the recurring tasks of a Workstream or of their history. It also sends a ping at a fixed interval. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends a ping at once, and then each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, each start and end of the network pause, each Workstream that the Coordinator chat created, and each change of the recurring tasks of a Workstream or of their history. It also sends a ping at a fixed interval. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "responses": {
           "200": {
@@ -2433,6 +2433,51 @@
         ],
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/api/network": {
+      "get": {
+        "description": "GetNetwork returns the state of the network pause.",
+        "operationId": "GetNetwork",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Network"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "network"
         ]
       }
     },
@@ -9304,6 +9349,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Network": {
+        "type": "object",
+        "title": "Envelope_Network",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Network",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_PendingAction": {
         "type": "object",
         "title": "Envelope_PendingAction",
@@ -10328,6 +10387,29 @@
                 "type": "string",
                 "contentMediaType": "application/json",
                 "contentSchema": {
+                  "$ref": "#/components/schemas/Network"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "network"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
                   "$ref": "#/components/schemas/WorkstreamRef"
                 }
               },
@@ -10896,6 +10978,24 @@
           "reason"
         ],
         "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
+      },
+      "Network": {
+        "type": "object",
+        "title": "Network",
+        "properties": {
+          "lostAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "LostAt is the time when Mobius lost the network, or null while the network works. While it is set, no session and no Worker restart starts",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "lostAt"
+        ],
+        "description": "Network is the state of the network pause."
       },
       "NextSetting": {
         "type": "object",

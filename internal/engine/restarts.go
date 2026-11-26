@@ -70,6 +70,8 @@ func (e *Engine) restartLost(ctx context.Context, repository github.Repository, 
 //
 // Before true, RestartWorker waits: the wait grows with each restart. A GitHub rate limit in err is not a failure of the
 // Worker. Then RestartWorker does not count a restart, and it waits until the reset of the limit plus rateLimitGrace.
+// A network error in err is not a failure of the Worker too, when GitHub does not answer. Then RestartWorker starts the
+// network pause, counts no restart, and waits for the end of the pause.
 // At max_worker_restarts, it hands the task to a human, adds a stop event with the end of err for the Lead, and gives
 // false. A task that is not queued or working also gives false.
 func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title string, err error) (bool, error) {
@@ -78,6 +80,16 @@ func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title strin
 		case <-ctx.Done():
 			return false, ctx.Err()
 		case <-time.After(wait):
+		}
+		return true, nil
+	}
+	lost, lostErr := e.lostNetwork(ctx, err)
+	if lostErr != nil {
+		return false, lostErr
+	}
+	if lost {
+		if err := e.waitForNetwork(ctx); err != nil {
+			return false, err
 		}
 		return true, nil
 	}

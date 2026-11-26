@@ -35,7 +35,7 @@ import { renderCIStops } from "./ciStops";
 import { Message } from "./message";
 import type { Model } from "./model";
 import { renderOrganizationSwitch } from "./organizationSwitch";
-import { renderPauses } from "./pauses";
+import { renderNetwork, renderPauses } from "./pauses";
 import { isFillRoute, parentPath, routeToPath, AppRoute } from "./route";
 import { renderSwitchLines } from "./switchLines";
 import { renderUpgradeControls, renderUpgradeDialog } from "./upgrade";
@@ -491,6 +491,7 @@ export function renderFrame(h: HtmlBuilder<Message>, model: Model, content: Html
                 ],
                 [
                   ...renderCIStops(h, shownCIStops),
+                  renderNetwork(h, model),
                   ...renderPauses(h, model),
                   renderSwitchLines(h, model),
                 ],
