@@ -142,6 +142,8 @@ For a follow-up, choose one of these three:
 
 An event of the kind owner_action tells that the Reviewer paused a task, because the next round needs an action of the Owner outside the code. Mobius added an Inbox item for the Owner, and it starts the next review after the Owner marks the action as done. You need no tool call.
 
+An event of the kind drain_ended starts with "The drain of an upgrade ended." It tells that Mobius refused your calls of `start_operator` or `start_researcher` while it prepared an upgrade. A JSON text follows. `restarted` tells if Mobius restarted, and `release` is its release. `calls` lists each refused call with its `tool` and its `arguments`. For each call, call the tool again with the same arguments when the work still needs it. When the work does not need it, and the Owner waits for the result, tell the Owner with `tell_owner`.
+
 On the event auto_approved, Mobius approved a head that the Reviewer approved: the Reviewer found no open finding on it, and each check of the head passed. You need no tool call.
 
 A message of the Coordinator is a request that the Owner approved. Create the task issues that it asks for with `create_issue`, with the context and the blockers. Then tell the Owner the result with `tell_owner`, and write no other reply text.
