@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/acp-go-sdk"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -177,8 +179,12 @@ type Agent struct {
 	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
 	// use. The agent message chunks that follow are the raw text of the usage limit. It ends with the turn.
 	limited bool
-	// limitText is the raw text of the usage limit of Antigravity in the reply text, or "".
+	// limitText is the raw text of the usage limit of Antigravity, or of the subscription error of Claude Code, in the
+	// reply text, or "".
 	limitText string
+	// subscription tells that the reply text of the last turn is the subscription error of Claude Code. It stays after
+	// the turn, so the chat can read it when the session fails. The next prompt clears it.
+	subscription bool
 	// delivery is the id of the chat message of the turn that has no delivery time yet, or 0.
 	delivery int64
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
@@ -661,6 +667,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.cannotDo = ""
 		a.limited = false
 		a.limitText = ""
+		a.subscription = false
 		if err != nil {
 			a.mu.Unlock()
 			return err
@@ -690,11 +697,17 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if errors.As(err, &incomplete) && a.limited {
 			err = nil
 		}
+		// The adapter of Claude Code ends the turn of the subscription error with the error "Authentication required".
+		var requestErr *acp.RequestError
+		if a.subscription && errors.As(err, &requestErr) && requestErr.Code == acp.NewAuthRequired(nil).Code {
+			err = nil
+		}
 		if err == nil {
 			a.retries = 0
 		}
-		wasLimited := a.limited && a.binding.Harness == config.Antigravity
+		wasLimited := a.limited && a.binding.Harness == config.Antigravity || a.subscription
 		limitText := a.limitText
+		subscription := a.subscription
 		if !retrying {
 			a.turn = false
 			a.limited = false
@@ -703,7 +716,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.mu.Unlock()
 		if err == nil {
 			if wasLimited {
-				if err := a.pauseForReplyLimit(ctx, limitText); err != nil {
+				if err := a.pauseForReplyLimit(ctx, limitText, subscription); err != nil {
 					return err
 				}
 				if a.isSaving() {
@@ -801,6 +814,14 @@ func (a *Agent) clearTurn() {
 	a.turn = false
 	a.limited = false
 	a.limitText = ""
+	a.subscription = false
+}
+
+// endedWithSubscriptionError tells if the last turn of a ended with the subscription error of Claude Code.
+func (a *Agent) endedWithSubscriptionError() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.subscription
 }
 
 // setSaving tells that the next prompts are the save prompt of a chat that closes, or that they are not.
@@ -1044,6 +1065,11 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 		a.limited = true
 		a.limitText = a.chunkText(kind) + content
 	}
+	if kind == "agent_message_chunk" && a.turn && a.binding.Harness == config.ClaudeCode && strings.HasPrefix(a.chunkText(kind)+content, subscriptionErrorStart) {
+		a.limited = true
+		a.subscription = true
+		a.limitText = a.chunkText(kind) + content
+	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
 		update["content"].(map[string]any)["text"] = stringField(a.chunk, "update", "content", "text") + content
@@ -1085,6 +1111,9 @@ func (a *Agent) chunkText(kind string) string {
 	}
 	return stringField(a.chunk, "update", "content", "text")
 }
+
+// subscriptionErrorStart starts the reply text of Claude Code when it cannot use the Claude subscription.
+const subscriptionErrorStart = "Claude Code can't use your Claude subscription"
 
 // isLimitText tells if text is the raw text of a usage limit of Claude Code.
 func isLimitText(text string) bool {

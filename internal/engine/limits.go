@@ -192,14 +192,17 @@ func resetIn(text string, now time.Time) time.Time {
 }
 
 // pauseForReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset time.
-func (a *Agent) pauseForReplyLimit(ctx context.Context, text string) error {
+// The subscription error of Claude Code has no reset time, so subscription pauses for noTimeWait.
+func (a *Agent) pauseForReplyLimit(ctx context.Context, text string, subscription bool) error {
 	now := time.Now().UTC()
-	until := resetIn(text, now)
-	if until.IsZero() {
-		until = now.Add(noTimeWait)
+	until := now.Add(noTimeWait)
+	if !subscription {
+		if reset := resetIn(text, now); !reset.IsZero() {
+			until = reset
+		}
 	}
 	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
-	return a.pauseForSession(ctx, until)
+	return a.pauseForSession(ctx, until, subscription)
 }
 
 // pauseForLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness.
@@ -228,20 +231,21 @@ func (a *Agent) pauseForLimit(ctx context.Context, err error) (bool, error) {
 		hintState = "used"
 	}
 	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.binding.Harness, reported, hintState, until.UTC().Format(timeFormat))
-	if err := a.pauseForSession(ctx, until); err != nil {
+	if err := a.pauseForSession(ctx, until, false); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // pauseForSession pauses the Harness of a until until. The save prompt of a closing chat sends no prompt again, so its
-// pause adds no chat message that promises it.
-func (a *Agent) pauseForSession(ctx context.Context, until time.Time) error {
+// pause adds no chat message that promises it. subscription tells that the pause is for the subscription error of
+// Claude Code.
+func (a *Agent) pauseForSession(ctx context.Context, until time.Time, subscription bool) error {
 	if a.isSaving() {
 		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until)
 		return err
 	}
-	return a.engine.pause(ctx, a, until)
+	return a.engine.pause(ctx, a, until, subscription)
 }
 
 // limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
@@ -250,11 +254,24 @@ func limitText(harness config.Harness, until time.Time) string {
 	return fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", harness, until.UTC().Format(timeFormat))
 }
 
+// subscriptionText is the Mobius message of the subscription error of Claude Code with the end of the pause until.
+func subscriptionText(until time.Time) string {
+	return fmt.Sprintf("Claude Code cannot use the Claude subscription. The Owner must pay or renew at https://claude.ai/settings/billing. Mobius sends the prompt again at %s.", until.UTC().Format(timeFormat))
+}
+
+// pauseText gives the message of the pause of a until until.
+func (a *Agent) pauseText(until time.Time, subscription bool) string {
+	if subscription {
+		return subscriptionText(until)
+	}
+	return limitText(a.binding.Harness, until)
+}
+
 // pause pauses the Harness of a until the time until. The first pause also adds a message in the chat of the
 // Workstream of a. A retry that fails again within retryWindow adds the message only for a session with a chat. A
 // session with a chat gets the message in its chat for each usage limit that it hits, also for a pause that another
 // session started.
-func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
+func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time, subscription bool) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
 	current, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
@@ -266,7 +283,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		if err != nil {
 			return err
 		}
-		text := limitText(a.binding.Harness, *currentEnd)
+		text := a.pauseText(*currentEnd, subscription)
 		spec := a.spec
 		last, err := e.queries.GetLastChatMessageOf(ctx, store.GetLastChatMessageOfParams{
 			Organization: spec.Organization, Repository: spec.WorkstreamRepository, Workstream: spec.Workstream, Author: mobiusAuthor,
@@ -287,7 +304,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		return err
 	}
 	if !retry || a.author != "" {
-		if err := e.addLimitMessage(ctx, a, limitText(a.binding.Harness, until)); err != nil {
+		if err := e.addLimitMessage(ctx, a, a.pauseText(until, subscription)); err != nil {
 			return err
 		}
 	}
