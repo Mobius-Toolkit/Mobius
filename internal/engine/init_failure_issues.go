@@ -31,8 +31,13 @@ func initFailureBody(failure store.InitFailure, timeLimit string) string {
 }
 
 // recordInitFailure stores the failure of the init script of the session a, when its repository has no open record.
-// The output has no local path.
+// It stores nothing while the repository has an open break of the CI of the default branch, also the break of the issue
+// of the task of a. The output has no local path.
 func (e *Engine) recordInitFailure(ctx context.Context, a *Agent, j *job, result, output string) error {
+	breaks, err := e.queries.ListOpenCIBreaks(ctx, j.task.Repository)
+	if err != nil || len(breaks) > 0 {
+		return err
+	}
 	commit, err := runner.RevParse(ctx, e.config.DataDir, a.spec.Dir, "HEAD")
 	if err != nil {
 		return err

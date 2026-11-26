@@ -2945,6 +2945,19 @@ func (q *Queries) EndCheckTimeout(ctx context.Context, arg EndCheckTimeoutParams
 	return err
 }
 
+const endDispatchedTask = `-- name: EndDispatchedTask :execrows
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, merge_head_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = ? AND state = 'dispatched' AND branch IS NULL AND pull_request IS NULL
+`
+
+func (q *Queries) EndDispatchedTask(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endDispatchedTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const endInitFailure = `-- name: EndInitFailure :exec
 UPDATE init_failures SET ended_at = ? WHERE id = ?
 `
@@ -6092,6 +6105,23 @@ type IsCommentAnsweredParams struct {
 
 func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isIssueBlocked = `-- name: IsIssueBlocked :one
+SELECT EXISTS (SELECT 1 FROM blockers b JOIN issues i ON i.id = b.issue JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+               WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER))
+`
+
+type IsIssueBlockedParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) IsIssueBlocked(ctx context.Context, arg IsIssueBlockedParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isIssueBlocked, arg.Repository, arg.Number)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

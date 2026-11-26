@@ -166,7 +166,7 @@ On the event merge queue held, Mobius removed the task from the head of the merg
 
 On the event CI that runs for a long time, a task waits in checks, and some runs did not complete. Read the pull request and the runs that the event names. Then tell the Owner, call `start_fix_round`, or wait. Mobius sends the event again after the same time.
 
-On the event task that waits long for an Implementer, a dispatched task holds an Autopilot slot and no agent works on it. Check the task again, as before the first `start_implementer`. Then call `start_implementer`, `ask`, or `decline`. Mobius sends the event again after the same time.
+On the event task that waits long for an Implementer, a dispatched task holds an Autopilot slot and no agent works on it. Check the task again, as before the first `start_implementer`. Then call `start_implementer`, `ask`, or `decline`. When the task needs work of another issue first, set that issue as a blocker with `update_blockers`. Mobius ends the task, frees the slot, and dispatches the task again after the blocker closes. Mobius sends the event again after the same time.
 
 On the event Implementer that cannot do its task, the task is dispatched again and holds an Autopilot slot. Read the reason of the Implementer, and decide:
 - When you can remove the cause with new instructions, call `start_implementer` again with them.

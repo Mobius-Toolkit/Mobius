@@ -310,7 +310,7 @@ A repository can have two executable files in the folder `.mobius`. Mobius runs 
 
 If `.mobius/init` fails or does not end in `check_timeout`, the Implementer still starts. The first prompt starts with the section "Setup failed" and the last lines of the output. The Implementer then does the setup itself. The Transcript shows the result of the script.
 
-Mobius also reports the failure one time to the Maintenance Workstream of the organization. It creates a task issue in the repository below the Maintenance Workstream, with the label `mobius:ready`. A repository has a maximum of one open report. A failure while the report is open creates no new issue. The report ends when its issue is closed. With no Maintenance Workstream, Mobius creates no issue.
+Mobius also reports the failure one time to the Maintenance Workstream of the organization. It creates a task issue in the repository below the Maintenance Workstream, with the label `mobius:ready`. A repository has a maximum of one open report. A failure while the report is open creates no new issue. A failure while the CI of the default branch has an open break creates no issue. The report ends when its issue is closed. With no Maintenance Workstream, Mobius creates no issue.
 
 #### Free ports
 

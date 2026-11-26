@@ -706,6 +706,10 @@ UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_h
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, merge_head_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
+-- name: EndDispatchedTask :execrows
+UPDATE tasks SET state = 'ended', lead_findings = '', merge_queued_at = NULL, merge_head_at = NULL, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = ? AND state = 'dispatched' AND branch IS NULL AND pull_request IS NULL;
+
 -- name: GetEndedTaskWithPullRequest :one
 SELECT * FROM tasks
 WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
@@ -1457,6 +1461,10 @@ FROM blockers b
 JOIN issues bi ON bi.id = b.blocker
 WHERE b.issue = ?
 ORDER BY bi.repository, bi.number, bi.id;
+
+-- name: IsIssueBlocked :one
+SELECT EXISTS (SELECT 1 FROM blockers b JOIN issues i ON i.id = b.issue JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
+               WHERE i.repository = ? AND i.number = CAST(sqlc.arg(number) AS INTEGER));
 
 -- name: ListOpenBlockersOfIssue :many
 SELECT bi.repository, CAST(bi.number AS INTEGER) AS number
