@@ -763,7 +763,7 @@ UPDATE tasks SET report = ? WHERE id = ?;
 UPDATE tasks SET fix_rounds = fix_rounds + 1, total_fix_rounds = total_fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
 
 -- name: KeepLeadFindings :execrows
-UPDATE tasks SET lead_findings = lead_findings || sqlc.arg(findings) WHERE id = sqlc.arg(id) AND state IN ('working', 'reviewed');
+UPDATE tasks SET lead_findings = lead_findings || sqlc.arg(findings) WHERE id = sqlc.arg(id) AND state IN ('queued', 'working', 'reviewed');
 
 -- name: GetLeadFindings :one
 SELECT lead_findings FROM tasks WHERE id = ?;

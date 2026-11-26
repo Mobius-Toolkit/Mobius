@@ -6253,7 +6253,7 @@ func (q *Queries) IsWorkstreamClosePending(ctx context.Context, arg IsWorkstream
 }
 
 const keepLeadFindings = `-- name: KeepLeadFindings :execrows
-UPDATE tasks SET lead_findings = lead_findings || ?1 WHERE id = ?2 AND state IN ('working', 'reviewed')
+UPDATE tasks SET lead_findings = lead_findings || ?1 WHERE id = ?2 AND state IN ('queued', 'working', 'reviewed')
 `
 
 type KeepLeadFindingsParams struct {
