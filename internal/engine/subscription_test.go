@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -34,13 +35,18 @@ reply = ["Seen."]
 reply = ["Noted."]
 `
 
-// subscriptionMessage gives the chat message of the pause. account is the account in the message, or "".
-func subscriptionMessage(until time.Time, account string) string {
+// subscriptionMessage gives the chat message of the pause. account is the account in the message, or "". With resend,
+// the message tells that Mobius sends the prompt again, and else that the next prompt waits.
+func subscriptionMessage(until time.Time, account string, resend bool) string {
 	if account != "" {
 		account = " The account is: " + account + "."
 	}
+	next := "The next prompt waits until "
+	if resend {
+		next = "Mobius sends the prompt again at "
+	}
 	return "Claude Code cannot use the Claude subscription." + account + " The Owner must pay or renew at https://claude.ai/settings/billing. " +
-		"Mobius sends the prompt again at " + until.UTC().Format("2006-01-02 15:04 UTC") + "."
+		next + until.UTC().Format("2006-01-02 15:04 UTC") + "."
 }
 
 const (
@@ -88,6 +94,33 @@ func TestALoggedOutNotificationInATurnThatRepliesNormallyKeepsTheReplyAndSendsNo
 	}
 	if !claudeCodePaused(t, server) {
 		t.Error("the notification did not pause Claude Code")
+	}
+	var untilText string
+	if err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&untilText); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{subscriptionMessage(parseTime(t, untilText), "Not logged in", false)}
+	if got := chatTexts(t, server, "Mobius"); !reflect.DeepEqual(got, want) {
+		t.Errorf("Mobius chat messages = %q, want %q", got, want)
+	}
+}
+
+func TestAnAuthStatusUpdateOfAnotherHarnessPausesNoHarness(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nnotices = ['''{\"method\": \"auth/status_update\", \"params\": {\"state\": \"unauthenticated\"}}''']\nreply = [\"Done.\"]\n", func(cfg *config.Config) {
+		cfg.Roles.Lead = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Done."}) })
+	var pauses int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses").Scan(&pauses); err != nil {
+		t.Fatal(err)
+	}
+	if got := chatTexts(t, server, "Mobius"); pauses != 0 || len(got) != 0 {
+		t.Errorf("pauses = %d, Mobius chat messages = %q", pauses, got)
 	}
 }
 
@@ -149,10 +182,11 @@ func requireAccountPause(t *testing.T, notice, account string) {
 	if until.Before(before.Add(30*time.Minute)) || until.After(time.Now().UTC().Add(30*time.Minute)) {
 		t.Errorf("until = %v, before = %v", until, before)
 	}
-	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	want := subscriptionMessage(until, account)
-	if got := chatTexts(t, server, "Mobius"); got[0] != want {
-		t.Errorf("Mobius chat messages = %q, want %q", got, want)
+	// The notification pauses first, and then the error of the turn makes Prompt send the prompt again.
+	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 2 })
+	want := subscriptionMessage(until, account, true)
+	if got, wantTexts := chatTexts(t, server, "Mobius"), []string{subscriptionMessage(until, account, false), want}; !reflect.DeepEqual(got, wantTexts) {
+		t.Errorf("Mobius chat messages = %q, want %q", got, wantTexts)
 	}
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
 		t.Errorf("Lead chat messages = %q", got)
@@ -213,8 +247,8 @@ func TestAClaudeCodeTurnWithTheSubscriptionErrorPausesClaudeCodeAndSendsThePromp
 		t.Errorf("until = %v, before = %v", until, before)
 	}
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	if got := chatTexts(t, server, "Mobius"); got[0] != subscriptionMessage(until, "") {
-		t.Errorf("Mobius chat messages = %q, want %q", got, subscriptionMessage(until, ""))
+	if got := chatTexts(t, server, "Mobius"); got[0] != subscriptionMessage(until, "", true) {
+		t.Errorf("Mobius chat messages = %q, want %q", got, subscriptionMessage(until, "", true))
 	}
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
 		t.Errorf("Lead chat messages = %q", got)
