@@ -78,14 +78,18 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	return server, dataDir
 }
 
-// logTaskRows logs the tasks, the sessions, the Lead events, the pauses and the failed access checks of the server. The
-// message of a timeout of testkit.WaitFor names no state.
+// logTaskRows logs the sync cursors, the access check result, the tasks, the sessions, the Lead events, the pending
+// changes, the pauses and the failed access checks of the server. The message of a timeout of testkit.WaitFor names no
+// state.
 func logTaskRows(t *testing.T, server *testserver.Server) {
 	t.Helper()
+	t.Logf("access checked = %t", server.Engine.AccessChecked())
 	for _, query := range []string{
+		"SELECT 'sync cursor ' || endpoint || ' since=' || coalesce(since, 'none') FROM sync_cursors WHERE repository = '" + shop + "'",
 		"SELECT 'task ' || id || ' #' || issue || ' ' || state || ' worker=' || coalesce(worker, '') || ' restarts=' || worker_restarts FROM tasks",
 		"SELECT 'session ' || id || ' ' || role || ' ' || coalesce(end_reason, 'live') || ' ' || coalesce(queue_reason, '') FROM sessions",
 		"SELECT 'lead event ' || id || ' ' || kind || ' delivered=' || (delivered_at IS NOT NULL) FROM lead_events",
+		"SELECT 'pending change ' || id || ' #' || number || ' ' || field FROM outgoing_changes WHERE status = 'pending'",
 		"SELECT 'pause ' || harness || ' until ' || paused_until FROM harness_pauses",
 		"SELECT 'access check ' || title || ': ' || reason FROM inbox_items WHERE kind = 'access check'",
 	} {
