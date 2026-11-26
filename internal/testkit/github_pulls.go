@@ -152,6 +152,16 @@ func (g *FakeGitHub) FailBodyWrites(fail bool) {
 	g.failBodyWrites = fail
 }
 
+// HoldBodyWriteAnswer makes the next body write through the API change the body, but hold the answer until release is
+// called. The channel closes when the body changed.
+func (g *FakeGitHub) HoldBodyWriteAnswer() (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h, release := g.newHold()
+	g.bodyAnswerHold = h
+	return h.reached, release
+}
+
 // BodyWrites gives the number of body writes through the API for the issue or pull request number.
 func (g *FakeGitHub) BodyWrites(repository string, number int64) int {
 	g.mu.Lock()
