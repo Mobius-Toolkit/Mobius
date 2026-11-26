@@ -69,49 +69,21 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	t.Cleanup(func() {
-		if t.Failed() {
-			logTaskRows(t, server)
+		if !t.Failed() {
+			return
 		}
+		t.Logf("access checked = %t", server.Engine.AccessChecked())
+		logRows(t, server, "cursor", "SELECT endpoint, since FROM sync_cursors WHERE repository = ?", shop)
+		logRows(t, server, "task", "SELECT id, issue, state, worker, worker_restarts FROM tasks ORDER BY id")
+		logRows(t, server, "session", "SELECT id, role, end_reason, queue_reason FROM sessions ORDER BY id")
+		logRows(t, server, "lead event", "SELECT id, kind, delivered_at FROM lead_events ORDER BY id")
+		logRows(t, server, "pending change", "SELECT id, field, number, issue, workstream FROM outgoing_changes WHERE status = 'pending' ORDER BY id")
+		logRows(t, server, "pause", "SELECT harness, paused_until FROM harness_pauses")
+		logRows(t, server, "access check", "SELECT title, reason FROM inbox_items WHERE kind = 'access check'")
 	})
 	server.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, server.Engine.AccessChecked)
 	return server, dataDir
-}
-
-// logTaskRows logs the sync cursors, the access check result, the tasks, the sessions, the Lead events, the pending
-// changes, the pauses and the failed access checks of the server. The message of a timeout of testkit.WaitFor names no
-// state.
-func logTaskRows(t *testing.T, server *testserver.Server) {
-	t.Helper()
-	t.Logf("access checked = %t", server.Engine.AccessChecked())
-	for _, query := range []string{
-		"SELECT 'sync cursor ' || endpoint || ' since=' || coalesce(since, 'none') FROM sync_cursors WHERE repository = '" + shop + "'",
-		"SELECT 'task ' || id || ' #' || issue || ' ' || state || ' worker=' || coalesce(worker, '') || ' restarts=' || worker_restarts FROM tasks",
-		"SELECT 'session ' || id || ' ' || role || ' ' || coalesce(end_reason, 'live') || ' ' || coalesce(queue_reason, '') FROM sessions",
-		"SELECT 'lead event ' || id || ' ' || kind || ' delivered=' || (delivered_at IS NOT NULL) FROM lead_events",
-		"SELECT 'pending change ' || id || ' ' || field || ' ' || coalesce('#' || number, 'issue ' || issue, 'workstream ' || workstream, '') FROM outgoing_changes WHERE status = 'pending'",
-		"SELECT 'pause ' || harness || ' until ' || paused_until FROM harness_pauses",
-		"SELECT 'access check ' || title || ': ' || reason FROM inbox_items WHERE kind = 'access check'",
-	} {
-		rows, err := server.DB.Query(query)
-		if err != nil {
-			t.Errorf("%s: %v", query, err)
-			continue
-		}
-		for rows.Next() {
-			var row string
-			if err := rows.Scan(&row); err != nil {
-				t.Error(err)
-			}
-			t.Log(row)
-		}
-		if err := rows.Err(); err != nil {
-			t.Error(err)
-		}
-		if err := rows.Close(); err != nil {
-			t.Error(err)
-		}
-	}
 }
 
 func noChange(*config.Config) {}
