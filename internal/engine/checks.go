@@ -51,13 +51,38 @@ func failedCheckRuns(ctx context.Context, repository github.Repository, sha stri
 	if err != nil {
 		return nil, err
 	}
+	return failedOf(runs), nil
+}
+
+// failedOf gives the completed check runs of other Apps in runs that failed.
+func failedOf(runs []*gh.CheckRun) []*gh.CheckRun {
 	var failed []*gh.CheckRun
 	for _, run := range runs {
 		if run.GetName() != checkRunName && run.GetStatus() == "completed" && failedConclusion(run.GetConclusion()) {
 			failed = append(failed, run)
 		}
 	}
-	return failed, nil
+	return failed
+}
+
+// notStarted tells if GitHub never started any of the failed check runs. A check run of GitHub Actions is not started
+// when its job failed with no step. A check run of another App, and a check run whose job is not found, count as
+// started.
+func notStarted(ctx context.Context, repository github.Repository, head string, failed []*gh.CheckRun) (bool, error) {
+	if len(failed) == 0 {
+		return false, nil
+	}
+	jobs, err := workflowJobsOfFailedRuns(ctx, repository, head)
+	if err != nil {
+		return false, err
+	}
+	for _, run := range failed {
+		job, found := jobs[run.GetID()]
+		if run.GetApp().GetSlug() != githubActions || !found || job.GetConclusion() != "failure" || len(job.Steps) > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // unhandledFailure tells if the head of the pull request of the task has a failed check run of another App and no fix
@@ -121,6 +146,15 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	runs, err := failedCheckRuns(ctx, repository, head)
 	if err != nil || len(runs) == 0 {
 		return false, err
+	}
+	if task.State == "checks" {
+		unstarted, err := notStarted(ctx, repository, head, runs)
+		if err != nil {
+			return false, err
+		}
+		if unstarted {
+			return false, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+		}
 	}
 	diagnosis, waits, err := e.pullRequestDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
 	if err != nil || waits {
@@ -197,7 +231,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 				return err
 			}
 		}
-		return e.ciFailed(ctx, repository, task, pullRequest)
+		return e.ciFailed(ctx, repository, task, pullRequest, state)
 	case state.running:
 		incomplete, err := e.handleStuckRuns(ctx, repository, pullRequest, state)
 		if err != nil {
@@ -664,8 +698,9 @@ func (e *Engine) handleStuckRuns(ctx context.Context, repository github.Reposito
 }
 
 // ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
-// keeps the head in ci_failed_head, so that continueNeedsHuman can tell this stop from another stop.
-func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+// keeps the head in ci_failed_head, so that continueNeedsHuman can tell this stop from another stop. When GitHub never
+// started the failed jobs, the texts say so, because a fix round cannot change the cause.
+func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) error {
 	implementer, found, err := e.implementerSession(ctx, task)
 	if err != nil {
 		return err
@@ -674,8 +709,9 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
+	head := pullRequest.GetHead().GetSHA()
 	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
+	notice := stopNotice{
 		reason: "CI failed",
 		text:   "The CI of the head commit failed, and a fix round cannot change it.",
 		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
@@ -683,7 +719,29 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 		checkTitle:   "CI failed",
 		checkSummary: "The CI of the head commit failed, and a fix round cannot change it.",
 		createCheck:  true,
-	})
+	}
+	failed := failedOf(state.checkRuns)
+	unstarted, err := notStarted(ctx, repository, head, failed)
+	if err != nil {
+		return err
+	}
+	if unstarted {
+		text, err := notStartedText(ctx, repository, failed)
+		if err != nil {
+			return err
+		}
+		reason = text + " Mobius set the Mobius check to failure and added mobius:needs-human. After the cause is removed, call rerun_failed_jobs to start a new attempt."
+		notice = stopNotice{
+			reason: "CI not started",
+			text:   text,
+			next: fmt.Sprintf("Remove the cause, for example the billing block of the account. Then run the failed jobs of PR #%d again on GitHub. Mobius continues the task when they pass. A Resume starts a fix round, which cannot change the cause.",
+				pullRequest.GetNumber()),
+			checkTitle:   "CI not started",
+			checkSummary: text,
+			createCheck:  true,
+		}
+	}
+	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task, issue.GetTitle(), reason), head, notice)
 	if err != nil || !handed {
 		return err
 	}
@@ -691,6 +749,22 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 		e.addCIStep(ctx, task, implementer, "failure")
 	}
 	return e.sendStopNotices(ctx, task.Repository, task.ID)
+}
+
+// notStartedText tells that GitHub did not start the failed jobs, and gives the text of the first annotation of the
+// failed check runs.
+func notStartedText(ctx context.Context, repository github.Repository, failed []*gh.CheckRun) (string, error) {
+	text := "GitHub did not start the failed jobs of the CI of the head commit."
+	for _, run := range failed {
+		annotations, err := repository.CheckRunAnnotations(ctx, run.GetID())
+		if err != nil {
+			return "", err
+		}
+		if len(annotations) > 0 {
+			return fmt.Sprintf("%s GitHub gave this message: \"%s\".", text, annotations[0].GetMessage()), nil
+		}
+	}
+	return text, nil
 }
 
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.

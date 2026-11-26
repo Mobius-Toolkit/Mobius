@@ -24,12 +24,8 @@ import (
 // declineRule is a Lead that declines the task of #41.
 const declineRule = "[[prompts]]\nwhen = \"Decline it\"\ncall = { tool = \"decline\", arguments = { repository = \"owner/shop\", n = 41, reason = \"No.\" } }\n\n"
 
-// keptFindingsRule is leadFindings for a message of the Owner that the Lead gets now. The chat history of a new Lead session
-// shows an earlier message as "Owner (time):\nSend the findings to #41", so the rule needs the blank line before the text.
-var keptFindingsRule = strings.Replace(leadFindings, "when = \"", "when = \"\\n\\n", 1)
-
 // keptLead starts a fix round and can decline the task.
-var keptLead = noFinding + declineRule + keptFindingsRule + leadStarts
+const keptLead = noFinding + declineRule + leadFindings + leadStarts
 
 // counting is a fake Harness script that counts each process of the Implementer in the file starts next to it.
 const counting = "skip_tools_list = 1000\n"

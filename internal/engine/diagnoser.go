@@ -364,11 +364,27 @@ func failedJobs(ctx context.Context, repository github.Repository, head, logs st
 // by the id of the job. The job of GitHub Actions has the id of its check run. A run whose jobs GitHub refuses with a
 // 4xx status gives no step.
 func failedSteps(ctx context.Context, repository github.Repository, head string) (map[int64]string, error) {
-	workflows, err := repository.WorkflowRuns(ctx, head)
+	jobs, err := workflowJobsOfFailedRuns(ctx, repository, head)
 	if err != nil {
 		return nil, err
 	}
 	steps := map[int64]string{}
+	for id, job := range jobs {
+		if step := failedStepName(job); step != "" {
+			steps[id] = step
+		}
+	}
+	return steps, nil
+}
+
+// workflowJobsOfFailedRuns gives the jobs of the newest failed workflow runs of the head, by the id of the job. The job
+// of GitHub Actions has the id of its check run. A run whose jobs GitHub refuses with a 4xx status gives no job.
+func workflowJobsOfFailedRuns(ctx context.Context, repository github.Repository, head string) (map[int64]*gh.WorkflowJob, error) {
+	workflows, err := repository.WorkflowRuns(ctx, head)
+	if err != nil {
+		return nil, err
+	}
+	found := map[int64]*gh.WorkflowJob{}
 	for _, run := range newestWorkflowRuns(workflows) {
 		if !failedWorkflowRun(run) {
 			continue
@@ -378,12 +394,10 @@ func failedSteps(ctx context.Context, repository github.Repository, head string)
 			return nil, err
 		}
 		for _, job := range jobs {
-			if step := failedStepName(job); step != "" {
-				steps[job.GetID()] = step
-			}
+			found[job.GetID()] = job
 		}
 	}
-	return steps, nil
+	return found, nil
 }
 
 // openFailures gives the open failure records of repository as a prompt section, or "" for no record.
