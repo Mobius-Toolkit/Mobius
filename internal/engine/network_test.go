@@ -15,9 +15,6 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-// dnsFailure is the script of a Harness whose turn fails with the error of a failed DNS lookup.
-const dnsFailure = "[[prompts]]\nerror = { code = -32603, message = \"getaddrinfo ENOTFOUND api.github.com\" }\n"
-
 // apiNetwork gives the time of the loss of the network through the API, or "" while the network works.
 func apiNetwork(t *testing.T, server *testserver.Server) string {
 	t.Helper()
