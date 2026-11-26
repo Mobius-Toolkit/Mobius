@@ -26,7 +26,7 @@ import { Agent } from "@/transcript/schemas";
 import { subscriptions as usageSubscriptions } from "@/usage/subscriptions";
 import { subscriptions as workstreamsSubscriptions } from "@/workstreams/subscriptions";
 import { Message } from "./message";
-import { CIStop, Drain, Pause, Switches, Upgrade, wideQuery, type Model } from "./model";
+import { CIStop, Drain, Network, Pause, Switches, Upgrade, wideQuery, type Model } from "./model";
 
 const AnyRecord = Schema.Record(Schema.String, Schema.Json);
 const RecurringTaskEvent = Schema.Struct({
@@ -132,6 +132,7 @@ export const appSubscriptions = Subscription.make<Model, Message>()((entry) => (
                 liveListener("pauses", Schema.Array(Pause), (pauses) =>
                   Message.PausesChanged({ pauses }),
                 ),
+                liveListener("network", Network, (network) => Message.NetworkChanged({ network })),
                 liveListener("switches", Switches, (switches) =>
                   Message.SwitchesChanged({ switches }),
                 ),

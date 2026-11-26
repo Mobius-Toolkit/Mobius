@@ -1759,6 +1759,25 @@ export interface EnvelopeMemoryVersionsPage {
 }
 
 /**
+ * Network is the state of the network pause.
+ */
+export interface Network {
+  /**
+     * LostAt is the time when Mobius lost the network, or null while the network works. While it is set, no session and no Worker restart starts
+     * @nullable
+     */
+  lostAt: string | null;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeNetwork {
+  /** Data is the payload of the response */
+  data: Network;
+}
+
+/**
  * Envelope is the body of each success response.
  */
 export interface EnvelopePendingAction {
@@ -2628,6 +2647,10 @@ export type LiveEvents = {
 } | {
   data: Switches;
   event: 'switches';
+  id?: string;
+} | {
+  data: Network;
+  event: 'network';
   id?: string;
 } | {
   data: WorkstreamRef;
@@ -5777,6 +5800,71 @@ export const listNeedsHuman = async ( ): Promise<listNeedsHumanResponse> => {
 
   const data: listNeedsHumanResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listNeedsHumanResponse
+}
+
+
+
+export type getNetworkResponse200 = {
+  data: EnvelopeNetwork
+  status: 200
+}
+
+export type getNetworkResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getNetworkResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getNetworkResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getNetworkResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getNetworkResponseSuccess = (getNetworkResponse200) & {
+  headers: Headers;
+};
+export type getNetworkResponseError = (getNetworkResponse400 | getNetworkResponse401 | getNetworkResponse422 | getNetworkResponse500) & {
+  headers: Headers;
+};
+
+export type getNetworkResponse = (getNetworkResponseSuccess | getNetworkResponseError)
+
+export const getGetNetworkUrl = () => {
+
+
+
+
+  return `/api/network`
+}
+
+/**
+ * GetNetwork returns the state of the network pause.
+ */
+export const getNetwork = async ( ): Promise<getNetworkResponse> => {
+
+  const res = await fetch(getGetNetworkUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getNetworkResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getNetworkResponse
 }
 
 

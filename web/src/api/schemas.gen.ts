@@ -979,6 +979,16 @@ export const ListNeedsHumanResponse = S.Struct({
 
 
 /**
+ * GetNetwork returns the state of the network pause.
+ */
+export const GetNetworkResponse = S.Struct({
+  "data": S.Struct({
+  "lostAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'LostAt is the time when Mobius lost the network, or null while the network works. While it is set, no session and no Worker restart starts' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
  * ListOrganizations returns the owners of the repositories of the Mobius Apps, sorted.
  */
 export const ListOrganizationsResponse = S.Struct({

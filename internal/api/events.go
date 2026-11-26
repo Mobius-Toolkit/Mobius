@@ -47,6 +47,8 @@ type LiveEvents struct {
 	CIStops *[]CIStop `gork:"ciStops"`
 	// Switches is the state of the global switches with the held work at each change
 	Switches *Switches `gork:"switches"`
+	// Network is the state of the network pause at its start and at its end
+	Network *Network `gork:"network"`
 	// WorkstreamCreated is a Workstream that the Coordinator chat created, so the client can open it
 	WorkstreamCreated *WorkstreamRef `gork:"workstreamCreated"`
 	// RecurringTasks is the Workstream whose recurring tasks or their history changed, so the client reads them again
@@ -84,7 +86,7 @@ type WorkstreamRef struct {
 // StreamEvents sends a ping at once, and then each change of a session,
 // each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
-// state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, each Workstream that the Coordinator chat created, and each change of the recurring tasks of a Workstream or of their history.
+// state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, each change of the global switches, each start and end of the network pause, each Workstream that the Coordinator chat created, and each change of the recurring tasks of a Workstream or of their history.
 // It also sends a ping at a fixed interval.
 // When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, _ StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
@@ -180,6 +182,12 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 			return err
 		}
 		return stream.Send(LiveEvents{Switches: &switches})
+	case change.Network:
+		network, err := h.network(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Send(LiveEvents{Network: &network})
 	case change.CIStops:
 		stops, err := h.ciStops(ctx)
 		if err != nil {

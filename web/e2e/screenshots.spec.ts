@@ -5384,6 +5384,27 @@ test("screenshots", async ({ page }) => {
     },
   );
   expect((await page.request.delete(subscriptionPause)).ok()).toBe(true);
+  await page.route("**/api/network", (route) =>
+    route.fulfill({ json: { data: { lostAt: "2026-09-28T12:00:00Z" } } }),
+  );
+  const networkLost = page.locator('[data-network="lost"]');
+  await screenshot(
+    page,
+    "network-lost",
+    "/workstreams",
+    () => [
+      () =>
+        expect(networkLost).toHaveText(
+          /^No network since Sep 28, 12:00\sPM\. Mobius waits for the network\.$/,
+        ),
+      () => expect(networkLost).toBeInViewport(),
+    ],
+    async () => {
+      await expect(networkLost).toBeVisible();
+      await networkLost.scrollIntoViewIfNeeded();
+    },
+  );
+  await page.unroute("**/api/network");
   await screenshot(
     page,
     "pause-users-global-roles",

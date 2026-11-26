@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -194,6 +195,8 @@ type FakeGitHub struct {
 	rateLimited bool
 	// hangs holds the route patterns whose next request gets no answer. The channel closes when that request waits.
 	hangs map[string]chan struct{}
+	// networkDown makes the network check fail with a reset connection.
+	networkDown bool
 	// routeLimits holds the route patterns whose next request gets the rate-limit answer, with the reset time.
 	routeLimits map[string]time.Time
 	// routeHolds holds the route patterns whose next request waits for the close of the channel. A key of the form
@@ -384,6 +387,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 
 func (g *FakeGitHub) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /zen", g.zen)
 	mux.HandleFunc("GET /users/{name}", g.getAccount)
 	mux.HandleFunc("POST /settings/apps/new", g.newApp)
 	mux.HandleFunc("POST /organizations/{org}/settings/apps/new", g.newApp)
@@ -541,6 +545,26 @@ func (g *FakeGitHub) logging(next http.Handler) http.Handler {
 		}
 		g.requestsMu.Unlock()
 	})
+}
+
+// zen answers the call that checks the network. While SetNetworkDown is on, it resets the connection, as a lost network
+// does.
+func (g *FakeGitHub) zen(w http.ResponseWriter, _ *http.Request) {
+	g.mu.Lock()
+	down := g.networkDown
+	g.mu.Unlock()
+	if down {
+		resetConnection(w)
+		return
+	}
+	_, _ = io.WriteString(w, "Keep it logically awesome.")
+}
+
+// SetNetworkDown makes the call of Mobius that checks the network fail with a reset connection while down is true.
+func (g *FakeGitHub) SetNetworkDown(down bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.networkDown = down
 }
 
 func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
@@ -807,4 +831,16 @@ func page[T any](w http.ResponseWriter, r *http.Request, items []T) []T {
 		w.Header().Set("Link", fmt.Sprintf(`<http://%s%s?%s>; rel="next"`, r.Host, r.URL.Path, query.Encode()))
 	}
 	return append([]T{}, items[start:end]...)
+}
+
+// resetConnection closes the connection of the request with a TCP reset, so the client gets "connection reset by peer".
+func resetConnection(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		return
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetLinger(0)
+	}
+	_ = conn.Close()
 }

@@ -255,11 +255,14 @@ func (e *Engine) queuedTasks(ctx context.Context) ([]queuedTask, error) {
 	return tasks, nil
 }
 
-// takeSlot holds until the session of a gets a slot of its Role, and shows the reason of the wait on the session.
+// takeSlot holds until the network pause ends and the session of a gets a slot of its Role, and shows the reason of the wait on the session.
 // A session with a task waits at the place of its task, and the task goes from queued to working. A session with
 // no task waits behind each session that queued before it. The drain does not count a session that is not a Worker
 // while the access check of its binding holds it.
 func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
+	if err := e.waitForNetwork(ctx); err != nil {
+		return err
+	}
 	w := &e.workers
 	role, task := a.spec.Role, a.spec.Task
 	worker := workerRoles[role]

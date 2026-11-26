@@ -56,6 +56,7 @@ import {
   CheckUpgrade,
   CloseWorkstream,
   FetchCIStops,
+  FetchNetwork,
   FetchPauses,
   FetchSwitches,
   GoBack,
@@ -846,6 +847,7 @@ export function init(url: Url): UpdateReturn {
     LoadApp(),
     CheckUpgrade(),
     FetchPauses(),
+    FetchNetwork(),
     FetchCIStops(),
     FetchSwitches(),
     WaitForStart(),
@@ -965,7 +967,14 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "LoginSucceeded":
       return {
         model: { ...model, loginShown: false, loginBusy: false, passwordInput: "" },
-        commands: [LoadApp(), CheckUpgrade(), FetchPauses(), FetchCIStops(), FetchSwitches()],
+        commands: [
+          LoadApp(),
+          CheckUpgrade(),
+          FetchPauses(),
+          FetchNetwork(),
+          FetchCIStops(),
+          FetchSwitches(),
+        ],
       };
 
     case "LoginFailed":
@@ -1100,6 +1109,7 @@ export function update(model: Model, message: Message): UpdateReturn {
         LoadApp(),
         CheckUpgrade(),
         FetchPauses(),
+        FetchNetwork(),
         FetchCIStops(),
         FetchSwitches(),
       ];
@@ -1255,6 +1265,12 @@ export function update(model: Model, message: Message): UpdateReturn {
 
     case "NewBuildStoreChanged":
       return { model: { ...model, newBuild: message.newBuild }, commands: [] };
+
+    case "NetworkChanged":
+      return {
+        model: { ...model, networkLostAt: Option.fromNullishOr(message.network.lostAt) },
+        commands: [],
+      };
 
     case "CIStopsChanged":
       return { model: { ...model, ciStops: message.stops }, commands: [] };

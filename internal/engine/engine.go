@@ -161,6 +161,8 @@ type Engine struct {
 	authPause store.HarnessPause
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
+	// networkChanged wakes the sessions and the Workers that wait for the end of the network pause.
+	networkChanged signal
 	// pauseWaitersMu guards pauseWaiters.
 	pauseWaitersMu sync.Mutex
 	// pauseWaiters holds the agents that wait in waitForPause. Each has a channel that closes to move it.
@@ -462,6 +464,7 @@ func (e *Engine) Run(ctx context.Context) {
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.autoUpgradeTools) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.endDuePauses) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkNetwork) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.runRecurringTasks) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()

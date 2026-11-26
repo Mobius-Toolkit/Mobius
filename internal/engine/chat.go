@@ -974,7 +974,8 @@ func (e *Engine) UnreadChats(ctx context.Context) ([]Unread, error) {
 }
 
 // runChat runs the sessions of the chat. After a failure, a new session gets the item of the failed turn or start as
-// its first item, at most maxCrashes times. A crash on a full context does not count.
+// its first item, at most maxCrashes times. A crash on a full context does not count. A network error does not count
+// too: it starts the network pause, and the new session waits for its end.
 func (e *Engine) runChat(c *chat) {
 	defer close(c.done)
 	background := context.Background()
@@ -1059,7 +1060,12 @@ func (e *Engine) runChat(c *chat) {
 			crashes = maxCrashes + 1
 		} else {
 			failure = a.Fail(background, err)
-			if !contextError(err) {
+			switch {
+			case networkError(err):
+				if loseErr := e.loseNetwork(background); loseErr != nil {
+					log.Printf("start the network pause after the chat session %d failed: %v", a.ID(), loseErr)
+				}
+			case !contextError(err):
 				crashes++
 			}
 		}

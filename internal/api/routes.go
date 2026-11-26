@@ -82,6 +82,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/actions/{id}/reject", h.RejectAction, append(loggedIn("actions"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict))...)
 	r.Get("/api/pauses", h.ListPauses, loggedIn("pauses")...)
 	r.Post("/api/pauses/{harness}/resume", h.Resume, loggedIn("pauses")...)
+	r.Get("/api/network", h.GetNetwork, loggedIn("network")...)
 	r.Get("/api/switches", h.GetSwitches, loggedIn("switches")...)
 	r.Put("/api/switches/{kind}", h.SetSwitch, loggedIn("switches")...)
 	r.Get("/api/roles", h.ListRoles, loggedIn("roles")...)

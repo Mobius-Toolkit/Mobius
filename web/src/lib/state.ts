@@ -27,6 +27,9 @@ const waitTexts: Record<Exclude<AgentWait, "" | "paused">, string> = {
 
 export const pausedText = (pausedUntil: string) => `paused until ${dayClock(pausedUntil)}`;
 
+export const networkText = (lostAt: string) =>
+  `No network since ${dayClock(lostAt)}. Mobius waits for the network.`;
+
 export function displayState({ state, merging = false, wait, pausedUntil }: StateInput) {
   if (wait === "") {
     return { text: merging ? "approved" : state, variant: "secondary" as const };

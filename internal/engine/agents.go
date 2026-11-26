@@ -266,6 +266,7 @@ type Change struct {
 	Pauses       bool
 	CIStops      bool
 	Switches     bool
+	Network      bool
 	Created      *Created
 	// RecurringTasks names the Workstream whose recurring tasks or their history changed.
 	RecurringTasks *RecurringChange

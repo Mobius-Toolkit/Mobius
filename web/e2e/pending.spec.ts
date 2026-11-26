@@ -144,6 +144,17 @@ test("the status line shows only the pause that a Role or a session uses", async
   await expect(page.getByText(/devin paused until/)).toHaveCount(0);
 });
 
+test("the status line shows the time since the network was lost", async ({ page }) => {
+  await page.route("**/api/network", (route) =>
+    route.fulfill({ json: { data: { lostAt: "2026-09-28T12:00:00Z" } } }),
+  );
+  await page.goto("/workstreams");
+
+  await expect(
+    page.getByText(/^No network since Sep 28, 12:00\sPM\. Mobius waits for the network\.$/),
+  ).toBeVisible();
+});
+
 test("the status line shows each CI stop with its task issue, and drops it when the stop ends", async ({
   page,
 }) => {

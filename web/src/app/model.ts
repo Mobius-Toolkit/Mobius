@@ -2,6 +2,7 @@ import { Option, Schema } from "effect";
 import {
   GetDrainResponse,
   GetUpgradeResponse,
+  GetNetworkResponse,
   GetSwitchesResponse,
   ListCIStopsResponse,
   ListGitHubAppsResponse,
@@ -37,6 +38,7 @@ export type CIStop = typeof CIStop.Type;
 export const Pause = ListPausesResponse.fields.data.value;
 export type Pause = typeof Pause.Type;
 
+export const Network = GetNetworkResponse.fields.data;
 export const Switches = GetSwitchesResponse.fields.data;
 export type Switches = typeof Switches.Type;
 
@@ -145,6 +147,8 @@ export const Model = Schema.Struct({
   pauseError: Schema.Option(Schema.String),
   // The Harnesses whose "Used by" list is open.
   pausesExpanded: Schema.Array(Schema.String),
+  // The time when Mobius lost the network. None while the network works.
+  networkLostAt: Schema.Option(Schema.String),
 
   switches: Schema.Option(Switches),
   switchErrors: Schema.Record(Schema.String, Schema.String),
@@ -251,6 +255,7 @@ export const initialModel = (route: AppRoute): Model => {
     pauseBusy: Option.none(),
     pauseError: Option.none(),
     pausesExpanded: [],
+    networkLostAt: Option.none(),
     switches: Option.none(),
     switchErrors: {},
     switchFailures: {},
