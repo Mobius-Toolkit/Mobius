@@ -145,7 +145,7 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 	}
 	number := int64(j.pullRequest.GetNumber())
 	if limit := e.config.MaxFixRounds; !afterConflictRound(task) && task.ReviewRounds >= int64(limit) {
-		if err := e.stopAtLimit(ctx, j.round(task, "", j.parent), "review"); err != nil {
+		if err := e.stopBeforeReview(ctx, j.round(task, "", j.parent)); err != nil {
 			return err
 		}
 		return e.postComment(ctx, repository, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
