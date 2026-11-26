@@ -332,8 +332,8 @@ SELECT * FROM harness_pauses WHERE harness = ?;
 SELECT * FROM harness_pauses ORDER BY harness;
 
 -- name: SetHarnessPause :exec
-INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
-ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
+INSERT INTO harness_pauses (harness, paused_until, reason) VALUES (?, ?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, reason = excluded.reason;
 
 -- name: ListWaitingSessions :many
 SELECT s.harness, s.role, s.repository, s.issue, s.workstream_repository, s.workstream,

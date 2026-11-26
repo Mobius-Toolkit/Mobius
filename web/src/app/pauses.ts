@@ -9,6 +9,8 @@ import type { Model, Pause } from "./model";
 
 export type PauseUser = Pause["users"][number];
 
+const billingUrl = "https://claude.ai/settings/billing";
+
 const isGlobal = (user: PauseUser) =>
   user.kind === "role" || (user.kind === "session" && user.workstream === 0);
 
@@ -143,6 +145,24 @@ export function renderPauses(h: HtmlBuilder<Message>, model: Model): Html[] {
                   }),
                 ],
               ),
+              pause.reason === "subscription"
+                ? h.div(
+                    [h.Class("wrap-anywhere pl-4.5")],
+                    [
+                      "Claude Code cannot use the Claude subscription. Pay or renew at ",
+                      h.a(
+                        [
+                          h.Href(billingUrl),
+                          h.Attribute("target", "_blank"),
+                          h.Attribute("rel", "noopener noreferrer"),
+                          h.Class("underline"),
+                        ],
+                        [billingUrl],
+                      ),
+                      ".",
+                    ],
+                  )
+                : h.empty,
               isExpanded
                 ? h.div(
                     [h.Class("flex min-w-0 flex-wrap items-baseline gap-x-2 pl-4.5")],

@@ -10939,6 +10939,10 @@
             "description": "PausedUntil is the end of the pause",
             "format": "date-time"
           },
+          "reason": {
+            "type": "string",
+            "description": "Reason is subscription when Claude Code cannot use the Claude subscription, and empty for a usage limit"
+          },
           "users": {
             "type": "array",
             "title": "[]PauseUser",
@@ -10951,6 +10955,7 @@
         "required": [
           "harness",
           "pausedUntil",
+          "reason",
           "users"
         ],
         "description": "Pause is the usage-limit pause of a Harness."

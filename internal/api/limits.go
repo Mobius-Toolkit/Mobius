@@ -11,6 +11,8 @@ type Pause struct {
 	Harness string `gork:"harness"`
 	// PausedUntil is the end of the pause
 	PausedUntil time.Time `gork:"pausedUntil"`
+	// Reason is subscription when Claude Code cannot use the Claude subscription, and empty for a usage limit
+	Reason string `gork:"reason"`
 	// Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness
 	Users []PauseUser `gork:"users"`
 }
@@ -69,7 +71,7 @@ func (h *handlers) pauses(ctx context.Context) ([]Pause, error) {
 		for _, user := range row.Users {
 			users = append(users, PauseUser(user))
 		}
-		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil, Users: users})
+		pauses = append(pauses, Pause{Harness: row.Harness, PausedUntil: pausedUntil, Reason: row.Reason, Users: users})
 	}
 	return pauses, nil
 }

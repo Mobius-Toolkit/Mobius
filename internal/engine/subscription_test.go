@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 const subscriptionReplyText = "Claude Code can't use your Claude subscription, usually because a payment is past due · " +
@@ -57,6 +59,51 @@ func accountProblem(notice, gate string) string {
 		"[[prompts]]\nreply = [\"Noted.\"]\n"
 }
 
+// requirePauseReason fails when the pause of claude-code in the API has not the reason want.
+func requirePauseReason(t *testing.T, server *testserver.Server, want string) {
+	t.Helper()
+	for _, pause := range apiPauses(t, server) {
+		if pause.Harness == "claude-code" {
+			if pause.Reason != want {
+				t.Errorf("reason = %q, want %q", pause.Reason, want)
+			}
+			return
+		}
+	}
+	t.Error("the API has no pause of claude-code")
+}
+
+func TestAUsageLimitPauseHasNoReason(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitTextOnly, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	requirePauseReason(t, server, "")
+}
+
+func TestANewClaudeCodeSessionThatReportsTheClaudeSubscriptionDuringThePauseOfTheReplyTextKeepsThePause(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "session_notices = ['''"+accountNotice+"''']\n"+subscriptionError, keepSessionOpen)
+	sendChat(t, server, leadChat, "Plan the API")
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+
+	sendChat(t, server, coordinatorChat, "Hello")
+
+	waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool {
+		return strings.HasPrefix(session.QueueReason.String, "paused until")
+	})
+	if !claudeCodePaused(t, server) {
+		t.Error("the notification of the Claude subscription ended the pause of the reply text")
+	}
+	if got := promptTexts(t, server, chatSessions(t, server, coordinatorChat, engine.CoordinatorRole)[0].ID); len(got) != 0 {
+		t.Errorf("prompts of the Coordinator during the pause = %q", got)
+	}
+}
+
 // requireAccountPause sends a chat message to the Lead, and checks that the notification notice pauses Claude Code with
 // the message that names account, with no email and no ERROR line in logged. Then it checks that the notification of
 // the Claude subscription ends the pause, and that the prompt goes again.
@@ -73,6 +120,7 @@ func requireAccountPause(t *testing.T, notice, account string) {
 	sendChat(t, server, leadChat, "Plan the API")
 
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	requirePauseReason(t, server, "subscription")
 	var untilText string
 	if err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&untilText); err != nil {
 		t.Fatal(err)
@@ -135,6 +183,7 @@ func TestAClaudeCodeTurnWithTheSubscriptionErrorPausesClaudeCodeAndSendsThePromp
 	sendChat(t, server, leadChat, "Plan the API")
 
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	requirePauseReason(t, server, "subscription")
 	var untilText string
 	if err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&untilText); err != nil {
 		t.Fatal(err)

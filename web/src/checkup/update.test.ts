@@ -126,6 +126,7 @@ describe("the tools", () => {
                 },
               ],
               pausedUntil: "2026-09-29T08:30:00Z",
+              reason: "",
             },
           ],
         }),

@@ -164,7 +164,7 @@ func (e *Engine) checkAccess(ctx context.Context) {
 			now := e.timeNow()
 			if until, ok := detect(key.harness, requestErr, time.Time{}, now); ok {
 				e.removeAccess(key)
-				end, pauseErr := e.pauseQuiet(ctx, key.harness, until)
+				end, pauseErr := e.pauseQuiet(ctx, key.harness, until, "")
 				if pauseErr != nil {
 					log.Printf("pause %s: %v", key.harness, pauseErr)
 					return

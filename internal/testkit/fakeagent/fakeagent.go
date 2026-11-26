@@ -11,6 +11,9 @@
 //	                        # the file "hung_starts" next to the script counts the processes
 //	session_new_hold = true # session/new appends the program name to the file "session_new_started", and then waits
 //	                        # for the file "session_new_release"
+//	session_notices = ['{"method": "auth/status_update", "params": {"state": "unknown"}}']
+//	                        # session/new sends these notifications before its response, as the adapter of Claude Code
+//	                        # sends the account
 //	steering_outcome = "injected"  # initialize tells _meta.steering.supported, and _session/steering answers with this
 //	                        # outcome. With the outcome injected, the text takes a prompt by the rules of a prompt, and
 //	                        # the agent plays it in the running turn. The turn then ends with end_turn, unless the
@@ -128,6 +131,7 @@ type script struct {
 	SkipToolsList   int                 `toml:"skip_tools_list"`
 	HangStart       int                 `toml:"hang_start"`
 	SessionNewHold  bool                `toml:"session_new_hold"`
+	SessionNotices  []string            `toml:"session_notices"`
 	SteeringOutcome string              `toml:"steering_outcome"`
 	SteeringHang    bool                `toml:"steering_hang"`
 	SteeringHold    bool                `toml:"steering_hold"`
@@ -414,6 +418,11 @@ func (a *agent) newSession(ctx context.Context, params json.RawMessage) (any, *a
 	}
 	if _, err := os.Stat(a.loggedInPath()); a.script.LoginRequired && err != nil {
 		return nil, acp.NewAuthRequired(nil)
+	}
+	for _, notice := range a.script.SessionNotices {
+		if err := a.notify(ctx, notice); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()

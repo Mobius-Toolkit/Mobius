@@ -243,7 +243,7 @@ func (a *Agent) pauseForLimit(ctx context.Context, err error) (bool, error) {
 // Claude Code.
 func (a *Agent) pauseForSession(ctx context.Context, until time.Time, subscription bool) error {
 	if a.isSaving() {
-		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until)
+		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until, pauseReason(subscription))
 		return err
 	}
 	return a.engine.pause(ctx, a, until, subscription)
@@ -303,10 +303,34 @@ func (a *Agent) authStatus(status runner.AuthStatus) {
 	log.Printf("account of %s is %s: pause until %s", a.binding.Harness, account, until.Format(timeFormat))
 	if err := a.pauseForSession(ctx, until, true); err != nil {
 		log.Printf("pause %s for the account %s: %v", a.binding.Harness, account, err)
+		return
+	}
+	if err := a.engine.markAuthPause(ctx, a.binding.Harness, until); err != nil {
+		log.Printf("read the pause of %s: %v", a.binding.Harness, err)
 	}
 }
 
-// endAuthPause ends the pause that the last account problem started, unless it ended or another pause replaced it.
+// markAuthPause keeps the pause of harness as the pause of an account notification, when its end is until. A pause
+// that was there before, or that has another end, is not kept.
+func (e *Engine) markAuthPause(ctx context.Context, harness config.Harness, until time.Time) error {
+	e.pausing.Lock()
+	defer e.pausing.Unlock()
+	current, err := e.queries.GetHarnessPause(ctx, string(harness))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.PausedUntil == until.UTC().Format(time.RFC3339Nano) && current.Reason == subscriptionReason {
+		e.authPause = current
+	}
+	return nil
+}
+
+// endAuthPause ends the pause of the last account notification, unless it ended or another pause replaced it. A pause
+// of the reply text ends only by time or by Resume: a new process of Claude Code sends the notification of the Claude
+// subscription at its start, also when the payment is past due.
 func (e *Engine) endAuthPause(ctx context.Context) error {
 	e.pausing.Lock()
 	pause := e.authPause
@@ -359,19 +383,28 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time, subscript
 			return err
 		}
 	}
-	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), Reason: pauseReason(subscription)}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
-	}
-	if subscription {
-		e.authPause = pause
 	}
 	e.publish(Change{Pauses: true})
 	return nil
 }
 
-// pauseQuiet pauses harness until until when it has no pause. It adds no chat message.
-func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until time.Time) (time.Time, error) {
+// subscriptionReason is the reason of a pause for the subscription error of Claude Code. The reason of a usage limit is
+// empty.
+const subscriptionReason = "subscription"
+
+func pauseReason(subscription bool) string {
+	if subscription {
+		return subscriptionReason
+	}
+	return ""
+}
+
+// pauseQuiet pauses harness until until when it has no pause. It adds no chat message. reason is the reason of the
+// pause.
+func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until time.Time, reason string) (time.Time, error) {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
 	current, err := e.queries.GetHarnessPause(ctx, string(harness))
@@ -385,7 +418,7 @@ func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until t
 	if !errors.Is(err, sql.ErrNoRows) {
 		return until, err
 	}
-	pause := store.HarnessPause{Harness: string(harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	pause := store.HarnessPause{Harness: string(harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), Reason: reason}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return until, err
 	}
