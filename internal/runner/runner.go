@@ -196,10 +196,13 @@ type Session struct {
 	steering bool
 	cmd      *exec.Cmd
 	stop     context.CancelFunc
-	// mu guards updates.
+	// mu guards updates and auth.
 	mu sync.Mutex
 	// updates receives each session/update notification.
 	updates func(json.RawMessage, bool)
+	// auth receives each account notification. Until SetAuth, pending holds the last one.
+	auth    func(AuthStatus)
+	pending *AuthStatus
 }
 
 // Image is an image of a prompt.
@@ -240,7 +243,7 @@ func harnessCommand(ctx context.Context, harness config.Harness, contextLimit in
 }
 
 // connect starts cmd and gives the ACP connection to its stdin and stdout.
-func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connection, error) {
+func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool), auth func(AuthStatus)) (*acp.Connection, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -253,7 +256,7 @@ func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connectio
 		return nil, err
 	}
 	w := &wire{src: stdout}
-	return acp.NewConnection(handler(updates, w), w.stdin(stdin), w), nil
+	return acp.NewConnection(handler(updates, auth, w), w.stdin(stdin), w), nil
 }
 
 // Pair is a header or an environment variable of an MCP server. Its value is a secret.
@@ -298,7 +301,7 @@ func Start(ctx context.Context, harness config.Harness, contextLimit int, shortC
 		return nil, err
 	}
 	session := &Session{harness: harness, cmd: cmd, stop: stop, updates: updates}
-	conn, err := connect(cmd, session.receive)
+	conn, err := connect(cmd, session.receive, session.receiveAuth)
 	if err != nil {
 		stop()
 		return nil, fmt.Errorf("%s: %w", program, err)
@@ -337,7 +340,7 @@ func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, err
 		return false, err
 	}
 	cmd.Stderr = os.Stderr
-	conn, err := connect(cmd, func(json.RawMessage, bool) {})
+	conn, err := connect(cmd, func(json.RawMessage, bool) {}, func(AuthStatus) {})
 	if err != nil {
 		return false, err
 	}
@@ -712,12 +715,22 @@ func (s *Session) Close() {
 	_ = stopMarked(markOf(s.cmd))
 }
 
-// handler gives the params of each session/update notification to updates, and allows each permission request.
-// The session gives the agent no file system and no terminal, so the agent must not call other methods.
-func handler(updates func(json.RawMessage, bool), w *wire) acp.MethodHandler {
+// handler gives the params of each session/update notification to updates, the account of each account notification to
+// auth, and allows each permission request. The session gives the agent no file system and no terminal, so the agent
+// must not call other methods.
+func handler(updates func(json.RawMessage, bool), auth func(AuthStatus), w *wire) acp.MethodHandler {
 	handled := 0
 	return func(_ context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
 		switch method {
+		case authStatusMethod, extensionAuthStatusMethod:
+			status, known, err := parseAuthStatus(method, params)
+			if err != nil {
+				return nil, acp.NewInvalidParams(err.Error())
+			}
+			if known {
+				auth(status)
+			}
+			return nil, nil
 		case acp.ClientMethodSessionUpdate:
 			handled++
 			updates(params, w.after(handled))

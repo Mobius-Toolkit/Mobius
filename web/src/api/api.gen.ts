@@ -1251,6 +1251,8 @@ export interface Pause {
   harness: string;
   /** PausedUntil is the end of the pause */
   pausedUntil: string;
+  /** Reason is subscription when Claude Code cannot use the Claude subscription, and empty for a usage limit */
+  reason: string;
   /** Users are the Role bindings, the settings and the open sessions that use the Harness. The list is empty when nothing uses the Harness */
   users: PauseUser[];
 }

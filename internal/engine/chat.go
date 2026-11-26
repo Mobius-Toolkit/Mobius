@@ -1076,8 +1076,9 @@ func (e *Engine) runChat(c *chat) {
 		if current != nil && crashes <= maxCrashes {
 			continue
 		}
-		// A failure with no item of a turn must leave the ready events for a new session.
-		e.failChat(c, failure.Error(), current != nil)
+		// A failure with no item of a turn must leave the ready events for a new session. So must a failure after the
+		// subscription error of Claude Code: the Lead never read the events.
+		e.failChat(c, failure.Error(), current != nil && !a.endedWithSubscriptionError())
 		return
 	}
 }

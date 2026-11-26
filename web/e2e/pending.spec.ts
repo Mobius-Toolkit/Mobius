@@ -95,8 +95,13 @@ test("the status line shows each pause, and Resume now ends the pause of its Har
     route.fulfill({
       json: {
         data: [
-          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", users: [roleUser] },
-          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", users: [roleUser] },
+          {
+            harness: "antigravity",
+            pausedUntil: "2026-09-28T12:00:00Z",
+            reason: "",
+            users: [roleUser],
+          },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", reason: "", users: [roleUser] },
         ],
       },
     }),
@@ -122,8 +127,13 @@ test("the status line shows only the pause that a Role or a session uses", async
     route.fulfill({
       json: {
         data: [
-          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z", users: [roleUser] },
-          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", users: [] },
+          {
+            harness: "antigravity",
+            pausedUntil: "2026-09-28T12:00:00Z",
+            reason: "",
+            users: [roleUser],
+          },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z", reason: "", users: [] },
         ],
       },
     }),

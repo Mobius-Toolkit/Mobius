@@ -136,6 +136,7 @@ func seed(t *testing.T, dataDir string, statements ...string) {
 type apiPause struct {
 	Harness     string         `json:"harness"`
 	PausedUntil time.Time      `json:"pausedUntil"`
+	Reason      string         `json:"reason"`
 	Users       []apiPauseUser `json:"users"`
 }
 

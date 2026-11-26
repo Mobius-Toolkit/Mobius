@@ -17,6 +17,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -192,14 +193,19 @@ func resetIn(text string, now time.Time) time.Time {
 }
 
 // pauseForReplyLimit pauses the Harness of a until the reset time in text, or noTimeWait when text has no reset time.
-func (a *Agent) pauseForReplyLimit(ctx context.Context, text string) error {
+// The subscription error of Claude Code has no reset time, so subscription pauses for noTimeWait.
+func (a *Agent) pauseForReplyLimit(ctx context.Context, text string, subscription bool) error {
 	now := time.Now().UTC()
-	until := resetIn(text, now)
-	if until.IsZero() {
-		until = now.Add(noTimeWait)
+	until := now.Add(noTimeWait)
+	cause := subscriptionError
+	if !subscription {
+		cause = usageLimit
+		if reset := resetIn(text, now); !reset.IsZero() {
+			until = reset
+		}
 	}
 	log.Printf("usage limit of %s in reply text: pause until %s", a.binding.Harness, until.UTC().Format(timeFormat))
-	return a.pauseForSession(ctx, until)
+	return a.pauseForSession(ctx, until, cause)
 }
 
 // pauseForLimit gives true when err of a prompt is a usage limit of the Harness of a. Then it pauses the Harness.
@@ -228,21 +234,35 @@ func (a *Agent) pauseForLimit(ctx context.Context, err error) (bool, error) {
 		hintState = "used"
 	}
 	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.binding.Harness, reported, hintState, until.UTC().Format(timeFormat))
-	if err := a.pauseForSession(ctx, until); err != nil {
+	if err := a.pauseForSession(ctx, until, usageLimit); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
 // pauseForSession pauses the Harness of a until until. The save prompt of a closing chat sends no prompt again, so its
-// pause adds no chat message that promises it.
-func (a *Agent) pauseForSession(ctx context.Context, until time.Time) error {
+// pause adds no chat message that promises it. cause tells why the Harness pauses.
+func (a *Agent) pauseForSession(ctx context.Context, until time.Time, cause pauseCause) error {
 	if a.isSaving() {
-		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until)
+		_, err := a.engine.pauseQuiet(ctx, a.binding.Harness, until, cause.reason())
 		return err
 	}
-	return a.engine.pause(ctx, a, until)
+	return a.engine.pause(ctx, a, until, cause)
 }
+
+// pauseCause is the cause of a pause of a Harness.
+type pauseCause int
+
+const (
+	// usageLimit is a usage limit.
+	usageLimit pauseCause = iota
+	// subscriptionError is the subscription error of Claude Code in a turn. Prompt sends the prompt again after the
+	// pause.
+	subscriptionError
+	// accountNotice is an account notification of Claude Code. The turn that runs does not change, so the pause
+	// promises no resend.
+	accountNotice
+)
 
 // limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
 // for each Harness.
@@ -250,11 +270,103 @@ func limitText(harness config.Harness, until time.Time) string {
 	return fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", harness, until.UTC().Format(timeFormat))
 }
 
+// subscriptionText is the Mobius message of the subscription error of Claude Code with the end of the pause until.
+// account is the account that Claude Code uses, or "" when it is not known. With resend, Mobius sends the prompt of the
+// turn again. Without it, the next prompt waits.
+func subscriptionText(until time.Time, account string, resend bool) string {
+	if account != "" {
+		account = " The account is: " + account + "."
+	}
+	next := "The next prompt waits until"
+	if resend {
+		next = "Mobius sends the prompt again at"
+	}
+	return fmt.Sprintf("Claude Code cannot use the Claude subscription.%s The Owner must pay or renew at https://claude.ai/settings/billing. %s %s.", account, next, until.UTC().Format(timeFormat))
+}
+
+// pauseText gives the message of the pause of a until until.
+func (a *Agent) pauseText(until time.Time, cause pauseCause) string {
+	if cause == usageLimit {
+		return limitText(a.binding.Harness, until)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return subscriptionText(until, a.account, cause == subscriptionError)
+}
+
+// authStatus handles an account notification of Claude Code. An account that is not the Claude subscription pauses
+// the Harness for noTimeWait, before the turn fails. It does not change the turn that runs: a turn that ends with no
+// error keeps its reply and is not sent again. The Claude subscription ends that pause. The notification
+// auth/status_update is a part of ACP, so the other Harnesses can send it too: they pause no Harness.
+func (a *Agent) authStatus(status runner.AuthStatus) {
+	if a.binding.Harness != config.ClaudeCode {
+		return
+	}
+	ctx := context.Background()
+	if status.Kind == "account" {
+		a.mu.Lock()
+		a.account = ""
+		a.mu.Unlock()
+		if err := a.engine.endAuthPause(ctx); err != nil {
+			log.Printf("end the pause of %s after the notification of the Claude subscription: %v", a.binding.Harness, err)
+		}
+		return
+	}
+	account := status.Label
+	if status.Detail != "" {
+		account += " (" + status.Detail + ")"
+	}
+	a.mu.Lock()
+	a.account = account
+	a.mu.Unlock()
+	until := time.Now().UTC().Add(noTimeWait)
+	log.Printf("account of %s is %s: pause until %s", a.binding.Harness, account, until.Format(timeFormat))
+	if err := a.pauseForSession(ctx, until, accountNotice); err != nil {
+		log.Printf("pause %s for the account %s: %v", a.binding.Harness, account, err)
+		return
+	}
+	if err := a.engine.markAuthPause(ctx, a.binding.Harness, until); err != nil {
+		log.Printf("read the pause of %s: %v", a.binding.Harness, err)
+	}
+}
+
+// markAuthPause keeps the pause of harness as the pause of an account notification, when its end is until. A pause
+// that was there before, or that has another end, is not kept.
+func (e *Engine) markAuthPause(ctx context.Context, harness config.Harness, until time.Time) error {
+	e.pausing.Lock()
+	defer e.pausing.Unlock()
+	current, err := e.queries.GetHarnessPause(ctx, string(harness))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.PausedUntil == until.UTC().Format(time.RFC3339Nano) && current.Reason == subscriptionReason {
+		e.authPause = current
+	}
+	return nil
+}
+
+// endAuthPause ends the pause of the last account notification, unless it ended or another pause replaced it. A pause
+// of the reply text ends only by time or by Resume: a new process of Claude Code sends the notification of the Claude
+// subscription at its start, also when the payment is past due.
+func (e *Engine) endAuthPause(ctx context.Context) error {
+	e.pausing.Lock()
+	pause := e.authPause
+	e.authPause = store.HarnessPause{}
+	e.pausing.Unlock()
+	if pause.Harness == "" {
+		return nil
+	}
+	return e.endPauseSince(ctx, &pause)
+}
+
 // pause pauses the Harness of a until the time until. The first pause also adds a message in the chat of the
 // Workstream of a. A retry that fails again within retryWindow adds the message only for a session with a chat. A
 // session with a chat gets the message in its chat for each usage limit that it hits, also for a pause that another
 // session started.
-func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
+func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time, cause pauseCause) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
 	current, err := e.queries.GetHarnessPause(ctx, string(a.binding.Harness))
@@ -266,7 +378,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		if err != nil {
 			return err
 		}
-		text := limitText(a.binding.Harness, *currentEnd)
+		text := a.pauseText(*currentEnd, cause)
 		spec := a.spec
 		last, err := e.queries.GetLastChatMessageOf(ctx, store.GetLastChatMessageOfParams{
 			Organization: spec.Organization, Repository: spec.WorkstreamRepository, Workstream: spec.Workstream, Author: mobiusAuthor,
@@ -287,11 +399,11 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		return err
 	}
 	if !retry || a.author != "" {
-		if err := e.addLimitMessage(ctx, a, limitText(a.binding.Harness, until)); err != nil {
+		if err := e.addLimitMessage(ctx, a, a.pauseText(until, cause)); err != nil {
 			return err
 		}
 	}
-	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	pause := store.HarnessPause{Harness: string(a.binding.Harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), Reason: cause.reason()}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
@@ -299,8 +411,20 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	return nil
 }
 
-// pauseQuiet pauses harness until until when it has no pause. It adds no chat message.
-func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until time.Time) (time.Time, error) {
+// subscriptionReason is the reason of a pause for the subscription error of Claude Code. The reason of a usage limit is
+// empty.
+const subscriptionReason = "subscription"
+
+func (c pauseCause) reason() string {
+	if c == usageLimit {
+		return ""
+	}
+	return subscriptionReason
+}
+
+// pauseQuiet pauses harness until until when it has no pause. It adds no chat message. reason is the reason of the
+// pause.
+func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until time.Time, reason string) (time.Time, error) {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
 	current, err := e.queries.GetHarnessPause(ctx, string(harness))
@@ -314,7 +438,7 @@ func (e *Engine) pauseQuiet(ctx context.Context, harness config.Harness, until t
 	if !errors.Is(err, sql.ErrNoRows) {
 		return until, err
 	}
-	pause := store.HarnessPause{Harness: string(harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
+	pause := store.HarnessPause{Harness: string(harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), Reason: reason}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return until, err
 	}

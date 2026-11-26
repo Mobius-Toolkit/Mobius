@@ -5365,6 +5365,25 @@ test("screenshots", async ({ page }) => {
     },
   );
   expect((await page.request.delete(settingOfOwnerTask)).ok()).toBe(true);
+  const subscriptionPause = "/e2e/pauses/claude-code/subscription";
+  expect((await page.request.put(subscriptionPause)).ok()).toBe(true);
+  await screenshot(
+    page,
+    "pause-subscription",
+    "/workstreams",
+    () => [
+      pauseToggle("claude-code"),
+      pause("claude-code").getByText("Claude Code cannot use the Claude subscription."),
+      pause("claude-code").getByRole("link", { name: "https://claude.ai/settings/billing" }),
+      noDSH,
+      () => expect(pause("claude-code")).toBeInViewport(),
+    ],
+    async () => {
+      await expect(pause("claude-code")).toBeVisible();
+      await pause("claude-code").scrollIntoViewIfNeeded();
+    },
+  );
+  expect((await page.request.delete(subscriptionPause)).ok()).toBe(true);
   await screenshot(
     page,
     "pause-users-global-roles",

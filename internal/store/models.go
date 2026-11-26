@@ -158,6 +158,7 @@ type GlobalPause struct {
 type HarnessPause struct {
 	Harness     string
 	PausedUntil string
+	Reason      string
 }
 
 type ImplementerBinding struct {

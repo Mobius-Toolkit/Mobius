@@ -3878,13 +3878,13 @@ func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, err
 }
 
 const getHarnessPause = `-- name: GetHarnessPause :one
-SELECT harness, paused_until FROM harness_pauses WHERE harness = ?
+SELECT harness, paused_until, reason FROM harness_pauses WHERE harness = ?
 `
 
 func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessPause, error) {
 	row := q.db.QueryRowContext(ctx, getHarnessPause, harness)
 	var i HarnessPause
-	err := row.Scan(&i.Harness, &i.PausedUntil)
+	err := row.Scan(&i.Harness, &i.PausedUntil, &i.Reason)
 	return i, err
 }
 
@@ -8226,7 +8226,7 @@ func (q *Queries) ListGlobalPauses(ctx context.Context) ([]GlobalPause, error) {
 }
 
 const listHarnessPauses = `-- name: ListHarnessPauses :many
-SELECT harness, paused_until FROM harness_pauses ORDER BY harness
+SELECT harness, paused_until, reason FROM harness_pauses ORDER BY harness
 `
 
 func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error) {
@@ -8238,7 +8238,7 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	var items []HarnessPause
 	for rows.Next() {
 		var i HarnessPause
-		if err := rows.Scan(&i.Harness, &i.PausedUntil); err != nil {
+		if err := rows.Scan(&i.Harness, &i.PausedUntil, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -12877,17 +12877,18 @@ func (q *Queries) SetDeploymentTodoMandatory(ctx context.Context, arg SetDeploym
 }
 
 const setHarnessPause = `-- name: SetHarnessPause :exec
-INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
-ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until
+INSERT INTO harness_pauses (harness, paused_until, reason) VALUES (?, ?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, reason = excluded.reason
 `
 
 type SetHarnessPauseParams struct {
 	Harness     string
 	PausedUntil string
+	Reason      string
 }
 
 func (q *Queries) SetHarnessPause(ctx context.Context, arg SetHarnessPauseParams) error {
-	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil)
+	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil, arg.Reason)
 	return err
 }
 

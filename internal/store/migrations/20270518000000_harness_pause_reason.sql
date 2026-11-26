@@ -1,0 +1,1 @@
+ALTER TABLE harness_pauses ADD COLUMN reason TEXT NOT NULL DEFAULT '';

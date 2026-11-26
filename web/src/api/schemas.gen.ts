@@ -1126,6 +1126,7 @@ export const ListPausesResponse = S.Struct({
   "data": S.Array(S.Struct({
   "harness": S.String.annotate({ description: 'Harness is the name of the paused Harness' }),
   "pausedUntil": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'PausedUntil is the end of the pause' }),
+  "reason": S.String.annotate({ description: 'Reason is subscription when Claude Code cannot use the Claude subscription, and empty for a usage limit' }),
   "users": S.Array(S.Struct({
   "binding": S.String.annotate({ description: 'Binding names the binding as \"<harness> · <model>\" for a Role with more than one binding, and is empty for the other users' }),
   "kind": S.Literals(['role', 'workstream', 'task', 'session']).annotate({ description: 'Kind is role for a Role binding, workstream for a setting of a Workstream, task for a setting of a task, and session for an open session that waits for the pause' }),
