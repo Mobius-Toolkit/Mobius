@@ -10,6 +10,9 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
+// leadSeesCannotDo is a Lead that does not start the Implementer again for a cannot_do.
+const leadSeesCannotDo = "[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n"
+
 // heldRead is a hold of the fake GitHub on a read of an issue.
 type heldRead struct {
 	reached <-chan struct{}
@@ -91,11 +94,12 @@ func TestADispatchedTaskWithAPullRequestStaysDispatchedWhenItsIssueGetsABlocker(
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\n" + cannotDoCall + "\n" + commits
-	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, implementer, noChange)
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadSeesCannotDo+leadStarts, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	sendChat(t, server, leadChat, "Send the findings to #41")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+	waitForLeadPrompt(t, server, " cannot_do on #41 ")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	if task := liveTaskOf(t, server, 41); !task.PullRequest.Valid || !task.Branch.Valid {
 		t.Fatalf("task = %+v", task)
 	}
@@ -116,10 +120,10 @@ func TestADispatchedTaskWithAPullRequestStaysDispatchedWhenItsIssueGetsABlocker(
 func TestADispatchedTaskWithABranchAndNoPullRequestStaysDispatchedWhenItsIssueGetsABlocker(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n"+leadStarts, "[[prompts]]\n"+cannotDoCall, noChange)
+	server, _ := connectTask(t, fake, leadSeesCannotDo+leadStarts, "[[prompts]]\n"+cannotDoCall, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadPrompt(t, server, " cannot_do on #41 ")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	if task := liveTaskOf(t, server, 41); task.PullRequest.Valid || !task.Branch.Valid {
 		t.Fatalf("task = %+v", task)
 	}
