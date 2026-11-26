@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -185,21 +183,19 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	return err
 }
 
-// triageWrittenLater tells if the issue of the incoming change has a later event of the label mobius:triage from the
-// Mobius App.
+// triageWrittenLater tells if the poll read a later event of the label mobius:triage from the Mobius App for the issue
+// of the incoming change.
 func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
 	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
 	if err != nil {
 		return false, err
 	}
-	events, err := repository.IssueEvents(ctx, change.Number)
-	if err != nil {
-		return false, err
-	}
-	app := appLogin(repository.AppSlug)
-	return slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
-		return event.GetID() > id && isTriageEvent(event) && strings.EqualFold(event.GetActor().GetLogin(), app)
-	}), nil
+	return e.queries.HasLaterTriageChangeOfActor(ctx, store.HasLaterTriageChangeOfActorParams{
+		Repository: change.Repository,
+		Number:     change.Number,
+		Actor:      appLogin(repository.AppSlug),
+		After:      id,
+	})
 }
 
 // issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before
