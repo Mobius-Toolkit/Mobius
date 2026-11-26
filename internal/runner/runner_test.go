@@ -507,8 +507,8 @@ func TestModelsOfAnotherHarnessStayAsTheAgentGivesThem(t *testing.T) {
 	}
 }
 
-// detachedPid gives the pid of the sleep that startDetached starts. The test kills the sleep at its end, also when the
-// test fails.
+// detachedPid gives the file to which the fake agent or the check writes the pid of its detached sleep. The test kills
+// the sleep at its end, also when the test fails.
 func detachedPid(t *testing.T) (pidFile string) {
 	t.Helper()
 	pidFile = filepath.Join(t.TempDir(), "pid")
@@ -793,7 +793,7 @@ func startDetached(pidFile string) error {
 	return shell.Start()
 }
 
-// waitWithDetached is the .mobius/check of TestAnEndedCheckAlsoStopsAProcessThatLeadsItsOwnSession.
+// waitWithDetached is the .mobius/check of TestTheEndOfACheckAlsoStopsAProcessThatLeadsItsOwnSession.
 func waitWithDetached(pidFile string) int {
 	if err := startDetached(pidFile); err != nil {
 		return 1
