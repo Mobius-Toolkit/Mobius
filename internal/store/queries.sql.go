@@ -452,6 +452,32 @@ func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) 
 	return err
 }
 
+const addDrainRefusal = `-- name: AddDrainRefusal :exec
+INSERT INTO drain_refusals (organization, repository, workstream, tool, arguments, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type AddDrainRefusalParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Tool         string
+	Arguments    string
+	CreatedAt    string
+}
+
+func (q *Queries) AddDrainRefusal(ctx context.Context, arg AddDrainRefusalParams) error {
+	_, err := q.db.ExecContext(ctx, addDrainRefusal,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Tool,
+		arg.Arguments,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addFixRound = `-- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1, total_fix_rounds = total_fix_rounds + 1 WHERE id = ?1 AND fix_rounds < ?2
 `
@@ -2346,6 +2372,28 @@ DELETE FROM incoming_changes WHERE status = 'done' AND julianday(created_at) < j
 
 func (q *Queries) DeleteDoneIncomingChanges(ctx context.Context, julianday interface{}) error {
 	_, err := q.db.ExecContext(ctx, deleteDoneIncomingChanges, julianday)
+	return err
+}
+
+const deleteDrainRefusals = `-- name: DeleteDrainRefusals :exec
+DELETE FROM drain_refusals
+WHERE organization = ? AND repository = ? AND workstream = ? AND id <= ?
+`
+
+type DeleteDrainRefusalsParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	ID           int64
+}
+
+func (q *Queries) DeleteDrainRefusals(ctx context.Context, arg DeleteDrainRefusalsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteDrainRefusals,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.ID,
+	)
 	return err
 }
 
@@ -7660,6 +7708,41 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, workstreamRepo
 			&i.Withdrawn,
 			&i.Metadata,
 			&i.AnsweredInChat,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDrainRefusals = `-- name: ListDrainRefusals :many
+SELECT id, organization, repository, workstream, tool, arguments, created_at FROM drain_refusals ORDER BY id
+`
+
+func (q *Queries) ListDrainRefusals(ctx context.Context) ([]DrainRefusal, error) {
+	rows, err := q.db.QueryContext(ctx, listDrainRefusals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DrainRefusal
+	for rows.Next() {
+		var i DrainRefusal
+		if err := rows.Scan(
+			&i.ID,
+			&i.Organization,
+			&i.Repository,
+			&i.Workstream,
+			&i.Tool,
+			&i.Arguments,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

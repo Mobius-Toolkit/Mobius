@@ -144,6 +144,34 @@ func TestTheSendOfEditIssueBodyMakesNoIncomingChange(t *testing.T) {
 	}
 }
 
+func TestAPollThatReadsTheBodyWhileItsSendIsOpenStillConsumesTheOwnWrite(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.SetBody(shop, 41, "Plans have a price.\n\n"+chatLink)
+	server, _ := connectWith(t, fake, editBodyCall("Edit #41.", `{ repository = "owner/shop", n = 41, body = "Prices are stored in cents." }`)+seen, withUIURL)
+	written, release := fake.HoldBodyWriteAnswer()
+	agent := start(t, server, leadSpec(t))
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Edit #41.", nil) }()
+	<-written
+
+	reads := fake.IssueListReads()
+	testkit.WaitFor(t, func() bool { return fake.IssueListReads() >= reads+2 })
+	release()
+
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return ownWrites(t, server) == 0 })
+	if got := countRows(t, server, "SELECT count(*) FROM incoming_changes WHERE field = 'body' AND actor = ? AND status = 'done'", appActor); got != 1 {
+		t.Errorf("app body incoming changes = %d, want 1", got)
+	}
+}
+
 func TestTheSendOfCloseTaskRecordsAnOwnWriteAndMakesNoPersonIncomingChange(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -255,6 +255,8 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 // of the issue cursor. The first poll of a repository has no issues row in the cursors, so it reads
 // all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
 // issue cursor. A repository with no issue has a row with no time, so its next poll is not a first poll.
+// When treeBodyChange asks for a new read, the poll keeps the cursor and stores no ETag, so the next poll reads the
+// same issues, and no status 304 hides the edit.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	firstPoll := errors.Is(err, sql.ErrNoRows)
@@ -320,6 +322,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	listChanged := false
 	var changeEvents []changeEvent
 	var bodyChanges []store.AddIncomingChangeParams
+	readAgain := false
 	stateIssues, statePulls, err := e.stateLabelItems(ctx, repository.FullName)
 	if err != nil {
 		return err
@@ -387,14 +390,16 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		if !firstPoll {
 			var change *store.AddIncomingChangeParams
+			var waiting bool
 			if stored {
 				change, err = e.bodyChange(ctx, repository, issue, since)
 			} else if inTree {
-				change, err = e.treeBodyChange(ctx, repository, treeRow, issue, since)
+				change, waiting, err = e.treeBodyChange(ctx, repository, treeRow, issue, since)
 			}
 			if err != nil {
 				return err
 			}
+			readAgain = readAgain || waiting
 			if change != nil {
 				bodyChanges = append(bodyChanges, *change)
 			}
@@ -423,9 +428,11 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
-	for _, issue := range page.Issues {
-		if issue.GetUpdatedAt().After(since) {
-			since = issue.GetUpdatedAt().Time
+	if !readAgain {
+		for _, issue := range page.Issues {
+			if issue.GetUpdatedAt().After(since) {
+				since = issue.GetUpdatedAt().Time
+			}
 		}
 	}
 	app := appLogin(repository.AppSlug)
@@ -467,7 +474,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			Endpoint:   issuesEndpoint,
 			// The rows of the Rust version have the same format.
 			Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
-			Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
+			Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != "" && !readAgain},
 		})
 	})
 }
@@ -522,27 +529,32 @@ func (e *Engine) bodyChange(ctx context.Context, repository github.Repository, i
 
 // treeBodyChange gives the incoming change of an edit of the body of the tree issue row that the issue cursor since did
 // not pass, or nil when the cleaned body equals the body of the row with no pending own write, when an outgoing body
-// change of the issue waits, or when the newest edit is older than since.
-func (e *Engine) treeBodyChange(ctx context.Context, repository github.Repository, row store.GetTreeIssueRow, issue *gh.Issue, since time.Time) (*store.AddIncomingChangeParams, error) {
+// change of the issue waits, or when the newest edit is older than since. It tells true as the second value when an
+// outgoing body change waits and the body of the issue equals the body of the row: the send can have written the body
+// before it marked the change sent, so the poll must read the issue again to see the edit of that send.
+func (e *Engine) treeBodyChange(ctx context.Context, repository github.Repository, row store.GetTreeIssueRow, issue *gh.Issue, since time.Time) (*store.AddIncomingChangeParams, bool, error) {
 	number := int64(issue.GetNumber())
 	body := e.WithoutChatLink(row.WorkstreamRepository.String, row.WorkstreamNumber.Int64, withoutWriteMarker(issue.GetBody()))
 	pending, err := e.pendingItemChanges(ctx, repository.FullName, changeItem{kind: "issue", id: row.ID})
-	if err != nil || slices.ContainsFunc(pending, func(change store.OutgoingChange) bool { return change.Field == bodyField }) {
-		return nil, err
+	if err != nil {
+		return nil, false, err
+	}
+	if slices.ContainsFunc(pending, func(change store.OutgoingChange) bool { return change.Field == bodyField }) {
+		return nil, body == row.Body, nil
 	}
 	ownBody, err := e.queries.HasFieldOwnWrite(ctx, store.HasFieldOwnWriteParams{Repository: repository.FullName, Number: number, Field: bodyField})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if body == row.Body && !ownBody {
-		return nil, nil
+		return nil, false, nil
 	}
 	edit, err := repository.IssueNewestBodyEdit(ctx, number)
 	if err != nil || edit == nil || edit.EditedAt.Before(since) {
-		return nil, err
+		return nil, false, err
 	}
 	if body == row.Body && !strings.EqualFold(edit.Editor, appLogin(repository.AppSlug)) {
-		return nil, nil
+		return nil, false, nil
 	}
 	return &store.AddIncomingChangeParams{
 		ExternalID: edit.ID,
@@ -554,5 +566,5 @@ func (e *Engine) treeBodyChange(ctx context.Context, repository github.Repositor
 		Metadata:   "{}",
 		Status:     "pending",
 		CreatedAt:  now(),
-	}, nil
+	}, false, nil
 }

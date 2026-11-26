@@ -1169,6 +1169,13 @@ func (g *FakeGitHub) searchIssues(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(items), "incomplete_results": false, "items": page(w, r, items)})
 }
 
+// IssueListReads gives the number of issue list requests of the polls, with status 304 or not.
+func (g *FakeGitHub) IssueListReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.polls
+}
+
 // NotModifiedCount gives the number of issue list requests that got status 304.
 func (g *FakeGitHub) NotModifiedCount() int {
 	g.mu.Lock()
@@ -1246,6 +1253,12 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 		}
 		g.bodyWrites[key]++
 		g.setBody(key, *request.Body, caller.login)
+		if h := g.bodyAnswerHold; h != nil {
+			g.bodyAnswerHold = nil
+			g.mu.Unlock()
+			h.wait()
+			g.mu.Lock()
+		}
 		if request.State == "" && request.Title == nil {
 			writeJSON(w, http.StatusOK, g.issueJSON(key))
 			return

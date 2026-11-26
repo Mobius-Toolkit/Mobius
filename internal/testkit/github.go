@@ -165,6 +165,7 @@ type FakeGitHub struct {
 	failMarkReady     bool
 	failCheckUpdates  bool
 	failBodyWrites    bool
+	bodyAnswerHold    *hold
 	failBlockerWrites bool
 	// bodyWrites counts the body writes through the API, for each issue and pull request.
 	bodyWrites map[issueKey]int
