@@ -71,6 +71,28 @@ func newComments[C listedComment](ctx context.Context, queries *store.Queries, r
 	return byNumber, next, nil
 }
 
+// dropHandledAnswers removes from byNumber each answer comment that AnswerInboxItem marked as handled (MarkAnswerHandled).
+func (e *Engine) dropHandledAnswers(ctx context.Context, repository github.Repository, byNumber map[int64][]*gh.IssueComment) error {
+	for number, comments := range byNumber {
+		var kept []*gh.IssueComment
+		for _, comment := range comments {
+			handled, err := e.queries.IsHandledAnswerComment(ctx, store.IsHandledAnswerCommentParams{Repository: repository.FullName, Issue: number, Comment: comment.GetID()})
+			if err != nil {
+				return err
+			}
+			if !handled {
+				kept = append(kept, comment)
+			}
+		}
+		if len(kept) == 0 {
+			delete(byNumber, number)
+		} else {
+			byNumber[number] = kept
+		}
+	}
+	return nil
+}
+
 // numberOfURL gives the number at the end of the issue_url or the pull_request_url of a comment.
 func numberOfURL(url string) int64 {
 	number, _ := strconv.ParseInt(path.Base(url), 10, 64)
