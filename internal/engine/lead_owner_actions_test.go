@@ -9,6 +9,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 const (
@@ -242,4 +243,135 @@ func TestMarkOwnerActionOnAStoppedTaskInNeedsHumanDismissesTheStoppedItemAndRemo
 	if labels := fake.Labels(shop, 42); slices.Contains(labels, "mobius:needs-human") {
 		t.Errorf("labels of the pull request = %q", labels)
 	}
+}
+
+const (
+	// cannotDoInFix is an Implementer that cannot do the fix round, so the task is dispatched with its pull request.
+	cannotDoInFix = "[[prompts]]\nwhen = \"Action: fix\"\n" + cannotDoCall + "\n" + commits
+	// leadMarksReview is a Lead that marks a review on #41 for the cannot_do event.
+	leadMarksReview  = "[[prompts]]\nwhen = \"cannot_do on #41\"\n"
+	leadSeesCannotDo = "[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"Seen\"]\n\n"
+)
+
+// dispatchedWithPullRequest runs the Implementer of #41 into a cannot_do in a fix round that the failed check starts,
+// and waits until the Lead has the event.
+func dispatchedWithPullRequest(t *testing.T, lead string) (*testserver.Server, *testkit.FakeGitHub, string) {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := connectTask(t, fake, lead+leadStarts, cannotDoInFix, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("sentinel", sha, "completed", "failure"))
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:")
+	return server, fake, sha
+}
+
+// wantOpenCheckAfterReview waits until a new Reviewer reviews the head and the task waits for CI, and tests that the
+// head has one Mobius check run that is not complete.
+func wantOpenCheckAfterReview(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, sha string, reviewers int) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == reviewers+1 })
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := roleSessions(t, server, engine.ReviewerRole)
+		prompts := promptTexts(t, server, sessions[len(sessions)-1].ID)
+		return strings.Join(prompts, "\n"), len(prompts) > 0
+	})
+	if !strings.Contains(prompt, "Head commit: "+sha) {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool {
+		open := 0
+		for _, run := range mobiusCheckRuns(fake) {
+			if run.Status != "completed" {
+				open++
+			}
+		}
+		return open == 1
+	})
+	for _, run := range mobiusCheckRuns(fake) {
+		if run.HeadSHA != sha {
+			t.Errorf("check run = %+v", run)
+		}
+	}
+}
+
+func TestACannotDoInAFixRoundAndAReviewMarkOfTheLeadGiveAReviewOfTheHeadAfterTheDoneOfTheOwner(t *testing.T) {
+	t.Parallel()
+	server, fake, sha := dispatchedWithPullRequest(t, leadMarks+leadMarksReview+markCall("review"))
+	item := waitForItem(t, server, "owner action")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
+	if item.Title != loginAction || item.PullRequest != 42 || item.Text != loginAction+"\nhttps://github.com/owner/shop/pull/42" {
+		t.Errorf("item = %+v", item)
+	}
+	if rows := ownerActionRows(t, server); len(rows) != 1 || rows[0] != (ownerActionRow{Role: engine.LeadRole, Action: loginAction, Next: "review"}) {
+		t.Errorf("rows = %+v", rows)
+	}
+	reviewers := len(roleSessions(t, server, engine.ReviewerRole))
+
+	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	wantOpenCheckAfterReview(t, server, fake, sha, reviewers)
+	if rows := ownerActionRows(t, server); len(rows) != 1 || !rows[0].Done {
+		t.Errorf("rows = %+v", rows)
+	}
+	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 2 {
+		t.Errorf("Implementers = %+v", sessions)
+	}
+}
+
+func TestACannotDoInAFixRoundAndAReviewMarkOfTheLeadGiveAReviewOfTheHeadAfterClearOwnerAction(t *testing.T) {
+	t.Parallel()
+	server, fake, sha := dispatchedWithPullRequest(t, leadMarks+leadMarksReview+markCall("review"))
+	waitForItem(t, server, "owner action")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
+	reviewers := len(roleSessions(t, server, engine.ReviewerRole))
+
+	sendChat(t, server, leadChat, "Clear #41")
+
+	wantOpenCheckAfterReview(t, server, fake, sha, reviewers)
+	testkit.WaitFor(t, func() bool {
+		rows := ownerActionRows(t, server)
+		return len(rows) == 1 && rows[0].Done && len(itemsOf(t, server, "owner action")) == 0
+	})
+}
+
+func TestMarkOwnerActionRefusesAFixRoundOfADispatchedTaskWithAPullRequest(t *testing.T) {
+	t.Parallel()
+	server, _, _ := dispatchedWithPullRequest(t, leadMarks+leadSeesCannotDo)
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+
+	sendChat(t, server, leadChat, "Mark fix round on #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is dispatched, not checks, approval, ready_for_review or needs_human.")
+	if state := taskState(t, server); state != "dispatched" {
+		t.Errorf("state = %s", state)
+	}
+	if rows := ownerActionRows(t, server); len(rows) != 0 {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestMarkOwnerActionRefusesAReviewOfADispatchedTaskWhosePullRequestIsClosed(t *testing.T) {
+	t.Parallel()
+	server, fake, _ := dispatchedWithPullRequest(t, leadMarks+leadSeesCannotDo)
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	waitForPolls(t, fake)
+	pollReached, releasePoll := fake.HoldPullRequest(shop, 42)
+	<-pollReached
+	toolReached, releaseTool := fake.HoldPullRequest(shop, 42)
+
+	sendChat(t, server, leadChat, "Mark review on #41")
+	<-toolReached
+	fake.CloseIssue(shop, 42)
+	releaseTool()
+
+	waitForChat(t, server, leadChat, "Lead", "error: The pull request of #41 is not open.")
+	if rows := ownerActionRows(t, server); len(rows) != 0 {
+		t.Errorf("rows = %+v", rows)
+	}
+	releasePoll()
 }
