@@ -546,6 +546,12 @@ func TestAReviewRunAfterTheLimitPostsTheLimitComment(t *testing.T) {
 	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 1 {
 		t.Errorf("Reviewers = %+v", reviewers)
 	}
+	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request needs a review after 1 review rounds. Mobius did not start the Reviewer. Mobius set the Mobius check to failure and added mobius:needs-human.")
+	summary := "The pull request needs a review after 1 review rounds. Mobius did not start the Reviewer."
+	if runs := fake.CheckRuns(shop); runs[len(runs)-1].Output == nil || *runs[len(runs)-1].Output != (testkit.CheckRunOutput{Title: "Round limit", Summary: summary}) {
+		t.Errorf("check runs = %+v", runs)
+	}
+	wantStopNotice(t, server, fake, "Round limit", summary, "Resume, or close the pull request. Resume resets the round count.")
 }
 
 func TestACommentOfATrustedUserDuringTheLastRoundResetsTheLimitOfTheRound(t *testing.T) {
