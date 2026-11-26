@@ -129,7 +129,7 @@ func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository githu
 		return "", refuse("The task of #%d is %s, not dispatched.", input.N, task.State)
 	case input.Next != "implementer" && !task.PullRequest.Valid:
 		return "", refuse("The task of #%d has no pull request.", input.N)
-	case input.Next != "implementer" && task.State == "dispatched":
+	case input.Next == "fix_round" && task.State == "dispatched":
 		return "", refuse("The task of #%d is dispatched, not checks, approval, ready_for_review or needs_human.", input.N)
 	}
 	text, number := action, int64(0)
@@ -137,6 +137,9 @@ func (e *Engine) markOwnerAction(ctx context.Context, c caller, repository githu
 		pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
 		if err != nil {
 			return "", err
+		}
+		if task.State == "dispatched" && input.Next == "review" && pullRequest.GetState() != "open" {
+			return "", refuse("The pull request of #%d is not open.", input.N)
 		}
 		text, number = fmt.Sprintf("%s\n%s", action, pullRequest.GetHTMLURL()), task.PullRequest.Int64
 	}
