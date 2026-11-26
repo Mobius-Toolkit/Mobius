@@ -6158,6 +6158,27 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 	return exists, err
 }
 
+const isHandledAnswerComment = `-- name: IsHandledAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items
+    WHERE repository = ?1 AND issue = CAST(?2 AS INTEGER)
+        AND json_extract(metadata, '$.github.handledAnswer') = CAST(?3 AS INTEGER)
+)
+`
+
+type IsHandledAnswerCommentParams struct {
+	Repository string
+	Issue      int64
+	Comment    int64
+}
+
+func (q *Queries) IsHandledAnswerComment(ctx context.Context, arg IsHandledAnswerCommentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isHandledAnswerComment, arg.Repository, arg.Issue, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isIssueBlocked = `-- name: IsIssueBlocked :one
 SELECT EXISTS (SELECT 1 FROM blockers b JOIN issues i ON i.id = b.issue JOIN issues bi ON bi.id = b.blocker AND bi.state = 'open'
                WHERE i.repository = ? AND i.number = CAST(?2 AS INTEGER))
@@ -12029,6 +12050,20 @@ func (q *Queries) ListWorkstreamsWithReadyLeadEvents(ctx context.Context, reposi
 		return nil, err
 	}
 	return items, nil
+}
+
+const markAnswerHandled = `-- name: MarkAnswerHandled :exec
+UPDATE inbox_items SET metadata = json_patch(metadata, json_object('github', json_object('handledAnswer', CAST(?1 AS INTEGER)))) WHERE id = ?2
+`
+
+type MarkAnswerHandledParams struct {
+	Comment int64
+	ID      int64
+}
+
+func (q *Queries) MarkAnswerHandled(ctx context.Context, arg MarkAnswerHandledParams) error {
+	_, err := q.db.ExecContext(ctx, markAnswerHandled, arg.Comment, arg.ID)
+	return err
 }
 
 const markCommentAnswered = `-- name: MarkCommentAnswered :exec

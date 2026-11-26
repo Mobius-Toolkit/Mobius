@@ -1857,6 +1857,16 @@ SELECT EXISTS (
         AND answer.value = CAST(sqlc.arg(comment) AS INTEGER)
 );
 
+-- name: MarkAnswerHandled :exec
+UPDATE inbox_items SET metadata = json_patch(metadata, json_object('github', json_object('handledAnswer', CAST(sqlc.arg(comment) AS INTEGER)))) WHERE id = sqlc.arg(id);
+
+-- name: IsHandledAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items
+    WHERE repository = sqlc.arg(repository) AND issue = CAST(sqlc.arg(issue) AS INTEGER)
+        AND json_extract(metadata, '$.github.handledAnswer') = CAST(sqlc.arg(comment) AS INTEGER)
+);
+
 -- name: SetTaskBreakWaitHead :exec
 UPDATE tasks SET break_wait_head = ? WHERE id = ?;
 
