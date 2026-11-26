@@ -231,9 +231,9 @@ func harnessCommand(ctx context.Context, harness config.Harness, contextLimit in
 	if shortCache && harness == config.ClaudeCode {
 		cmd.Env = append(cmd.Env, shortCacheEnv+"=1")
 	}
-	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
+	// The agent leads its own process group, so a process of a tool that stays in that group also stops with the agent.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.Cancel = func() error { return killTree(cmd.Process.Pid) }
 	return cmd, nil
 }
 

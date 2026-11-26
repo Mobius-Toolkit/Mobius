@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -30,6 +31,9 @@ func TestMain(m *testing.M) {
 		os.Exit(Port(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 	}
 	if filepath.Base(os.Args[0]) == "check" {
+		if pidFile := os.Getenv("MOBIUS_FAKE_DETACHED"); pidFile != "" {
+			os.Exit(waitWithDetached(pidFile))
+		}
 		os.Exit(printNiceValue())
 	}
 	if dataDir := os.Getenv("MOBIUS_FETCH_HELPER"); dataDir != "" {
@@ -503,6 +507,60 @@ func TestModelsOfAnotherHarnessStayAsTheAgentGivesThem(t *testing.T) {
 	}
 }
 
+// detachedPid gives the pid of the sleep that startDetached starts. The test kills the sleep at its end, also when the
+// test fails.
+func detachedPid(t *testing.T) (pidFile string) {
+	t.Helper()
+	pidFile = filepath.Join(t.TempDir(), "pid")
+	t.Setenv("MOBIUS_FAKE_DETACHED", pidFile)
+	t.Cleanup(func() {
+		if pid, ok := readPid(pidFile); ok {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	return pidFile
+}
+
+func TestClosingASessionAlsoStopsAProcessThatLeadsItsOwnSession(t *testing.T) {
+	pidFile := detachedPid(t)
+	session := startFakeAgent(t, func(json.RawMessage, bool) {})
+	pid := waitForPid(t, pidFile)
+
+	session.Close()
+
+	waitForStop(t, pid)
+}
+
+func TestTheEndOfACheckAlsoStopsAProcessThatLeadsItsOwnSession(t *testing.T) {
+	pidFile := detachedPid(t)
+	worktree := t.TempDir()
+	if err := os.Mkdir(filepath.Join(worktree, ".mobius"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(executable, filepath.Join(worktree, ".mobius", "check")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ended := make(chan error, 1)
+	go func() {
+		_, _, err := Check(ctx, t.TempDir(), worktree, os.Getenv("PATH"), "", time.Minute)
+		ended <- err
+	}()
+	pid := waitForPid(t, pidFile)
+
+	cancel()
+
+	if err := <-ended; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Check error = %v, want a cancel", err)
+	}
+	waitForStop(t, pid)
+}
+
 func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testing.T) {
 	dir := fakeAgentDir(t)
 	t.Setenv("MOBIUS_FAKE_HANG", "1")
@@ -726,9 +784,31 @@ func replaceLogin(ctx context.Context) error {
 	return os.WriteFile(login, nil, 0o600)
 }
 
+// startDetached starts a shell in a new session, as the web server of Playwright is. The shell starts a sleep in the
+// background and writes the pid of the sleep to pidFile.
+func startDetached(pidFile string) error {
+	shell := exec.Command("/bin/sh", "-c", "/bin/sleep 600 & echo $! > "+pidFile+"; wait")
+	shell.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return shell.Start()
+}
+
+// waitWithDetached is the .mobius/check of TestAnEndedCheckAlsoStopsAProcessThatLeadsItsOwnSession.
+func waitWithDetached(pidFile string) int {
+	if err := startDetached(pidFile); err != nil {
+		return 1
+	}
+	time.Sleep(time.Hour)
+	return 0
+}
+
 func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
 	if os.Getenv("MOBIUS_FAKE_KEYCHAIN") == "1" {
 		if err := replaceLogin(ctx); err != nil {
+			return acp.InitializeResponse{}, err
+		}
+	}
+	if pidFile := os.Getenv("MOBIUS_FAKE_DETACHED"); pidFile != "" {
+		if err := startDetached(pidFile); err != nil {
 			return acp.InitializeResponse{}, err
 		}
 	}

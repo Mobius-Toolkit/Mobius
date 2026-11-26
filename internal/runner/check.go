@@ -97,9 +97,8 @@ func runScript(ctx context.Context, name, dataDir, worktree, path, portURL strin
 	case <-timer.C:
 	case <-ctx.Done():
 	}
-	// The script leads its own process group, so the kill also ends each process that it started. Until then, such a
-	// process can hold the pipe open.
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	// Until the kill, a process that the script started can hold the pipe open.
+	_ = killTree(cmd.Process.Pid)
 	if state == nil {
 		<-exited
 	}
