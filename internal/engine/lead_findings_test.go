@@ -176,7 +176,7 @@ func TestStartFixRoundKeepsTheFindingsOfTheLeadOnAQueuedFixRoundForTheNextFixRou
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
-	implementer := fmt.Sprintf("[[prompts]]\nwhen = \"Round prices down.\"\nshell = '''while [ ! -e '%s' ]; do sleep 0.05; done; echo dollars > price.txt && git add price.txt && git commit -q -m 'Add price'''\n\n", goFile) +
+	implementer := fmt.Sprintf("[[prompts]]\nwhen = \"Round prices down.\"\nshell = '''while [ ! -e '%s' ]; do sleep 0.05; done; echo dollars > price.txt && git add price.txt && git commit -q -m 'Add price''''\n\n", goFile) +
 		"[[prompts]]\nwhen = \"Use cents.\"\n" + eachRound +
 		"[[prompts]]\nwhen = \"Name the unit.\"\n" + eachRound + commits
 	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadRounds+leadStartsTwo, implementer, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
