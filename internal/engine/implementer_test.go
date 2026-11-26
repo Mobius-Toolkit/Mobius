@@ -89,7 +89,7 @@ func logTaskRows(t *testing.T, server *testserver.Server) {
 		"SELECT 'task ' || id || ' #' || issue || ' ' || state || ' worker=' || coalesce(worker, '') || ' restarts=' || worker_restarts FROM tasks",
 		"SELECT 'session ' || id || ' ' || role || ' ' || coalesce(end_reason, 'live') || ' ' || coalesce(queue_reason, '') FROM sessions",
 		"SELECT 'lead event ' || id || ' ' || kind || ' delivered=' || (delivered_at IS NOT NULL) FROM lead_events",
-		"SELECT 'pending change ' || id || ' #' || number || ' ' || field FROM outgoing_changes WHERE status = 'pending'",
+		"SELECT 'pending change ' || id || ' ' || field || ' ' || coalesce('#' || number, 'issue ' || issue, 'workstream ' || workstream, '') FROM outgoing_changes WHERE status = 'pending'",
 		"SELECT 'pause ' || harness || ' until ' || paused_until FROM harness_pauses",
 		"SELECT 'access check ' || title || ': ' || reason FROM inbox_items WHERE kind = 'access check'",
 	} {
