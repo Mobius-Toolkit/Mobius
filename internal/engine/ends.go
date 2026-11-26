@@ -134,7 +134,9 @@ func (e *Engine) countCheckErrors(ctx context.Context, task store.Task, checkErr
 // has work for an agent: the round that the task queues or runs, or the round that the check starts.
 //   - A task whose issue is gone, or whose issue closed with no pull request, ends.
 //   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius-rust#226).
-//   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
+//   - A task in dispatched with no branch, no pull request and no open question, whose issue has an open blocker, ends
+//     and stores a Start of its issue (endBlockedDispatch). Else a task in dispatched for more than 2 hours, with no open
+//     question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
 //     task passes on its head, also on a new head (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict gets a conflict round. A
@@ -183,6 +185,13 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 			return Work{}, false, false, err
 		}
 		if !asked {
+			blocked, err := e.endBlockedDispatch(ctx, repository, task)
+			if err != nil {
+				return Work{}, false, false, err
+			}
+			if blocked {
+				return Work{}, false, false, nil
+			}
 			if err := e.remindDispatch(ctx, task, issue); err != nil {
 				return Work{}, false, false, err
 			}
@@ -492,6 +501,42 @@ func (e *Engine) endTask(ctx context.Context, _ github.Repository, task store.Ta
 	if err != nil {
 		return err
 	}
+	return e.finishEnd(ctx, task, change)
+}
+
+// endBlockedDispatch ends a task in dispatched with no branch and no pull request when its issue has an open blocker, and
+// stores a Start of the issue by the Mobius App in the same transaction, so that dispatchReady dispatches the issue after
+// the last blocker closes. It does nothing when the task is no more in dispatched. It tells if the task qualified.
+func (e *Engine) endBlockedDispatch(ctx context.Context, repository github.Repository, task store.Task) (bool, error) {
+	if task.State != "dispatched" || task.Branch.Valid || task.PullRequest.Valid {
+		return false, nil
+	}
+	blocked, err := e.queries.IsIssueBlocked(ctx, store.IsIssueBlockedParams{Repository: task.Repository, Number: task.Issue})
+	if err != nil || !blocked {
+		return false, err
+	}
+	e.copyWrite.Lock()
+	moved, _, change, err := e.changeTask(ctx, task.ID, func(q *store.Queries) (int64, error) {
+		moved, err := q.EndDispatchedTask(ctx, task.ID)
+		if err != nil || moved == 0 {
+			return 0, err
+		}
+		return moved, q.SetIssueStart(ctx, store.SetIssueStartParams{
+			StartRequestedAt: sql.NullString{String: now(), Valid: true},
+			StartRequestedBy: appLogin(repository.AppSlug),
+			Repository:       task.Repository,
+			Number:           task.Issue,
+		})
+	})
+	e.copyWrite.Unlock()
+	if err != nil || moved == 0 {
+		return true, err
+	}
+	return true, e.finishEnd(ctx, task, change)
+}
+
+// finishEnd does the steps after the row of the task ended, and sends the change of the state labels at the end.
+func (e *Engine) finishEnd(ctx context.Context, task store.Task, change int64) error {
 	var pubErr error
 	if task.MergeQueuedAt.Valid {
 		pubErr = e.publishMergeQueue(ctx, task.Repository, task)
