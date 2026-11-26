@@ -1106,14 +1106,21 @@ func (e *Engine) moveChat(c *chat) bool {
 	return true
 }
 
-// chatSpec gives the session of the chat of key. It makes the directory of a Lead.
+// chatSpec gives the session of the chat of key. It makes the directory of a Coordinator or of a Lead.
 func (e *Engine) chatSpec(key ChatKey) (Spec, error) {
 	if key.Workstream == 0 {
-		return Spec{Role: CoordinatorRole, Organization: key.Organization}, nil
+		dir := coordinatorDir(e.config.DataDir, key.Organization)
+		return Spec{Role: CoordinatorRole, Organization: key.Organization, Dir: dir}, os.MkdirAll(dir, 0o750)
 	}
 	dir := leadDir(e.config.DataDir, key.Repository, key.Workstream)
 	spec := Spec{Role: LeadRole, Organization: key.Organization, Repository: key.Repository, Workstream: key.Workstream, Dir: dir}
 	return spec, os.MkdirAll(dir, 0o750)
+}
+
+// coordinatorDir gives the directory of the Coordinator of the organization. The directory keeps the memory of the
+// Coordinator.
+func coordinatorDir(dataDir, organization string) string {
+	return filepath.Join(dataDir, "coordinators", organization)
 }
 
 // leadDir gives the directory of the Lead of the Workstream. The directory keeps the memory of the Lead.
@@ -2004,6 +2011,10 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 		if err != nil {
 			return "", nil, err
 		}
+		memory, err := readMemory(coordinatorDir(e.config.DataDir, key.Organization))
+		if err != nil {
+			return "", nil, err
+		}
 		requests, err := e.openRequests(ctx, key)
 		if err != nil {
 			return "", nil, err
@@ -2012,7 +2023,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, harness config.Ha
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s%s%s\n%s%s# %s message\n\n%s", coordinatorPrompt, browser, serverSection(), workstreams, requests, history, first.message.Author, text), images, nil
+		return fmt.Sprintf("%s\n%s%s%s\n# MEMORY.md\n\n%s\n\n%s%s# %s message\n\n%s", coordinatorPrompt, browser, serverSection(), workstreams, memory, requests, history, first.message.Author, text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {

@@ -28,9 +28,11 @@ const (
 	// fixReplies is an Implementer that fixes the finding in a fix round and replies in the thread 2 with the commit.
 	fixReplies = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Fixed in {shell}.\" } }\n\n"
 	// eachFix is an Implementer that commits a change in each fix round.
-	eachFix      = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo $$ >> plan.txt && git commit -q -am 'Store the unit'\"\n\n"
-	noFinding    = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n\n"
-	leadFindings = "[[prompts]]\nwhen = \"Send the findings to #41\"\ncall = { tool = \"start_fix_round\", arguments = { repository = \"owner/shop\", n = 41, findings = \"Remove the lines out of scope.\" } }\n\n"
+	eachFix   = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo $$ >> plan.txt && git commit -q -am 'Store the unit'\"\n\n"
+	noFinding = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n\n"
+	// leadFindings starts a fix round only for a message that the Lead gets now. The chat history of a new Lead session
+	// shows an earlier message as "Owner (time):\nSend the findings to #41", so the rule needs the blank line before the text.
+	leadFindings = "[[prompts]]\nwhen = \"\\n\\nSend the findings to #41\"\ncall = { tool = \"start_fix_round\", arguments = { repository = \"owner/shop\", n = 41, findings = \"Remove the lines out of scope.\" } }\n\n"
 )
 
 // endedReviewers waits until count Reviewer sessions ended, and gives them.
