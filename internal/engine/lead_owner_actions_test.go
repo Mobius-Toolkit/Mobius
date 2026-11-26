@@ -249,8 +249,7 @@ const (
 	// cannotDoInFix is an Implementer that cannot do the fix round, so the task is dispatched with its pull request.
 	cannotDoInFix = "[[prompts]]\nwhen = \"Action: fix\"\n" + cannotDoCall + "\n" + commits
 	// leadMarksReview is a Lead that marks a review on #41 for the cannot_do event.
-	leadMarksReview  = "[[prompts]]\nwhen = \"cannot_do on #41\"\n"
-	leadSeesCannotDo = "[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"Seen\"]\n\n"
+	leadMarksReview = "[[prompts]]\nwhen = \"cannot_do on #41\"\n"
 )
 
 // dispatchedWithPullRequest runs the Implementer of #41 into a cannot_do in a fix round that the failed check starts,
