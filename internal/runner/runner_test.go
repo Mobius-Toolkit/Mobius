@@ -787,7 +787,8 @@ func replaceLogin(ctx context.Context) error {
 // startDetached starts a shell in a new session, as the web server of Playwright is. The shell starts a sleep in the
 // background and writes the pid of the sleep to pidFile.
 func startDetached(pidFile string) error {
-	shell := exec.Command("/bin/sh", "-c", "/bin/sleep 600 & echo $! > "+pidFile+"; wait")
+	shell := exec.Command("/bin/sh", "-c", `/bin/sleep 600 & echo $! > "$PID_FILE"; wait`)
+	shell.Env = append(os.Environ(), "PID_FILE="+pidFile)
 	shell.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return shell.Start()
 }
