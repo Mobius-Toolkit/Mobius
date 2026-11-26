@@ -1,53 +1,59 @@
 package runner
 
 import (
-	"context"
-	"errors"
-	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 	"os/exec"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
-// killTree kills the process group of pid and each descendant of pid. A descendant can lead its own process group or
-// session, as the web server of Playwright does, and the kill of the group does not reach it. killTree reads the
-// descendants before the kill, because after the kill the survivors have a new parent.
-func killTree(pid int) error {
-	found, err := descendants(pid)
-	killErr := syscall.Kill(-pid, syscall.SIGKILL)
-	for _, descendant := range found {
-		_ = syscall.Kill(descendant, syscall.SIGKILL)
-	}
-	return errors.Join(err, killErr)
+// markEnv is the environment variable that holds the mark of a session. Each process that the session starts inherits
+// it, also a process in a new process group or session, and also after its parent ended. The mark is random, so a
+// process of another session or of Mobius never has it.
+const markEnv = "MOBIUS_PROCESS_MARK"
+
+// termWait is the time that a marked process has to end after SIGTERM, for example to remove its temporary directory.
+const termWait = 5 * time.Second
+
+func addMark(cmd *exec.Cmd) {
+	random := make([]byte, 16)
+	// Reading random bytes does not fail on a supported system.
+	_, _ = rand.Read(random)
+	cmd.Env = append(cmd.Env, markEnv+"="+hex.EncodeToString(random))
 }
 
-func descendants(pid int) ([]int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ps", "-A", "-o", "pid=,ppid=")
-	cmd.WaitDelay = time.Second
-	output, err := cmd.Output()
+func markOf(cmd *exec.Cmd) string {
+	for _, entry := range cmd.Env {
+		if mark, ok := strings.CutPrefix(entry, markEnv+"="); ok {
+			return mark
+		}
+	}
+	return ""
+}
+
+// stopMarked stops each process with the mark in its environment. It sends SIGTERM, and SIGKILL to each process that
+// is still there after termWait. On macOS, ps does not show the environment of a system program, so such a program
+// stays.
+func stopMarked(mark string) error {
+	pids, err := markedProcesses(mark)
 	if err != nil {
-		return nil, fmt.Errorf("ps: %w", err)
+		return err
 	}
-	children := map[int][]int{}
-	for line := range strings.SplitSeq(string(output), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			continue
-		}
-		child, childErr := strconv.Atoi(fields[0])
-		parent, parentErr := strconv.Atoi(fields[1])
-		if childErr == nil && parentErr == nil {
-			children[parent] = append(children[parent], child)
+	sendAll(pids, syscall.SIGTERM)
+	for deadline := time.Now().Add(termWait); len(pids) > 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+		if pids, err = markedProcesses(mark); err != nil {
+			return err
 		}
 	}
-	var found []int
-	for queue := []int{pid}; len(queue) > 0; queue = queue[1:] {
-		found = append(found, children[queue[0]]...)
-		queue = append(queue, children[queue[0]]...)
+	sendAll(pids, syscall.SIGKILL)
+	return nil
+}
+
+func sendAll(pids []int, sig syscall.Signal) {
+	for _, pid := range pids {
+		_ = syscall.Kill(pid, sig)
 	}
-	return found, nil
 }
