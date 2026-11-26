@@ -104,7 +104,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.markOwnerAction),
 			taskTool(e, c, "clear_owner_action",
-				"Clear an action of the Owner that you marked with mark_owner_action, when the action is not needed any more. Mobius starts the step that you named, dismisses the Inbox item and adds a record to the chat. It refuses a task with no open action that you marked.",
+				"Clear each open action of the Owner of a task, also one that the Reviewer marked, when the action is not needed any more. Mobius starts the step of the action (next), dismisses the Inbox item and adds a record to the chat. It refuses a task with no open action of the Owner.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
