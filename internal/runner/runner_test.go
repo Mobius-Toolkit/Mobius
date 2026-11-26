@@ -881,7 +881,8 @@ func sleepWithPid() int {
 	return 0
 }
 
-// waitWithDetached is the .mobius/check of TestTheEndOfACheckAlsoStopsAProcessThatLeadsItsOwnSession.
+// waitWithDetached is the .mobius/check of the check tests. It starts a detached process, and then waits, or exits when
+// MOBIUS_FAKE_CHECK_EXITS is 1.
 func waitWithDetached() int {
 	if err := startDetached(""); err != nil {
 		return 1
