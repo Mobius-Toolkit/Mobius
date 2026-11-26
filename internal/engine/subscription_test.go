@@ -87,7 +87,9 @@ func TestAUsageLimitPauseHasNoReason(t *testing.T) {
 func TestANewClaudeCodeSessionThatReportsTheClaudeSubscriptionDuringThePauseOfTheReplyTextKeepsThePause(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "session_notices = ['''"+accountNotice+"''']\n"+subscriptionError, keepSessionOpen)
+	// Only the prompt of the Lead gets the subscription error. A prompt of the Coordinator that Mobius sends gets a reply.
+	server, _ := connectScript(t, fake, "session_notices = ['''"+accountNotice+"''']\n"+options+"[[prompts]]\nwhen = \"Plan the API\"\n"+subscriptionUpdate+
+		"\nerror = { code = -32000, message = \"Authentication required\" }\n\n[[prompts]]\nreply = [\"Noted.\"]\n", keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
 
