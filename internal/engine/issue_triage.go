@@ -154,11 +154,21 @@ func isTriageEvent(event *gh.IssueEvent) bool {
 }
 
 // applyTriageChange sets the triage state from the incoming change of the label mobius:triage, when its actor is a
-// trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back.
+// trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back. A change
+// changes nothing when the issue on GitHub has the other label state, because a later write made the event old. The
+// poll can read the event after the copy of the tree gave the row its state from the label, and after Mobius changed
+// the label.
 func (e *Engine) applyTriageChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	repository = e.changeRepository(change.Repository, repository)
 	if !e.trustedUser(change.Actor) {
 		return e.writeBack(ctx, repository, change)
+	}
+	issue, err := repository.Issue(ctx, change.Number)
+	if err != nil {
+		return err
+	}
+	if issue != nil && hasLabel(issue, triageLabel) != (change.Change == labeledChange) {
+		return nil
 	}
 	var at time.Time
 	if change.Change == labeledChange {
@@ -167,13 +177,12 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 			return err
 		}
 		if metadata.At != "" {
-			var err error
 			if at, err = time.Parse(time.RFC3339Nano, metadata.At); err != nil {
 				return err
 			}
 		}
 	}
-	_, err := e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
+	_, err = e.setTriageAt(ctx, repository, change.Number, change.Change == labeledChange, at)
 	return err
 }
 
