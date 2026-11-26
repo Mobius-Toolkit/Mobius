@@ -360,8 +360,6 @@ func TestMarkOwnerActionRefusesAReviewOfADispatchedTaskWhosePullRequestIsClosed(
 	server, fake, _ := dispatchedWithPullRequest(t, leadMarks+leadSeesCannotDo)
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
 	waitForPolls(t, fake)
-	pollReached, releasePoll := fake.HoldPullRequest(shop, 42)
-	<-pollReached
 	toolReached, releaseTool := fake.HoldPullRequest(shop, 42)
 
 	sendChat(t, server, leadChat, "Mark review on #41")
@@ -373,5 +371,4 @@ func TestMarkOwnerActionRefusesAReviewOfADispatchedTaskWhosePullRequestIsClosed(
 	if rows := ownerActionRows(t, server); len(rows) != 0 {
 		t.Errorf("rows = %+v", rows)
 	}
-	releasePoll()
 }
