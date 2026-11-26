@@ -9,6 +9,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -446,9 +447,13 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return e.queries.FailRunningPendingActions(ctx, interruptedActionError)
 }
 
-// Run polls each poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each
-// Worker, each chat and each Triager, and waits for their ends.
+// Run tells each Lead and the Coordinator the calls that the drain before the start refused. Then it polls each
+// poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each Worker, each chat
+// and each Triager, and waits for their ends.
 func (e *Engine) Run(ctx context.Context) {
+	if err := e.giveDrainRefusals(ctx, true); err != nil {
+		log.Printf("tell the agents the calls that the drain refused: %v", err)
+	}
 	var wg sync.WaitGroup
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, nil, e.keepHouse) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkAccess) })
