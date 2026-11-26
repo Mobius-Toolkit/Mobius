@@ -53,6 +53,23 @@ func (e *Engine) loseNetwork(ctx context.Context) error {
 	return nil
 }
 
+// lostNetwork tells if err is the loss of the network, and then starts the network pause. A network error that leaves
+// GitHub reachable is an error of the Harness, for example a local proxy that is down: it gives false. A pause that
+// holds gives true with no call.
+func (e *Engine) lostNetwork(ctx context.Context, err error) (bool, error) {
+	if !networkError(err) {
+		return false, nil
+	}
+	lostAt, readErr := e.NetworkLostAt(ctx)
+	if readErr != nil || lostAt != nil {
+		return lostAt != nil, readErr
+	}
+	if reachErr := e.github.Reach(ctx); reachErr == nil || !networkError(reachErr) {
+		return false, nil
+	}
+	return true, e.loseNetwork(ctx)
+}
+
 // checkNetwork ends the network pause when GitHub answers. Each answer of GitHub counts, also an error status.
 func (e *Engine) checkNetwork(ctx context.Context) {
 	lostAt, err := e.NetworkLostAt(ctx)

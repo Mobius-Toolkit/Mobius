@@ -3,6 +3,8 @@ package engine_test
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,10 +39,21 @@ func apiNetwork(t *testing.T, server *testserver.Server) string {
 func TestAWorkerThatFailsWithANetworkErrorWaitsForTheNetworkAndKeepsItsRestarts(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	fake.SetNetworkDown(true)
-	server, dataDir := connectTask(t, fake, leadStarts, dnsFailure, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	gate := filepath.Join(t.TempDir(), "gate")
+	// The turn waits for the gate, so the test breaks the network check before the error comes.
+	holdThenFail := "[[prompts]]\nshell = \"while [ ! -e '" + gate + "' ]; do sleep 0.05; done\"\nerror = { code = -32603, message = \"getaddrinfo ENOTFOUND api.github.com\" }\n"
+	server, dataDir := connectTask(t, fake, leadStarts, holdThenFail, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fail := func(sessions int) {
+		t.Helper()
+		testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ImplementerRole)) >= sessions })
+		fake.SetNetworkDown(true)
+		if err := os.WriteFile(gate, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	fail(1)
 
 	lostAt := testkit.WaitForValue(t, func() (string, bool) {
 		text := apiNetwork(t, server)
@@ -60,10 +73,15 @@ func TestAWorkerThatFailsWithANetworkErrorWaitsForTheNetworkAndKeepsItsRestarts(
 		t.Errorf("task = %+v", task)
 	}
 
+	// A second failure after the end of the pause: more failures than max_worker_restarts.
+	if err := os.Remove(gate); err != nil {
+		t.Fatal(err)
+	}
 	fake.SetNetworkDown(false)
+	testkit.WaitFor(t, func() bool { return apiNetwork(t, server) == "" })
+	fail(2)
 
-	// The Harness fails again after each end of the pause: more failures than max_worker_restarts.
-	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ImplementerRole)) >= 3 })
+	testkit.WaitFor(t, func() bool { return apiNetwork(t, server) != "" })
 	if task := liveTask(t, server, 41); task.State == "needs_human" || task.WorkerRestarts != 0 {
 		t.Errorf("task = %+v", task)
 	}
@@ -72,9 +90,47 @@ func TestAWorkerThatFailsWithANetworkErrorWaitsForTheNetworkAndKeepsItsRestarts(
 	}
 
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+"[[prompts]]\nshell = \""+commitShell+"\"\n")
+	fake.SetNetworkDown(false)
 
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 	testkit.WaitFor(t, func() bool { return apiNetwork(t, server) == "" })
+}
+
+func TestAWorkerThatFailsWithANetworkErrorWhileGitHubAnswersStillCountsARestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nerror = { code = -32603, message = \"connect ECONNREFUSED 127.0.0.1:9\" }\n", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	if task := liveTask(t, server, 41); task.WorkerRestarts != 1 {
+		t.Errorf("task = %+v", task)
+	}
+	if got := apiNetwork(t, server); got != "" {
+		t.Errorf("lostAt = %q", got)
+	}
+}
+
+func TestALeadTurnThatFailsWithANetworkErrorWhileGitHubAnswersCountsACrash(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nerror = { code = -32603, message = \"fetch failed: ENOTFOUND api.anthropic.com\" }\n", keepSessionOpen)
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	testkit.WaitFor(t, func() bool {
+		failed := 0
+		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			if session.EndReason.String == "failed" {
+				failed++
+			}
+		}
+		return failed >= 4
+	})
+	if got := apiNetwork(t, server); got != "" {
+		t.Errorf("lostAt = %q", got)
+	}
 }
 
 func TestAWorkerThatFailsWithAnotherErrorStillCountsARestart(t *testing.T) {
