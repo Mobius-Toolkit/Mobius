@@ -291,7 +291,9 @@ var ErrNoInboxIssue = errors.New("the Inbox item has no issue")
 // AnswerInboxItem posts text as a comment on the issue of the Inbox item id, with the user token of the Owner, and
 // gives the GitHub URL of the comment. For a question of the Coordinator, it adds text to the Coordinator chat as a
 // message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in $.github.answers
-// of the item, so the poll treats the comment as a comment of a trusted user. It returns a refusal when the Owner did not authorize the Mobius App.
+// of the item, so the poll treats the comment as a comment of a trusted user. For a question of an issue, it also acts
+// on the comment at once (actOnAnswer). It returns a refusal when the Owner did not authorize the Mobius App, and when
+// the question item is closed.
 func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (string, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -316,6 +318,14 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	if item.Issue == 0 {
 		return "", ErrNoInboxIssue
 	}
+	e.ownerAnswerMu.Lock()
+	defer e.ownerAnswerMu.Unlock()
+	if item, err = e.queries.GetInboxItem(ctx, id); err != nil {
+		return "", err
+	}
+	if item.Kind == questionKind && item.DismissedAt.Valid {
+		return "", refuse("This question is already answered or closed.")
+	}
 	repository, err := e.repository(item.Repository)
 	if err != nil {
 		return "", err
@@ -325,8 +335,6 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 		// The text tells the Owner how to authorize the Mobius App.
 		return "", refusal(err.Error())
 	}
-	e.ownerAnswerMu.Lock()
-	defer e.ownerAnswerMu.Unlock()
 	ctx = context.WithoutCancel(ctx)
 	comment, err := asOwner.AddComment(ctx, item.Issue, text)
 	if err != nil {
@@ -336,7 +344,28 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 		return "", err
 	}
 	e.addInboxOwnerMessage(ctx, item, text)
+	if item.Kind == questionKind {
+		if err := e.actOnAnswer(ctx, repository, item, comment); err != nil {
+			return "", err
+		}
+	}
 	return comment.GetHTMLURL(), nil
+}
+
+// actOnAnswer does for the answer comment of a question item what the poll does when it reads the comment: the Lead
+// gets its event, a task in asked continues, and the question items of the issue close. The poll then skips the comment
+// (IsClosedQuestionAnswerComment). The caller holds ownerAnswerMu.
+func (e *Engine) actOnAnswer(ctx context.Context, repository github.Repository, item store.InboxItem, comment *gh.IssueComment) error {
+	issue, err := repository.Issue(ctx, item.Issue)
+	if err != nil {
+		return err
+	}
+	if issue != nil {
+		if err := e.commentEvents(ctx, repository, issue, []*gh.IssueComment{comment}); err != nil {
+			return err
+		}
+	}
+	return e.closeQuestionItems(ctx, item.Repository, item.Issue)
 }
 
 // mergingPullRequests gives the numbers of the pull requests of the ready for review Inbox items of repository in the

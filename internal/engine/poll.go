@@ -283,6 +283,9 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		var conversationCursor, reviewCursor store.SetSyncCursorParams
 		e.ownerAnswerMu.Lock()
 		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
+		if err == nil {
+			err = e.dropClosedAnswers(ctx, repository, conversation)
+		}
 		e.ownerAnswerMu.Unlock()
 		if err != nil {
 			return err

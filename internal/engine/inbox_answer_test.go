@@ -82,7 +82,9 @@ func TestAnAnswerFromTheInboxRemovesTheQuestionLabelAndGivesTheLeadTheCommentEve
 	}
 }
 
-func TestTwoAnswersFromTheInboxToTheSameItemKeepBothCommentIdsAndGiveTheLeadBothComments(t *testing.T) {
+const answerEvents = "SELECT count(*) FROM lead_events WHERE kind = 'dispatch' AND payload LIKE '%answer of #41%'"
+
+func TestAnAnswerFromTheInboxClosesTheQuestionItemAndGivesTheLeadOneEventInTheRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -91,16 +93,69 @@ func TestTwoAnswersFromTheInboxToTheSameItemKeepBothCommentIdsAndGiveTheLeadBoth
 	item := waitForItem(t, server, "question")
 
 	answer(t, server, item.ID, "Cents.")
-	answer(t, server, item.ID, "Dollars.")
 
-	ids := fake.CommentIDs(shop, 41)
-	if got := answerCommentIDs(t, server); len(ids) != 3 || !slices.Equal(got, ids[1:]) {
-		t.Errorf("answer ids = %v, comment ids = %v", got, ids)
+	assertDismissed(t, server, item.ID)
+	if got := countRows(t, server, answerEvents+" AND payload LIKE '%> Cents.%'"); got != 1 {
+		t.Errorf("Lead events with the answer = %d", got)
 	}
-	for _, reply := range []string{"> Cents.", "> Dollars."} {
-		testkit.WaitFor(t, func() bool {
-			return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, reply) })
-		})
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := countRows(t, server, answerEvents); got != 1 {
+		t.Errorf("Lead events with the answer after the polls = %d", got)
+	}
+}
+
+func TestADispatchedTaskThatWaitsForTheAnswerFromTheInboxContinuesOneTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+
+	answer(t, server, item.ID, "Cents.")
+
+	if state := taskState(t, server); state != "dispatched" {
+		t.Errorf("state = %s", state)
+	}
+	waitForLeadPrompt(t, server, " answer of #41 ")
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := countRows(t, server, answerEvents); got != 1 {
+		t.Errorf("Lead events with the answer = %d", got)
+	}
+	prompts := 0
+	for _, prompt := range leadPrompts(t, server) {
+		prompts += strings.Count(prompt, " answer of #41 ")
+	}
+	if prompts != 1 {
+		t.Errorf("prompts with the answer = %d", prompts)
+	}
+}
+
+func TestASecondAnswerFromTheInboxToTheSameItemIsRefusedWithNoCommentAndNoLeadEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+	answer(t, server, item.ID, "Cents.")
+	comments := len(fake.Comments(shop, 41))
+
+	status, response := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/answer", `{"text": "Dollars."}`)
+
+	if status != http.StatusConflict || !strings.Contains(response, "already answered or closed") {
+		t.Errorf("status = %d: %s", status, response)
+	}
+	if got := len(fake.Comments(shop, 41)); got != comments {
+		t.Errorf("comments = %d, want %d", got, comments)
+	}
+	if got := countRows(t, server, answerEvents); got != 1 {
+		t.Errorf("Lead events with the answer = %d", got)
+	}
+	if got := answerCommentIDs(t, server); len(got) != 1 {
+		t.Errorf("answer ids = %v", got)
 	}
 }
 

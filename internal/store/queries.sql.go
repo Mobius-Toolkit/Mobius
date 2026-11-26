@@ -6064,6 +6064,28 @@ func (q *Queries) IsCIFixIssue(ctx context.Context, arg IsCIFixIssueParams) (boo
 	return exists, err
 }
 
+const isClosedQuestionAnswerComment = `-- name: IsClosedQuestionAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = CAST(?2 AS INTEGER)
+        AND inbox_items.kind = 'question' AND inbox_items.dismissed_at IS NOT NULL
+        AND answer.value = CAST(?3 AS INTEGER)
+)
+`
+
+type IsClosedQuestionAnswerCommentParams struct {
+	Repository string
+	Issue      int64
+	Comment    int64
+}
+
+func (q *Queries) IsClosedQuestionAnswerComment(ctx context.Context, arg IsClosedQuestionAnswerCommentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isClosedQuestionAnswerComment, arg.Repository, arg.Issue, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isCommentAnswered = `-- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?)
 `
