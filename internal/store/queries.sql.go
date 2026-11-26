@@ -6064,28 +6064,6 @@ func (q *Queries) IsCIFixIssue(ctx context.Context, arg IsCIFixIssueParams) (boo
 	return exists, err
 }
 
-const isClosedQuestionAnswerComment = `-- name: IsClosedQuestionAnswerComment :one
-SELECT EXISTS (
-    SELECT 1 FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = CAST(?2 AS INTEGER)
-        AND inbox_items.kind = 'question' AND inbox_items.dismissed_at IS NOT NULL
-        AND answer.value = CAST(?3 AS INTEGER)
-)
-`
-
-type IsClosedQuestionAnswerCommentParams struct {
-	Repository string
-	Issue      int64
-	Comment    int64
-}
-
-func (q *Queries) IsClosedQuestionAnswerComment(ctx context.Context, arg IsClosedQuestionAnswerCommentParams) (bool, error) {
-	row := q.db.QueryRowContext(ctx, isClosedQuestionAnswerComment, arg.Repository, arg.Issue, arg.Comment)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const isCommentAnswered = `-- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?)
 `
@@ -6098,6 +6076,27 @@ type IsCommentAnsweredParams struct {
 
 func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isHandledAnswerComment = `-- name: IsHandledAnswerComment :one
+SELECT EXISTS (
+    SELECT 1 FROM inbox_items
+    WHERE repository = ?1 AND issue = CAST(?2 AS INTEGER)
+        AND json_extract(metadata, '$.github.handledAnswer') = CAST(?3 AS INTEGER)
+)
+`
+
+type IsHandledAnswerCommentParams struct {
+	Repository string
+	Issue      int64
+	Comment    int64
+}
+
+func (q *Queries) IsHandledAnswerComment(ctx context.Context, arg IsHandledAnswerCommentParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isHandledAnswerComment, arg.Repository, arg.Issue, arg.Comment)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -11939,6 +11938,20 @@ func (q *Queries) ListWorkstreamsWithReadyLeadEvents(ctx context.Context, reposi
 		return nil, err
 	}
 	return items, nil
+}
+
+const markAnswerHandled = `-- name: MarkAnswerHandled :exec
+UPDATE inbox_items SET metadata = json_patch(metadata, json_object('github', json_object('handledAnswer', CAST(?1 AS INTEGER)))) WHERE id = ?2
+`
+
+type MarkAnswerHandledParams struct {
+	Comment int64
+	ID      int64
+}
+
+func (q *Queries) MarkAnswerHandled(ctx context.Context, arg MarkAnswerHandledParams) error {
+	_, err := q.db.ExecContext(ctx, markAnswerHandled, arg.Comment, arg.ID)
+	return err
 }
 
 const markCommentAnswered = `-- name: MarkCommentAnswered :exec

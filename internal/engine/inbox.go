@@ -353,8 +353,9 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 }
 
 // actOnAnswer does for the answer comment of a question item what the poll does when it reads the comment: the Lead
-// gets its event, a task in asked continues, and the question items of the issue close. The poll then skips the comment
-// (IsClosedQuestionAnswerComment). The caller holds ownerAnswerMu.
+// gets its event, a task in asked continues, and the question items of the issue close. The poll skips the comment only
+// after all of this succeeds (MarkAnswerHandled), so a failed step leaves the comment to the poll. The caller holds
+// ownerAnswerMu.
 func (e *Engine) actOnAnswer(ctx context.Context, repository github.Repository, item store.InboxItem, comment *gh.IssueComment) error {
 	issue, err := repository.Issue(ctx, item.Issue)
 	if err != nil {
@@ -365,7 +366,10 @@ func (e *Engine) actOnAnswer(ctx context.Context, repository github.Repository, 
 			return err
 		}
 	}
-	return e.closeQuestionItems(ctx, item.Repository, item.Issue)
+	if err := e.closeQuestionItems(ctx, item.Repository, item.Issue); err != nil {
+		return err
+	}
+	return e.queries.MarkAnswerHandled(ctx, store.MarkAnswerHandledParams{Comment: comment.GetID(), ID: item.ID})
 }
 
 // mergingPullRequests gives the numbers of the pull requests of the ready for review Inbox items of repository in the

@@ -284,7 +284,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		e.ownerAnswerMu.Lock()
 		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
 		if err == nil {
-			err = e.dropClosedAnswers(ctx, repository, conversation)
+			err = e.dropHandledAnswers(ctx, repository, conversation)
 		}
 		e.ownerAnswerMu.Unlock()
 		if err != nil {

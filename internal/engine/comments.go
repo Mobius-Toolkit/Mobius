@@ -71,17 +71,16 @@ func newComments[C listedComment](ctx context.Context, queries *store.Queries, r
 	return byNumber, next, nil
 }
 
-// dropClosedAnswers removes from byNumber each answer comment of a closed question item. AnswerInboxItem already acted
-// on such a comment.
-func (e *Engine) dropClosedAnswers(ctx context.Context, repository github.Repository, byNumber map[int64][]*gh.IssueComment) error {
+// dropHandledAnswers removes from byNumber each answer comment that AnswerInboxItem marked as handled (MarkAnswerHandled).
+func (e *Engine) dropHandledAnswers(ctx context.Context, repository github.Repository, byNumber map[int64][]*gh.IssueComment) error {
 	for number, comments := range byNumber {
 		var kept []*gh.IssueComment
 		for _, comment := range comments {
-			closed, err := e.queries.IsClosedQuestionAnswerComment(ctx, store.IsClosedQuestionAnswerCommentParams{Repository: repository.FullName, Issue: number, Comment: comment.GetID()})
+			handled, err := e.queries.IsHandledAnswerComment(ctx, store.IsHandledAnswerCommentParams{Repository: repository.FullName, Issue: number, Comment: comment.GetID()})
 			if err != nil {
 				return err
 			}
-			if !closed {
+			if !handled {
 				kept = append(kept, comment)
 			}
 		}

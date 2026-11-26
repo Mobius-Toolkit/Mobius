@@ -196,3 +196,26 @@ func TestAnAnswerFromTheInboxOnTheIssueOfAStoppedTaskContinuesTheTask(t *testing
 		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Continue now.") })
 	})
 }
+
+func TestAnAnswerFromTheInboxThatFailsAfterTheCloseLeavesTheCommentToThePoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+	fake.FailReactions("eyes", true)
+
+	body := `{"text": "Cents."}`
+	if status, _ := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/answer", body); status == http.StatusOK {
+		t.Fatalf("status = %d", status)
+	}
+	fake.FailReactions("eyes", false)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if got := countRows(t, server, answerEvents); got != 1 {
+		t.Errorf("Lead events with the answer = %d", got)
+	}
+}

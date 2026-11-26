@@ -1848,12 +1848,14 @@ SELECT EXISTS (
         AND answer.value = CAST(sqlc.arg(comment) AS INTEGER)
 );
 
--- name: IsClosedQuestionAnswerComment :one
+-- name: MarkAnswerHandled :exec
+UPDATE inbox_items SET metadata = json_patch(metadata, json_object('github', json_object('handledAnswer', CAST(sqlc.arg(comment) AS INTEGER)))) WHERE id = sqlc.arg(id);
+
+-- name: IsHandledAnswerComment :one
 SELECT EXISTS (
-    SELECT 1 FROM inbox_items, json_each(inbox_items.metadata, '$.github.answers') AS answer
-    WHERE inbox_items.repository = sqlc.arg(repository) AND inbox_items.issue = CAST(sqlc.arg(issue) AS INTEGER)
-        AND inbox_items.kind = 'question' AND inbox_items.dismissed_at IS NOT NULL
-        AND answer.value = CAST(sqlc.arg(comment) AS INTEGER)
+    SELECT 1 FROM inbox_items
+    WHERE repository = sqlc.arg(repository) AND issue = CAST(sqlc.arg(issue) AS INTEGER)
+        AND json_extract(metadata, '$.github.handledAnswer') = CAST(sqlc.arg(comment) AS INTEGER)
 );
 
 -- name: SetTaskBreakWaitHead :exec
