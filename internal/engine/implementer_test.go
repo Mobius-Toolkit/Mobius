@@ -68,9 +68,46 @@ func connectTaskIn(t *testing.T, fake *testkit.FakeGitHub, dataDir, lead, implem
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
+	t.Cleanup(func() {
+		if t.Failed() {
+			logTaskRows(t, server)
+		}
+	})
 	server.WaitForFirstPoll(t, shop)
 	testkit.WaitFor(t, server.Engine.AccessChecked)
 	return server, dataDir
+}
+
+// logTaskRows logs the tasks, the sessions, the Lead events, the pauses and the failed access checks of the server. The
+// message of a timeout of testkit.WaitFor names no state.
+func logTaskRows(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	for _, query := range []string{
+		"SELECT 'task ' || id || ' #' || issue || ' ' || state || ' worker=' || coalesce(worker, '') || ' restarts=' || worker_restarts FROM tasks",
+		"SELECT 'session ' || id || ' ' || role || ' ' || coalesce(end_reason, 'live') || ' ' || coalesce(queue_reason, '') FROM sessions",
+		"SELECT 'lead event ' || id || ' ' || kind || ' delivered=' || (delivered_at IS NOT NULL) FROM lead_events",
+		"SELECT 'pause ' || harness || ' until ' || paused_until FROM harness_pauses",
+		"SELECT 'access check ' || title || ': ' || reason FROM inbox_items WHERE kind = 'access check'",
+	} {
+		rows, err := server.DB.Query(query)
+		if err != nil {
+			t.Errorf("%s: %v", query, err)
+			continue
+		}
+		for rows.Next() {
+			var row string
+			if err := rows.Scan(&row); err != nil {
+				t.Error(err)
+			}
+			t.Log(row)
+		}
+		if err := rows.Err(); err != nil {
+			t.Error(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Error(err)
+		}
+	}
 }
 
 func noChange(*config.Config) {}
