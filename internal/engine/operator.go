@@ -36,8 +36,8 @@ func (e *Engine) startOperator(ctx context.Context, c caller, repository github.
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if e.draining() {
-		return "", refuse("Mobius prepares an upgrade, so no Operator starts now.")
+	if err := e.refuseInDrain(ctx, c, "start_operator", "Operator", input); err != nil {
+		return "", err
 	}
 	a, err := e.newAgent(ctx, Spec{
 		Role:         OperatorRole,

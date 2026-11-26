@@ -129,6 +129,16 @@ type DeploymentTodo struct {
 	AfterMerge  int64
 }
 
+type DrainRefusal struct {
+	ID           int64
+	Organization string
+	Repository   string
+	Workstream   int64
+	Tool         string
+	Arguments    string
+	CreatedAt    string
+}
+
 type GithubApp struct {
 	AppID              int64
 	Slug               string

@@ -15,7 +15,7 @@ import (
 const (
 	// leadSees is a Lead that only replies to a dispatch of #41, so the task stays dispatched.
 	leadSees     = "[[prompts]]\nwhen = \"dispatch of #41\"\nreply = [\"Seen\"]\n\n"
-	loginRefusal = "error: The task of #41 has no open action that the Lead marked."
+	loginRefusal = "error: The task of #41 has no open action of the Owner."
 )
 
 // leadMarks is a Lead that marks the action loginAction on #41 for each next step, clears it, and asks a question.
@@ -165,17 +165,51 @@ func TestTheLeadClearsItsActionOnATaskInApprovalAndAReviewerReviewsTheHeadAgain(
 	}
 }
 
-func TestClearOwnerActionRefusesATaskWhoseOpenActionIsOfTheReviewer(t *testing.T) {
+func TestTheLeadClearsAnActionOfTheReviewerAndANewReviewerReviewsTheCurrentHead(t *testing.T) {
 	t.Parallel()
-	server, _, _ := pausedTask(t, findingAndAction+leadMarks)
+	server, fake, item := pausedTask(t, secondAction+findingAndAction+leadMarks)
+	reviewers := len(roleSessions(t, server, engine.ReviewerRole))
+
+	sendChat(t, server, leadChat, "Clear #41")
+
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == reviewers+1 })
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := roleSessions(t, server, engine.ReviewerRole)
+		prompts := promptTexts(t, server, sessions[len(sessions)-1].ID)
+		return strings.Join(prompts, "\n"), len(prompts) > 0
+	})
+	if !strings.Contains(prompt, "Head commit: "+head(t, fake, "mobius/41")) {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool {
+		rows := ownerActionRows(t, server)
+		return len(rows) > 0 && rows[0].Role == engine.ReviewerRole && rows[0].Done
+	})
+	testkit.WaitFor(t, func() bool {
+		return !slices.ContainsFunc(itemsOf(t, server, "owner action"), func(open inboxItem) bool { return open.ID == item.ID })
+	})
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(records(t, server, leadChat), "The Lead cleared the action \""+loginAction+"\" of PR #42.")
+	})
+	if status, body := doneTodo(t, server, item.ID, `{"note":""}`); status != http.StatusConflict {
+		t.Errorf("status = %d: %s", status, body)
+	}
+}
+
+func TestClearOwnerActionRefusesATaskWithNoOpenAction(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadMarks+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 
 	sendChat(t, server, leadChat, "Clear #41")
 
 	waitForChat(t, server, leadChat, "Lead", loginRefusal)
-	if state := taskState(t, server); state != "owner_action" {
+	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
-	if rows := ownerActionRows(t, server); len(rows) != 1 || rows[0].Done {
+	if rows := ownerActionRows(t, server); len(rows) != 0 {
 		t.Errorf("rows = %+v", rows)
 	}
 }

@@ -190,8 +190,8 @@ func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note
 	return e.closeOwnerAction(ctx, item, action, note, record)
 }
 
-// clearOwnerAction starts the next step of the open action that the Lead marked on the task, as a Done of the Owner
-// does.
+// clearOwnerAction starts the next step of the open action of the task, from the Lead or from the Reviewer, as a Done
+// of the Owner does.
 func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -204,11 +204,10 @@ func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository gith
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(actions, func(action store.OwnerAction) bool { return action.Role == LeadRole })
-	if i < 0 || task.State != "owner_action" {
-		return "", refuse("The task of #%d has no open action that the Lead marked.", input.N)
+	if len(actions) == 0 || task.State != "owner_action" {
+		return "", refuse("The task of #%d has no open action of the Owner.", input.N)
 	}
-	action := actions[i]
+	action := actions[0]
 	item, err := e.queries.GetInboxItem(ctx, action.InboxItem)
 	if err != nil {
 		return "", err
