@@ -165,7 +165,7 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL, ghMark, 
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=") || strings.HasPrefix(entry, portURLEnv+"=") || strings.HasPrefix(entry, contextWindowEnv+"=") || strings.HasPrefix(entry, shortCacheEnv+"=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=") || strings.HasPrefix(entry, ghMarkEnv+"=") || strings.HasPrefix(entry, portURLEnv+"=") || strings.HasPrefix(entry, contextWindowEnv+"=") || strings.HasPrefix(entry, shortCacheEnv+"=") || strings.HasPrefix(entry, markEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
@@ -234,9 +234,11 @@ func harnessCommand(ctx context.Context, harness config.Harness, contextLimit in
 	if shortCache && harness == config.ClaudeCode {
 		cmd.Env = append(cmd.Env, shortCacheEnv+"=1")
 	}
-	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
+	// The agent leads its own process group, so the end of ctx also stops the processes of its tools that stay in the
+	// group. The mark finds the other processes at the end of the session.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	addMark(cmd)
 	return cmd, nil
 }
 
@@ -346,6 +348,7 @@ func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, err
 		stop()
 		// The kill ends the agent, so Wait gives an error that tells nothing new.
 		_ = cmd.Wait()
+		_ = stopMarked(markOf(cmd))
 	}()
 	if _, err := acp.SendRequest[acp.InitializeResponse](conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
 		return false, describe(err)
@@ -704,11 +707,12 @@ func (s *Session) Alive() bool {
 	}
 }
 
-// Close ends the agent process.
+// Close ends the agent process and each process that the agent started.
 func (s *Session) Close() {
 	s.stop()
 	// The kill ends the agent, so Wait gives an error that tells nothing new.
 	_ = s.cmd.Wait()
+	_ = stopMarked(markOf(s.cmd))
 }
 
 // handler gives the params of each session/update notification to updates, the account of each account notification to

@@ -231,13 +231,13 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	if task.State == "working" || task.State == "reviewed" {
+	if task.State == "queued" || task.State == "working" || task.State == "reviewed" {
 		stored, err := e.queries.KeepLeadFindings(ctx, store.KeepLeadFindingsParams{Findings: input.Findings + "\n", ID: task.ID})
 		if err != nil {
 			return "", err
 		}
 		if stored == 0 {
-			return "", refuse("The task of #%d is not working or reviewed any more.", input.N)
+			return "", refuse("The task of #%d is not queued, working or reviewed any more.", input.N)
 		}
 		return fmt.Sprintf("Kept the findings on #%d. The next fix round gets them.", input.N), nil
 	}
@@ -254,7 +254,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 		return "", err
 	}
 	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
-		return "", refuse("The task of #%d is %s, not working, reviewed, checks, approval or ready_for_review.", input.N, task.State)
+		return "", refuse("The task of #%d is %s, not queued, working, reviewed, checks, approval or ready_for_review.", input.N, task.State)
 	}
 	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}, cause: leadCause}
 	moved, err := e.startRound(ctx, repository, r)
@@ -282,7 +282,7 @@ func (e *Engine) startRound(ctx context.Context, repository github.Repository, r
 }
 
 // startKeptRound starts a fix round with the findings that the Lead kept on the task of the round, when it has some. The
-// task is in r.task.State now. The Lead keeps findings only in working and reviewed, so Mobius reads them after the task
+// task is in r.task.State now. The Lead keeps findings only in queued, working and reviewed, so Mobius reads them after the task
 // left that state. It tells if a round started. The poll calls it again for a task in checks, approval or
 // ready_for_review with kept findings, so a failed start gets a retry.
 func (e *Engine) startKeptRound(ctx context.Context, repository github.Repository, r round) (bool, error) {

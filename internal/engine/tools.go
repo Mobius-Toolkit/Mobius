@@ -87,7 +87,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.startImplementerTool),
 			taskTool(e, c, "start_fix_round",
-				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. For a task in working or reviewed, Mobius keeps your findings, and the next fix round gets them with its other items. The round counts toward max_fix_rounds. Returns at once.",
+				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. For a task in queued, working or reviewed, Mobius keeps your findings, and the next fix round gets them with its other items. A round that is queued now does not get them. The round counts toward max_fix_rounds. Returns at once.",
 				map[string]any{
 					"repository": repositoryProperty,
 					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},

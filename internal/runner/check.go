@@ -68,6 +68,7 @@ func runScript(ctx context.Context, name, dataDir, worktree, path, portURL strin
 	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "", "", portURL)
 	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./"+script+" 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	addMark(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", false, err
@@ -97,9 +98,10 @@ func runScript(ctx context.Context, name, dataDir, worktree, path, portURL strin
 	case <-timer.C:
 	case <-ctx.Done():
 	}
-	// The script leads its own process group, so the kill also ends each process that it started. Until then, such a
-	// process can hold the pipe open.
+	// The script leads its own process group, so the kill also ends each process that it started in that group. The
+	// mark finds the other processes. Until then, such a process can hold the pipe open.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	_ = stopMarked(markOf(cmd))
 	if state == nil {
 		<-exited
 	}
