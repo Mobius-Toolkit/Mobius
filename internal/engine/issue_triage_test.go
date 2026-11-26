@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"database/sql"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -21,6 +23,17 @@ func triageRowOf(t *testing.T, server *testserver.Server, number int64) (issueRo
 		}
 	}
 	return issueRow{}, false
+}
+
+// triageState gives the row, the labels, the unsent outgoing changes and the incoming changes of the issue number, for
+// the failure message of a wait.
+func triageState(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int64) string {
+	t.Helper()
+	scan := func(rows *sql.Rows, line *string) error { return rows.Scan(line) }
+	row, _ := triageRowOf(t, server, number)
+	outgoing := query(t, server, scan, `SELECT printf('%d #%s %s %s', id, coalesce(number, ''), field, status) FROM outgoing_changes WHERE status != 'sent'`)
+	incoming := query(t, server, scan, `SELECT printf('%d %s %s by %s %s', id, field, change, actor, status) FROM incoming_changes WHERE number = ?`, number)
+	return fmt.Sprintf("row = %+v\nlabels = %q\nunsent outgoing changes = %q\nincoming changes = %q", row, fake.Labels(shop, number), outgoing, incoming)
 }
 
 func TestATrustedUserAddsAndRemovesMobiusTriageAndTheTriageStateFollows(t *testing.T) {
@@ -152,6 +165,60 @@ func TestAcceptIssueClearsTheTriageStateAndRemovesTheLabelAndRefusesAnIssueWithN
 	})
 	if _, found := triageRowOf(t, server, 32); found {
 		t.Error("the refused call added a row for #32")
+	}
+}
+
+func TestAnAcceptedIssueStaysAcceptedWhenTheCopyOfTheTreeAddsItsRowBeforeThePollReadsTheLabelEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 30, "Add plan price")
+	fake.AddIssue(shop, 31, "Rename plans")
+	server, _ := connect(t, fake, call("accept_issue", `{ repository = "owner/shop", n = 30 }`))
+	var release func()
+	// The page of the next poll has no label on #30, and its copy of the tree reads #30 with the label.
+	fake.AfterNextIssueListRead(shop, func() {
+		release = fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+		fake.AddLabel(shop, 30, "mobius:triage", "owner")
+		fake.AddSubIssue(shop, 12, 30)
+		fake.AddSubIssue(shop, 12, 31)
+	})
+	testkit.WaitFor(t, func() bool {
+		first, found := triageRowOf(t, server, 30)
+		_, second := triageRowOf(t, server, 31)
+		return found && first.Triage && second
+	})
+
+	session := run(t, server, leadSpec(t), "1. ")
+	if got := reply(t, server, session); got != "Accepted owner/shop#30." {
+		t.Errorf("reply = %q", got)
+	}
+	release()
+	waitForPolls(t, fake)
+
+	row, _ := triageRowOf(t, server, 30)
+	if row.Triage || slices.Contains(fake.Labels(shop, 30), "mobius:triage") {
+		t.Error(triageState(t, server, fake, 30))
+	}
+}
+
+func TestARemovalOfMobiusTriageByATrustedUserAndThenAnAddByAnUntrustedUserInOnePollEndWithNoTriageState(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.AddLabel(shop, 41, "mobius:triage", "owner")
+	testkit.WaitFor(t, func() bool { return issueRowOf(t, server, shop, 41).Triage && doneChangesOfPersons(t, server) == 1 })
+	// The next poll reads both events together.
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.RemoveLabel(shop, 41, "mobius:triage", "owner")
+		fake.AddLabel(shop, 41, "mobius:triage", "mallory")
+	})
+
+	testkit.WaitFor(t, func() bool { return doneChangesOfPersons(t, server) == 3 })
+	waitForPolls(t, fake)
+
+	if issueRowOf(t, server, shop, 41).Triage || slices.Contains(fake.Labels(shop, 41), "mobius:triage") {
+		t.Error(triageState(t, server, fake, 41))
 	}
 }
 

@@ -5801,6 +5801,35 @@ func (q *Queries) HasIncomingChange(ctx context.Context, externalID string) (boo
 	return exists, err
 }
 
+const hasLaterTriageChangeOfActor = `-- name: HasLaterTriageChangeOfActor :one
+SELECT EXISTS (
+    SELECT 1 FROM incoming_changes
+    WHERE integration = 'github' AND repository = ?1 AND number = CAST(?2 AS INTEGER)
+      AND field = 'triage' AND actor = ?3 COLLATE NOCASE
+      AND CAST(external_id AS INTEGER) > CAST(?4 AS INTEGER)
+)
+`
+
+type HasLaterTriageChangeOfActorParams struct {
+	Repository string
+	Number     int64
+	Actor      string
+	After      int64
+}
+
+// The external id of a triage change is the id of its event, and a later event has a higher id.
+func (q *Queries) HasLaterTriageChangeOfActor(ctx context.Context, arg HasLaterTriageChangeOfActorParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasLaterTriageChangeOfActor,
+		arg.Repository,
+		arg.Number,
+		arg.Actor,
+		arg.After,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasLeadEvent = `-- name: HasLeadEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events
