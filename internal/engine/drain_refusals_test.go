@@ -10,14 +10,17 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-const drainEndedHeading = "The drain of an upgrade ended. Mobius refused the calls in this JSON during the drain.\n\n"
+const (
+	drainEndedRestarted = "The drain of an upgrade ended. Mobius restarted. Mobius refused the calls in the JSON below during the drain. Call each tool again when the work still needs it.\n\n"
+	drainEndedCancelled = "The drain of an upgrade ended. The upgrade did not happen. Mobius refused the calls in the JSON below during the drain. Call each tool again when the work still needs it.\n\n"
+)
 
 // drainEndedAnswer answers the text of a drain_ended event and of the Mobius message. The Role prompt names the first
 // sentence of that text, so the entry names its second sentence. The newest prompt comes first, because the first
 // prompt of a new session also has the history of the chat.
 const drainEndedAnswer = `
 [[prompts]]
-when = "Mobius refused the calls in this JSON"
+when = "Mobius refused the calls in the JSON below"
 reply = ["I call the tool again."]
 `
 
@@ -48,7 +51,7 @@ func TestALeadGetsOneDrainEndedEventWithItsRefusedOperatorCallAfterTheRestart(t 
 
 	restarted := testserver.Start(t, dataDir, fake.URL)
 
-	want := drainEndedHeading + `{"restarted":true,"release":"","calls":[{"tool":"start_operator","arguments":{"text":"Update the listings."}}]}`
+	want := drainEndedRestarted + `{"restarted":true,"release":"","calls":[{"tool":"start_operator","arguments":{"text":"Update the listings."}}]}`
 	testkit.WaitFor(t, func() bool {
 		events := drainEndedEvents(t, restarted)
 		return len(events) == 1 && events[0].Delivered
@@ -84,7 +87,7 @@ func TestTheCoordinatorGetsOneMessageWithItsRefusedResearcherCallAfterACancelOfT
 
 	cancelDrain(t, server)
 
-	want := drainEndedHeading + `{"restarted":false,"release":"","calls":[{"tool":"start_researcher","arguments":{"repository":"owner/shop","question":"Where do plans store the price?"}}]}`
+	want := drainEndedCancelled + `{"restarted":false,"release":"","calls":[{"tool":"start_researcher","arguments":{"repository":"owner/shop","question":"Where do plans store the price?"}}]}`
 	waitForChat(t, server, coordinatorChat, "Mobius", want)
 	testkit.WaitFor(t, func() bool {
 		return strings.Contains(strings.Join(coordinatorPrompts(t, server), "\n"), "# Mobius message\n\n"+want)

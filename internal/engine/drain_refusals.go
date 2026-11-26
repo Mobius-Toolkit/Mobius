@@ -12,9 +12,22 @@ import (
 // drainEndedKind is the kind of the Lead event that lists the calls that the drain refused.
 const drainEndedKind = "drain_ended"
 
-// drainEndedHeading starts the text of the Lead event and of the Coordinator message. The JSON of drainEnded follows
-// it.
-const drainEndedHeading = "The drain of an upgrade ended. Mobius refused the calls in this JSON during the drain.\n\n"
+// drainEndedHeading is the first sentence of the text of the Lead event and of the Coordinator message. The prompts
+// name it.
+const drainEndedHeading = "The drain of an upgrade ended."
+
+// drainEndedText gives the text of the Lead event and of the Coordinator message. The JSON of drainEnded follows
+// its sentences.
+func drainEndedText(restarted bool, release string, encoded []byte) string {
+	ending := "The upgrade did not happen."
+	switch {
+	case restarted && release != "":
+		ending = "Mobius restarted with the release " + release + "."
+	case restarted:
+		ending = "Mobius restarted."
+	}
+	return drainEndedHeading + " " + ending + " Mobius refused the calls in the JSON below during the drain. Call each tool again when the work still needs it.\n\n" + string(encoded)
+}
 
 type drainCall struct {
 	Tool      string          `json:"tool"`
@@ -85,7 +98,7 @@ func (e *Engine) giveDrainRefusals(ctx context.Context, restarted bool) error {
 		if err != nil {
 			return err
 		}
-		text := drainEndedHeading + string(encoded)
+		text := drainEndedText(restarted, Release, encoded)
 		remove := func(q *store.Queries) error {
 			return q.DeleteDrainRefusals(ctx, store.DeleteDrainRefusalsParams{Organization: key.organization, Repository: key.repository, Workstream: key.workstream, ID: last[key]})
 		}
