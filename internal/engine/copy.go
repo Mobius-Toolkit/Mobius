@@ -110,11 +110,15 @@ func issueKind(labels []string) string {
 
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
-// When the database already holds tree issues for repository, it reads and writes nothing, because the incoming changes
-// keep the copy current.
+// When the database already holds tree issues for repository, the first call after the start reads and writes nothing,
+// because the incoming changes keep the copy current. A later call repairs a failed update of the copy: it refreshes
+// only the author and GitHub metadata of the tree issues, and keeps the title, body, state, kind, parent, Workstream
+// and blockers of each existing row unchanged.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
+	restarted := !e.syncedCopies[repository.FullName]
+	e.syncedCopies[repository.FullName] = true
 	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	firstPoll := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !firstPoll {
@@ -162,7 +166,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	if err != nil {
 		return err
 	}
-	if hasTree {
+	if hasTree && restarted {
 		return nil
 	}
 	numbers, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
@@ -175,6 +179,16 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		if err != nil {
 			return err
 		}
+	}
+	if hasTree {
+		err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
+			return refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees)
+		})
+		if err != nil {
+			return err
+		}
+		e.publish(Change{Workstreams: true})
+		return nil
 	}
 	err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
 		if err := detachTrees(ctx, q, repository.FullName); err != nil {
@@ -191,6 +205,40 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	return nil
+}
+
+func refreshCopiedTrees(ctx context.Context, q *store.Queries, repository string, numbers []int64, trees []copiedTree) error {
+	for i, number := range numbers {
+		wsID, err := q.GetWorkstreamID(ctx, store.GetWorkstreamIDParams{Repository: repository, Number: number})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, copied := range trees[i].issues {
+			issue := copied.issue
+			labels := labelNames(issue)
+			slices.Sort(labels)
+			labelsText, err := json.Marshal(labels)
+			if err != nil {
+				return err
+			}
+			if err := q.RefreshCopiedTreeIssue(ctx, store.RefreshCopiedTreeIssueParams{
+				Author:     issue.GetUser().GetLogin(),
+				GithubID:   issue.GetID(),
+				Labels:     string(labelsText),
+				Repository: copied.repository,
+				Number:     int64(issue.GetNumber()),
+			}); err != nil {
+				return err
+			}
+		}
+		if err := setCopiedTreeData(ctx, q, wsID, trees[i]); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

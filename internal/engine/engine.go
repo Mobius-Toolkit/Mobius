@@ -73,6 +73,9 @@ type Engine struct {
 	sealedApprovals map[ChatKey][]item
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
+	// syncedCopies holds the full names of the repositories for which syncCopy ran since the start. The holder of
+	// copyWrite uses it.
+	syncedCopies map[string]bool
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and the writes of single issues
 	// of the copy take turns.
 	copyWrite sync.Mutex
@@ -286,6 +289,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		handedChats:        map[ChatKey]bool{},
 		sealedApprovals:    map[ChatKey][]item{},
 		copied:             map[string]bool{},
+		syncedCopies:       map[string]bool{},
 		checkedWorkstreams: map[string]string{},
 		labelChanges:       map[string]int{},
 		labelChangedAt:     map[issueRef]int{},

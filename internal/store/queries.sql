@@ -1316,6 +1316,13 @@ SET author = sqlc.arg(author)
 WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER)
   AND issues.author != sqlc.arg(author);
 
+-- name: RefreshCopiedTreeIssue :exec
+UPDATE issues
+SET author = sqlc.arg(author),
+    metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
+        '$.id', CAST(sqlc.arg(github_id) AS INTEGER), '$.labels', json(CAST(sqlc.arg(labels) AS TEXT)))))
+WHERE issues.repository = sqlc.arg(repository) AND issues.number = CAST(sqlc.arg(number) AS INTEGER);
+
 -- name: GetCopiedIssue :one
 SELECT id, state, body, metadata FROM issues WHERE repository = ? AND number = CAST(sqlc.arg(number) AS INTEGER);
 
