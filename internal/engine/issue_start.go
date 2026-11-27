@@ -63,7 +63,6 @@ func (e *Engine) requestStart(ctx context.Context, repository github.Repository,
 	e.copyWrite.Unlock()
 	if err == nil {
 		e.publish(Change{Workstreams: true})
-		e.wakeDispatch()
 	}
 	return err
 }

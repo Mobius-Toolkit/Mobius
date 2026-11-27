@@ -51,18 +51,24 @@ func TestAReadyIssueWithAStoredStartDispatchesAfterARestartWhileTheFirstPollWait
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
 	first := startServer(t, fake, dataDir, "")
 	first.WaitForFirstPoll(t, shop)
+	// The held read of #41 stops the dispatch of the first server, so the Start stays in the database.
+	t.Cleanup(fake.HoldNext("GET /repos/{owner}/{repo}/issues/41"))
+	if err := first.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
+			return request.Status == 0 && strings.HasSuffix(request.Path, "/issues/41")
+		})
+	})
 	first.Stop()
-	seed(t, dataDir, `UPDATE issues SET start_requested_at = '2026-10-04T10:00:00Z', start_requested_by = 'owner' WHERE repository = 'owner/shop' AND number = 41`)
-	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
-	t.Cleanup(release)
+	t.Cleanup(fake.HoldNext("GET /repos/{owner}/{repo}/issues"))
 
 	second := testserver.Start(t, dataDir, fake.URL)
 
 	testkit.WaitFor(t, func() bool { return taskState(t, second) == "dispatched" })
-	if !slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
-		return request.Status == 0 && strings.HasSuffix(request.Path, "/issues")
-	}) {
-		t.Error("the issue list read of the first poll ended before the dispatch")
+	if second.Engine.PollEnded() {
+		t.Error("the first poll ended before the dispatch")
 	}
 }
 

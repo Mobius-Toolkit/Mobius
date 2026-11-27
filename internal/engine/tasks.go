@@ -501,7 +501,11 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	if err != nil {
 		return err
 	}
-	return e.resumeIssue(ctx, repository, number, "ui", "You resumed")
+	if err := e.resumeIssue(ctx, repository, number, "ui", "You resumed"); err != nil {
+		return err
+	}
+	e.wakeDispatch()
+	return nil
 }
 
 // resumeIssue is the handler of the resume of the issue number for the actor: the Owner in the UI, or a trusted user
@@ -647,6 +651,7 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
 		return err
 	}
+	e.wakeDispatch()
 	e.addIssueRecord(ctx, repository, number, "You started")
 	return nil
 }

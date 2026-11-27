@@ -2105,6 +2105,7 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
 		return "", err
 	}
+	e.wakeDispatch()
 	return fmt.Sprintf("Requested a Start of %s#%d.", repository.FullName, input.N), nil
 }
 
@@ -2395,6 +2396,7 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err := e.requestStart(ctx, repository, input.N, "coordinator"); err != nil {
 		return "", err
 	}
+	e.wakeDispatch()
 	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil
 }
 

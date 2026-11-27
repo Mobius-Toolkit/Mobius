@@ -99,11 +99,9 @@ func TestAnIssueWithMobiusReadyAndAnOpenBlockerInTheTableBlockersWaits(t *testin
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 88, "Invoice totals")
-	fake.AddIssue(shop, 41, "Plan API")
-	fake.AddSubIssue(shop, 12, 41)
+	dispatchTask(fake, 41, "Plan API")
 	fake.AddBlockedBy(shop, 41, 88)
 	testkit.WaitFor(t, func() bool { return blockersOf41(t, server, "open") == 1 })
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	dispatchTask(fake, 43, "Price rounding")
 
 	liveTaskOf(t, server, 43)
