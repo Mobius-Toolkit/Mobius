@@ -14,6 +14,7 @@ export type Queued = {
   inboxItems: ChatInboxItem[];
   selections: ChatSelection[];
   voice: boolean;
+  voiceSeconds: number;
   time: string;
 };
 
@@ -71,6 +72,7 @@ export function addCoordinatorMessage(organization: string, text: string) {
     inboxItems: [],
     selections: [],
     voice: false,
+    voiceSeconds: 0,
     time: new Date().toISOString(),
   });
 }
@@ -92,6 +94,7 @@ export async function postQueued(item: Queued, signal: AbortSignal) {
   form.append("workstream", String(item.workstream));
   form.append("text", item.text);
   form.append("voice", String(item.voice));
+  form.append("voiceSeconds", String(item.voiceSeconds));
   for (const image of item.images) {
     form.append("images", image);
   }

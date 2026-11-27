@@ -72,6 +72,7 @@ function createQueuedItem(id: string, text: string): Queued {
     inboxItems: [],
     selections: [],
     voice: false,
+    voiceSeconds: 0,
     time: "2026-11-04T08:00:00Z",
   };
 }
@@ -81,7 +82,7 @@ describe("composer update story tests", () => {
     const image = new File(["x"], "a.png", { type: "image/png" });
     const draft = createDraft("Hello", {
       images: [image],
-      voice: { state: "ready", audio: null, conversion: "", error: "" },
+      voice: { state: "ready", audio: null, conversion: "", error: "", seconds: 0, text: "" },
     });
 
     const result = update(createTestModel(), Message.ReceivedDraft({ draft }));
@@ -113,7 +114,14 @@ describe("composer update story tests", () => {
   it("sends the draft of the chat with the voice mark when the card is ready, and clears the draft", () => {
     const base = createTestModel({
       draftText: "Show the prices.",
-      draftVoice: { state: "ready", audio: null, conversion: "", error: "" },
+      draftVoice: {
+        state: "ready",
+        audio: null,
+        conversion: "",
+        error: "",
+        seconds: 12,
+        text: "Show the prices.",
+      },
       sendError: "Old error.",
     });
 
@@ -137,6 +145,7 @@ describe("composer update story tests", () => {
           inboxItems: [],
           selections: [],
           voice: true,
+          voiceSeconds: 12,
         }),
       ),
       StoryCommand.resolve(
@@ -177,7 +186,7 @@ describe("composer update story tests", () => {
     for (const state of ["converting", "failed"] as const) {
       const base = createTestModel({
         draftText: "Text.",
-        draftVoice: { state, audio: null, conversion: "", error: "" },
+        draftVoice: { state, audio: null, conversion: "", error: "", seconds: 0, text: "" },
       });
       const result = update(base, Message.SendSubmitted());
       expect(result.model).toBe(base);

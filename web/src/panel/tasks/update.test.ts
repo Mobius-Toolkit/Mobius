@@ -924,6 +924,7 @@ describe("the composer of the detail view", () => {
       inboxItems: [],
       selections: [],
       voice: false,
+      voiceSeconds: 0,
       time: "2026-11-14T08:00:00.000Z",
     };
     story(

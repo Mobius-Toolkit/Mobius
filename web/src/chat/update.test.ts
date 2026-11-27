@@ -16,6 +16,7 @@ import {
   ListQueued,
   ResumeStoppedItem,
   PostQueued,
+  readQueued,
   RemoveQueued,
   RemoveVoice,
   ResendVoice,
@@ -73,6 +74,7 @@ function createQueuedItem(id: string, text: string): Queued {
     inboxItems: [],
     selections: [],
     voice: false,
+    voiceSeconds: 0,
     time: "2026-11-04T08:00:00Z",
   };
 }
@@ -98,6 +100,7 @@ function createChatMessage(id: number, text: string, browserId = ""): ChatMessag
     question: null,
     stoppedAt: null,
     voice: false,
+    voiceSeconds: 0,
   };
 }
 
@@ -1572,7 +1575,14 @@ describe("chat update story tests", () => {
       const base = createTestModel({
         activePanel: { type: "answer", item: question },
         answerText: "Ten seats.",
-        answerVoice: { state: "ready", audio: null, conversion: "", error: "" },
+        answerVoice: {
+          state: "ready",
+          audio: null,
+          conversion: "",
+          error: "",
+          seconds: 0,
+          text: "",
+        },
       });
 
       const result = update(base, Message.AnswerSubmitted());
@@ -1595,7 +1605,7 @@ describe("chat update story tests", () => {
         const base = createTestModel({
           activePanel: { type: "answer", item: question },
           answerText: "Ten seats.",
-          answerVoice: { state, audio: null, conversion: "", error: "" },
+          answerVoice: { state, audio: null, conversion: "", error: "", seconds: 0, text: "" },
         });
         const send = update(base, Message.AnswerSubmitted());
         expect(send.model).toBe(base);
@@ -1644,7 +1654,14 @@ describe("chat update story tests", () => {
 
     it("takes the draft of the panel only when the panel of that item is open", () => {
       const draft = createDraft("My note.", {
-        voice: { state: "converting", audio: null, conversion: "c1", error: "" },
+        voice: {
+          state: "converting",
+          audio: null,
+          conversion: "c1",
+          error: "",
+          seconds: 0,
+          text: "",
+        },
       });
       const base = createTestModel({ activePanel: { type: "answer", item: question } });
 
@@ -1982,5 +1999,17 @@ describe("the rows of a missing Workstream", () => {
       Message.ReceivedTrayItems({ items: [createInboxItem({ id: 5 })] }),
     );
     expect(described(other.commands)).toEqual([]);
+  });
+});
+
+describe("the read of a stored outbox item", () => {
+  it("reads an item with no voiceSeconds as 0 and keeps the seconds of another", () => {
+    const { voiceSeconds: _unused, ...older } = createQueuedItem("q1", "Plant roses");
+
+    expect(readQueued(older).voiceSeconds).toBe(0);
+    expect(readQueued({ ...older, voice: true, voiceSeconds: 12 })).toMatchObject({
+      voice: true,
+      voiceSeconds: 12,
+    });
   });
 });

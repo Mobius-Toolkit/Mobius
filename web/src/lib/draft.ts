@@ -8,12 +8,20 @@ export type DraftInboxItem = ChatInboxItem & { id: number | string };
 export type DraftSelection = ChatSelection & { id: string };
 
 // The audio stays in the draft until the server gives the text. conversion is the id of the server conversion, or ""
-// before the upload ends. error has the text of the failure in the state failed.
+// before the upload ends. error has the text of the failure in the state failed. seconds is the length of the
+// recording, and text is the converted text, "" until the conversion ends.
 export type DraftVoice = {
   state: "converting" | "failed" | "ready";
   audio: Blob | null;
   conversion: string;
   error: string;
+  seconds: number;
+  text: string;
+};
+
+type StoredDraft = Omit<Draft, "voice"> & {
+  voice:
+    (Omit<DraftVoice, "seconds" | "text"> & Partial<Pick<DraftVoice, "seconds" | "text">>) | null;
 };
 
 export type Draft = {
@@ -55,20 +63,27 @@ export function currentDraft(key: string) {
   return drafts.get(key);
 }
 
+// A draft that an older version stored has no seconds and no text in its voice.
+export const readDraft = (record: StoredDraft | undefined): Draft => ({
+  text: record?.text ?? "",
+  images: record?.images ?? [],
+  inboxItems: record?.inboxItems ?? [],
+  selections: record?.selections ?? [],
+  voice: record?.voice
+    ? { ...record.voice, seconds: record.voice.seconds ?? 0, text: record.voice.text ?? "" }
+    : null,
+});
+
 function load(key: string) {
   let promise = loading.get(key);
   if (!promise) {
     promise = Effect.runPromise(
       store(() =>
-        run<{ key: string } & Draft>("drafts", "readonly", (table) => table.get(key)),
+        run<({ key: string } & StoredDraft) | undefined>("drafts", "readonly", (table) =>
+          table.get(key),
+        ),
       ).pipe(
-        Effect.map((record): Draft => ({
-          text: record?.text ?? "",
-          images: record?.images ?? [],
-          inboxItems: record?.inboxItems ?? [],
-          selections: record?.selections ?? [],
-          voice: record?.voice ?? null,
-        })),
+        Effect.map(readDraft),
         // The input works with no kept draft.
         Effect.orElseSucceed(() => emptyDraft),
         Effect.map((draft) => {
