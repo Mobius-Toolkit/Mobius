@@ -189,7 +189,6 @@ export const ClearSelection = Command.define("ClearSelection", {
   }),
 });
 
-// Adds the selection to the draft of the key.
 export const AddSelection = Command.define("AddSelection", {
   args: { key: Schema.String, selection: ChatSelection },
   messages: [Message.CompletedAddSelection],
