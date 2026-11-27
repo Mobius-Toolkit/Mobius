@@ -526,9 +526,9 @@ func (e *Engine) dismissAction(ctx context.Context, action store.PendingAction) 
 	return e.dismiss(ctx, action.InboxItem.Int64)
 }
 
-// closeAction dismisses the Inbox item of the decided action, and adds the decision as a display-only Owner message
-// to its chat. The Triager has no chat.
-func (e *Engine) closeAction(ctx context.Context, action store.PendingAction, decision, message string) error {
+// closeAction dismisses the Inbox item of the decided action, and adds the decision with the Inbox items and the
+// selections of attachments as a display-only Owner message to its chat. The Triager has no chat.
+func (e *Engine) closeAction(ctx context.Context, action store.PendingAction, decision, message string, attachments Attachments) error {
 	item, err := e.dismissAction(ctx, action)
 	if err != nil || action.Role == actionRole(TriagerRole) {
 		return err
@@ -536,15 +536,16 @@ func (e *Engine) closeAction(ctx context.Context, action store.PendingAction, de
 	if !empty(message) {
 		decision += "\n\n" + message
 	}
-	e.addInboxOwnerMessage(ctx, item, decision)
+	e.addInboxOwnerMessage(ctx, item, decision, attachments)
 	return nil
 }
 
 // ApproveAction runs the pending action id with its stored arguments. When the run succeeds, the action is done, and the
 // agent gets the result. When the run fails, the action stays pending with the error, and the agent gets the error.
 // Of two requests at the same time, only one runs the action. It returns ErrNoAction for an action that does not
-// exist, and a refusal for an action that does not wait for the approval.
-func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (store.PendingAction, error) {
+// exist, and a refusal for an action that does not wait for the approval. The agent gets the attachments with the result
+// of a done action.
+func (e *Engine) ApproveAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, error) {
 	if e.sealed() {
 		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
 	}
@@ -578,7 +579,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 		}
 		e.publish(Change{Action: &action})
 		text := fmt.Sprintf("The Owner approved %s, and it failed: %s. The action still waits for the approval of the Owner.", name, strings.TrimSuffix(action.Error, "."))
-		return action, e.postResult(ctx, action, text)
+		return action, e.postResult(ctx, action, text, Attachments{})
 	}
 	e.approvedResultMu.Lock()
 	defer e.approvedResultMu.Unlock()
@@ -594,8 +595,8 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved %s. The result: %s", name, action.Result)
-	closeErr := e.closeAction(ctx, action, "Approved", message)
-	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message)))
+	closeErr := e.closeAction(ctx, action, "Approved", message, attachments)
+	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message), attachments))
 }
 
 // ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from workstreams. It returns
@@ -620,8 +621,8 @@ func (e *Engine) ActionBrief(ctx context.Context, id int64) (string, error) {
 
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
 // ErrNoAction for an action that does not exist, and a refusal for an action that does not wait for the approval or
-// that runs now.
-func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (store.PendingAction, error) {
+// that runs now. The agent gets the attachments with the message.
+func (e *Engine) RejectAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, error) {
 	if e.sealed() {
 		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
 	}
@@ -649,18 +650,19 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner rejected %s.", name)
-	closeErr := e.closeAction(ctx, action, "Rejected", message)
-	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message)))
+	closeErr := e.closeAction(ctx, action, "Rejected", message, attachments)
+	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message), attachments))
 }
 
 // afterActionRun is a hook of the tests. approve calls it after the tool of the action ran, before it stores the result.
 var afterActionRun func()
 
-// postResult gives the text of the decision on action to its agent. The Triager has no chat: a failed action or a
-// rejection is a comment on its issue that starts a Triager turn, and a done action has ended the triage.
-func (e *Engine) postResult(ctx context.Context, action store.PendingAction, text string) error {
+// postResult gives the text of the decision on action with the attachments to its agent. The Triager has no chat: a
+// failed action or a rejection is a comment on its issue that starts a Triager turn, and a done action has ended the
+// triage. The comment has the Inbox items and the selections of the attachments as Markdown, and no image.
+func (e *Engine) postResult(ctx context.Context, action store.PendingAction, text string, attachments Attachments) error {
 	if action.Role != actionRole(TriagerRole) {
-		return e.postApproval(ctx, actionChat(action), text)
+		return e.postApproval(ctx, actionChat(action), text, attachments)
 	}
 	if action.State == "done" {
 		return nil
@@ -668,6 +670,9 @@ func (e *Engine) postResult(ctx context.Context, action store.PendingAction, tex
 	repository, err := e.repository(action.Repository)
 	if err != nil {
 		return err
+	}
+	if markdown := attachmentsMarkdown(attachments); markdown != "" {
+		text += "\n\n" + markdown
 	}
 	return e.commentToTriager(ctx, repository, action.Issue, text)
 }

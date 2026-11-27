@@ -162,7 +162,7 @@ func TestCompleteOfTheLastMandatoryTodoPublishesTheReadyItemWithNoBlockingTodos(
 	waitForBlocking(t, server, []int64{todo.ID})
 	items := readyItemStream(t, server)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
