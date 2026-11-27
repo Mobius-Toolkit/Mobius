@@ -253,7 +253,7 @@ func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, 
 
 // PostApproval adds an Approval message to the chat of key.
 func (e *Engine) PostApproval(ctx context.Context, key ChatKey, text string) error {
-	return e.postApproval(ctx, key, text)
+	return e.postApproval(ctx, key, text, Attachments{})
 }
 
 // StartImplementer starts an Implementer for the dispatched task, as start_implementer does for a task of the

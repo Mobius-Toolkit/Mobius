@@ -289,12 +289,14 @@ var ErrNoInboxItem = errors.New("the Inbox has no such item")
 var ErrNoInboxIssue = errors.New("the Inbox item has no issue")
 
 // AnswerInboxItem posts text as a comment on the issue of the Inbox item id, with the user token of the Owner, and
-// gives the GitHub URL of the comment. For a question of the Coordinator, it adds text to the Coordinator chat as a
-// message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in $.github.answers
-// of the item, so the poll treats the comment as a comment of a trusted user. For a question of an issue, it also acts
-// on the comment at once (actOnAnswer). It returns a refusal when the Owner did not authorize the Mobius App, and when
-// the question item is closed.
-func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (string, error) {
+// gives the GitHub URL of the comment. The comment has the Inbox items and the selections of attachments as Markdown
+// before the text. GitHub has no image in a comment, so images go in a message of the Owner to the chat of the item,
+// with the URL of the comment. For a question of the Coordinator, it adds text with all attachments to the Coordinator
+// chat as a message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in
+// $.github.answers of the item, so the poll treats the comment as a comment of a trusted user. For a question of an
+// issue, it also acts on the comment at once (actOnAnswer). It returns a refusal when the Owner did not authorize the
+// Mobius App, and when the question item is closed.
+func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, attachments Attachments) (string, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNoInboxItem
@@ -307,7 +309,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
-		if err := e.SendChat(ctx, key, rand.Text(), text, nil, []ChatInboxItem{chatInboxItem(item)}, nil, false); err != nil {
+		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice); err != nil {
 			return "", err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
@@ -336,14 +338,25 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 		return "", refusal(err.Error())
 	}
 	ctx = context.WithoutCancel(ctx)
-	comment, err := asOwner.AddComment(ctx, item.Issue, text)
+	body := text
+	if markdown := attachmentsMarkdown(attachments); markdown != "" {
+		body = markdown
+		if !empty(text) {
+			body += "\n\n" + text
+		}
+	}
+	comment, err := asOwner.AddComment(ctx, item.Issue, body)
 	if err != nil {
 		return "", err
 	}
 	if err := e.queries.SetAnswerComment(ctx, store.SetAnswerCommentParams{Comment: comment.GetID(), ID: id}); err != nil {
 		return "", err
 	}
-	e.addInboxOwnerMessage(ctx, item, text)
+	e.addInboxOwnerMessage(ctx, item, text, attachments)
+	if len(attachments.Images) > 0 {
+		note := fmt.Sprintf("Images of my answer on %s: %s", chatInboxItem(item).Reference, comment.GetHTMLURL())
+		e.postInboxOwnerMessage(ctx, item, note, Attachments{Images: attachments.Images})
+	}
 	if item.Kind == questionKind {
 		if err := e.actOnAnswer(ctx, repository, item, comment); err != nil {
 			return "", err
@@ -511,15 +524,41 @@ func chatInboxItem(item store.InboxItem) ChatInboxItem {
 	return ChatInboxItem{Reference: reference, Title: item.Title, Reason: item.Reason, Link: link}
 }
 
-// addInboxOwnerMessage adds text as a display-only message of the Owner with the card of item to inboxChat(item). No
-// agent gets it through the chat. A failed write only goes to the log, because the action has succeeded.
-func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string) {
-	if empty(text) {
+// cardFirst gives the card of item before the Inbox items of a message.
+func cardFirst(item store.InboxItem, inboxItems []ChatInboxItem) []ChatInboxItem {
+	return append([]ChatInboxItem{chatInboxItem(item)}, inboxItems...)
+}
+
+// addInboxOwnerMessage adds text with the Inbox items and the selections of attachments as a display-only message of the
+// Owner with the card of item to inboxChat(item). No agent gets it through the chat. A failed write only goes to the log,
+// because the action has succeeded.
+func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string, attachments Attachments) {
+	if empty(text) && len(attachments.InboxItems) == 0 && len(attachments.Selections) == 0 {
 		return
 	}
-	if _, err := e.addDisplayOnlyChatMessage(ctx, inboxChat(item), text, []ChatInboxItem{chatInboxItem(item)}); err != nil {
+	if _, err := e.addDisplayOnlyChatMessage(ctx, inboxChat(item), text, cardFirst(item, attachments.InboxItems), attachments.Selections); err != nil {
 		log.Printf("add an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
 	}
+}
+
+// postInboxOwnerMessage adds text with the images, the Inbox items and the selections of attachments as a message of
+// the Owner with the card of item to inboxChat(item). The agent of the chat gets it. A failed write only goes to the
+// log, because the action has succeeded.
+func (e *Engine) postInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string, attachments Attachments) {
+	err := e.postChat(ctx, inboxChat(item), ownerAuthor, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice)
+	if err != nil {
+		log.Printf("post an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
+	}
+}
+
+// addInboxOwnerNote adds the note of a Done to the chat of item. A note with an image, an Inbox item or a selection is a
+// message that the agent gets. Else it is a display-only message.
+func (e *Engine) addInboxOwnerNote(ctx context.Context, item store.InboxItem, note string, attachments Attachments) {
+	if attachments.Empty() {
+		e.addInboxOwnerMessage(ctx, item, note, attachments)
+		return
+	}
+	e.postInboxOwnerMessage(ctx, item, note, attachments)
 }
 
 // Dismiss removes the Inbox item id from the Inbox.
