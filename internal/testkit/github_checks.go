@@ -1136,25 +1136,8 @@ func (g *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	attempt := max(g.workflowRuns[id-1].Attempt, 1)
-	filter := r.URL.Query().Get("filter")
-	jobs := []map[string]any{}
-	for _, job := range g.workflowJobs {
-		if job.repository != repository(r) || job.run != id {
-			continue
-		}
-		if filter != "all" && job.attempt != attempt {
-			continue
-		}
-		steps := []map[string]any{}
-		for _, step := range job.Steps {
-			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
-		}
-		jobs = append(jobs, map[string]any{
-			"id": job.ID, "name": job.Name, "status": cmp.Or(job.Status, "completed"), "conclusion": job.Conclusion, "steps": steps,
-			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d/job/%d", g.URL, job.repository, id, job.ID),
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": page(w, r, jobs)})
+	all := r.URL.Query().Get("filter") == "all"
+	g.writeWorkflowJobs(w, r, id, func(job workflowJob) bool { return all || job.attempt == attempt })
 }
 
 func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Request) {
@@ -1166,9 +1149,13 @@ func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Requ
 		message(w, g.jobListRefusal, "Resource not accessible by integration")
 		return
 	}
+	g.writeWorkflowJobs(w, r, id, func(job workflowJob) bool { return job.attempt == attempt })
+}
+
+func (g *FakeGitHub) writeWorkflowJobs(w http.ResponseWriter, r *http.Request, id int64, wanted func(workflowJob) bool) {
 	jobs := []map[string]any{}
 	for _, job := range g.workflowJobs {
-		if job.repository != repository(r) || job.run != id || job.attempt != attempt {
+		if job.repository != repository(r) || job.run != id || !wanted(job) {
 			continue
 		}
 		steps := []map[string]any{}
