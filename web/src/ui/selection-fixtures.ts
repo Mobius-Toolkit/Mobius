@@ -16,6 +16,8 @@ export const selected = decode({
 
 export const addClicked = decode({ _tag: "AddClicked" });
 
+export const addedSelection = decode({ _tag: "CompletedAddSelection" });
+
 export const clearedSelection = decode({ _tag: "CompletedClearSelection" });
 
 export const selectedInTask = decode({

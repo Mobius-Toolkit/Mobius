@@ -4,7 +4,8 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import type { WorkstreamAutopilot } from "@/api/api.gen";
 import { levelName, levels } from "@/lib/autopilot";
 import { buttonClass } from "@/ui/button";
-import { autopilotIcon, checkIcon, chevronDownIcon } from "@/ui/icons";
+import { renderChoiceItem } from "@/ui/choice";
+import { autopilotIcon, chevronDownIcon } from "@/ui/icons";
 import { defineInPlaceMount, renderSheet } from "@/ui/sheet";
 import { Message } from "./message";
 import type { Model } from "./model";
@@ -95,31 +96,14 @@ export function renderAutopilotMenu(
               ),
             ],
             levels.map((other) =>
-              h.keyed("button")(
-                other.value,
-                [
-                  h.Type("button"),
-                  h.Role("menuitemradio"),
-                  h.AriaChecked(other.value === level),
-                  h.Class(
-                    "relative flex w-full cursor-default items-start gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
-                  ),
-                  h.OnClick(Message.SelectAutopilotRequested({ level: other.value })),
-                ],
-                [
-                  renderLevel(h, other.value, other.name, other.text),
-                  other.value === level
-                    ? h.span(
-                        [
-                          h.Class(
-                            "pointer-events-none absolute right-2 flex items-center justify-center",
-                          ),
-                        ],
-                        [checkIcon(h, "size-4")],
-                      )
-                    : h.empty,
-                ],
-              ),
+              renderChoiceItem(h, {
+                key: other.value,
+                checked: other.value === level,
+                className:
+                  "relative flex w-full cursor-default items-start gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground",
+                onClick: Message.SelectAutopilotRequested({ level: other.value }),
+                children: [renderLevel(h, other.value, other.name, other.text)],
+              }),
             ),
           )
         : h.empty,

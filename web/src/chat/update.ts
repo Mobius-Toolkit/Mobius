@@ -5,7 +5,6 @@ import type { Return as UpdateReturn } from "foldkit/update";
 import * as Composer from "@/composer";
 import { OutMessage as ComposerOutMessage } from "@/composer/message";
 import {
-  AddSelection,
   AnswerInboxItem,
   ApproveAction,
   DoneInboxItem,
@@ -28,7 +27,7 @@ import {
   WaitToRetry,
 } from "./commands";
 import { StopVoice } from "@/composer/commands";
-import { InboxItemKind } from "@/api/api.gen";
+import { InboxItemKind, type ChatSelection } from "@/api/api.gen";
 import { issueRef } from "@/lib/notice";
 import { newAnswerComposer } from "./composer";
 import * as Selection from "@/ui/selection";
@@ -48,6 +47,7 @@ import {
   countsAsUnread,
   hasNote,
   isMissingWorkstream,
+  itemReference,
   retryDelays,
   todoRowOf,
   upsert,
@@ -102,26 +102,71 @@ const foldComposer = Update.foldChild({
     }),
 });
 
+const quote = (key: string, selection: ChatSelection) =>
+  Command.mapMessage(Selection.AddSelection({ key, selection }), toGotSelectionMessage);
+
+function inboxSelection(
+  item: InboxItem | undefined,
+  part: string,
+  text: string,
+  context: string,
+): ChatSelection {
+  return {
+    source: "inbox",
+    text,
+    context,
+    ...(item ? itemReference(item) : { reference: "", link: "" }),
+    part,
+    messageId: 0,
+    messageAuthor: "",
+  };
+}
+
 function addSelection(model: Model, owner: string, text: string, context: string) {
-  const message = model.messages.find((other) => String(other.id) === owner);
+  if (owner.startsWith("dialog:")) {
+    const panel = model.activePanel;
+    if (!panel) {
+      return { model };
+    }
+    const key =
+      panel.type === "answer" && model.answerComposer
+        ? model.answerComposer.draftKey
+        : model.composer.draftKey;
+    return {
+      model,
+      commands: [
+        quote(key, inboxSelection(panel.item, owner.slice("dialog:".length), text, context)),
+      ],
+    };
+  }
+  const card = /^(question|action):(\d+)$/.exec(owner);
+  const message = model.messages.find((other) =>
+    card ? other.id === Number(card[2]) : String(other.id) === owner,
+  );
   if (!message) {
     return { model };
+  }
+  if (card) {
+    const item = message.question
+      ? message.question
+      : model.trayItems.find((row) => row.action?.id === message.action?.id);
+    return {
+      model,
+      commands: [quote(model.composer.draftKey, inboxSelection(item, card[1], text, context))],
+    };
   }
   return {
     model,
     commands: [
-      AddSelection({
-        key: model.composer.draftKey,
-        selection: {
-          source: "message",
-          text,
-          context,
-          reference: "",
-          link: "",
-          part: "",
-          messageId: message.id,
-          messageAuthor: authorLabel(message),
-        },
+      quote(model.composer.draftKey, {
+        source: "message",
+        text,
+        context,
+        reference: "",
+        link: "",
+        part: "",
+        messageId: message.id,
+        messageAuthor: authorLabel(message),
       }),
     ],
   };
@@ -868,8 +913,6 @@ function step(model: Model, message: Message): StepReturn {
     GotSelectionMessage: ({ message: selectionMsg }) => foldSelection(model, selectionMsg),
 
     GotWorkstreamSetupMessage: ({ message: setupMsg }) => foldWorkstreamSetup(model, setupMsg),
-
-    CompletedAddSelection: () => ({ model }),
 
     StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 

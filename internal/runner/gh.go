@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 )
 
 // GH is the main function of the gh of the agent environment. It runs with args and the environment of getenv,
@@ -33,7 +31,7 @@ func GH(args []string, getenv func(string) string) int {
 		fmt.Fprintln(os.Stderr, "gh is not on PATH.")
 		return 1
 	}
-	token, err := ghToken(url)
+	token, err := responseBody(http.MethodGet, url)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -50,27 +48,6 @@ func GH(args []string, getenv func(string) string) int {
 		}
 	}
 	return runGH(gh, args, token, stdin)
-}
-
-// ghToken gives the body of the response to url. The body of a response with an error status is the error.
-func ghToken(url string) (string, error) {
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
-	if err != nil {
-		return "", err
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = response.Body.Close() }()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return "", err
-	}
-	if response.StatusCode != http.StatusOK {
-		return "", errors.New(strings.TrimSpace(string(body)))
-	}
-	return string(body), nil
 }
 
 // runGH runs the real gh with args, token and stdin, and gives its exit code.

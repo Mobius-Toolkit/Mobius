@@ -79,6 +79,7 @@ import { Message } from "./message";
 import {
   initialModel,
   Model,
+  noScreens,
   savedOrganization,
   saveOrganization,
   type Upgrade,
@@ -235,44 +236,6 @@ const foldGitHub = Update.foldChild({
   write: (model, githubProgram) => ({ ...model, githubProgram: Option.some(githubProgram) }),
   toParentMessage: (message) => Message.GotGitHubMessage({ message }),
 });
-
-// A screen that the Owner left has no Submodel, so no live event reaches it.
-const noScreens: Pick<
-  Model,
-  | "chat"
-  | "panel"
-  | "inboxProgram"
-  | "workstreamsProgram"
-  | "tasksProgram"
-  | "agentsProgram"
-  | "checkupProgram"
-  | "usageProgram"
-  | "settingsProgram"
-  | "rolesProgram"
-  | "memoryProgram"
-  | "mcpServersProgram"
-  | "switchesProgram"
-  | "voiceProgram"
-  | "devicesProgram"
-  | "githubProgram"
-> = {
-  chat: Option.none(),
-  panel: Option.none(),
-  inboxProgram: Option.none(),
-  workstreamsProgram: Option.none(),
-  tasksProgram: Option.none(),
-  agentsProgram: Option.none(),
-  checkupProgram: Option.none(),
-  usageProgram: Option.none(),
-  settingsProgram: Option.none(),
-  rolesProgram: Option.none(),
-  memoryProgram: Option.none(),
-  mcpServersProgram: Option.none(),
-  switchesProgram: Option.none(),
-  voiceProgram: Option.none(),
-  devicesProgram: Option.none(),
-  githubProgram: Option.none(),
-};
 
 const noWorkstreamChatState: Pick<
   Model,
@@ -794,6 +757,15 @@ function withSwitchErrors(
   };
 }
 
+const withProgramOrganization = (model: Model, organization: string): Model => ({
+  ...model,
+  workstreamsProgram: Option.map(model.workstreamsProgram, (program) => ({
+    ...program,
+    organization,
+  })),
+  tasksProgram: Option.map(model.tasksProgram, (program) => ({ ...program, organization })),
+});
+
 function enterOrganization(
   model: Model,
   organization: string,
@@ -1008,30 +980,12 @@ export function update(model: Model, message: Message): UpdateReturn {
         });
       }
 
-      let workstreamsProgram = model.workstreamsProgram;
-      if (Option.isSome(workstreamsProgram)) {
-        workstreamsProgram = Option.some({
-          ...workstreamsProgram.value,
-          organization: org,
-        });
-      }
-
-      let tasksProgram = model.tasksProgram;
-      if (Option.isSome(tasksProgram)) {
-        tasksProgram = Option.some({
-          ...tasksProgram.value,
-          organization: org,
-        });
-      }
-
       const entered = enterOrganization(
         {
-          ...model,
+          ...withProgramOrganization(model, org),
           apps: Option.some(apps),
           organizations,
           githubProgram,
-          workstreamsProgram,
-          tasksProgram,
           appError: Option.none(),
         },
         org,
@@ -1077,22 +1031,8 @@ export function update(model: Model, message: Message): UpdateReturn {
       if (model.route._tag === "WorkstreamChat" && model.route.owner !== org) {
         commands.push(Navigate({ path: "/workstreams" }));
       }
-      let workstreamsProgram = model.workstreamsProgram;
-      if (Option.isSome(workstreamsProgram)) {
-        workstreamsProgram = Option.some({
-          ...workstreamsProgram.value,
-          organization: org,
-        });
-      }
-      let tasksProgram = model.tasksProgram;
-      if (Option.isSome(tasksProgram)) {
-        tasksProgram = Option.some({
-          ...tasksProgram.value,
-          organization: org,
-        });
-      }
       const entered = enterOrganization(
-        { ...model, workstreamsProgram, tasksProgram, openMenu: Option.none() },
+        { ...withProgramOrganization(model, org), openMenu: Option.none() },
         org,
       );
       return { model: entered.model, commands: [...commands, ...entered.commands] };
@@ -1781,7 +1721,8 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "GotPanelMessage": {
       const panelMessage = message.message;
       if (
-        panelMessage._tag === "AddedSelection" ||
+        (panelMessage._tag === "GotSelectionMessage" &&
+          panelMessage.message._tag === "CompletedAddSelection") ||
         (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedItem") ||
         (panelMessage._tag === "GotRecurringMessage" &&
           panelMessage.message._tag === "AttachedItem")

@@ -10,7 +10,6 @@ import { chatDraftKey } from "@/lib/draft";
 import { AttachInboxItem } from "@/panel/attach";
 import * as Selection from "@/ui/selection";
 import {
-  AddSelection,
   ChangeIssue,
   FetchFallback,
   FetchTaskDetail,
@@ -158,19 +157,22 @@ const foldSelection = Update.foldChild({
             : {
                 model,
                 commands: [
-                  AddSelection({
-                    key: model.composer.draftKey,
-                    selection: {
-                      source: "task",
-                      text,
-                      context,
-                      reference: reference(line.value),
-                      link: line.value.url,
-                      part: "issue body",
-                      messageId: 0,
-                      messageAuthor: "",
-                    },
-                  }),
+                  Command.mapMessage(
+                    Selection.AddSelection({
+                      key: model.composer.draftKey,
+                      selection: {
+                        source: "task",
+                        text,
+                        context,
+                        reference: reference(line.value),
+                        link: line.value.url,
+                        part: "issue body",
+                        messageId: 0,
+                        messageAuthor: "",
+                      },
+                    }),
+                    toGotSelectionMessage,
+                  ),
                 ],
               };
         },
@@ -267,7 +269,6 @@ export function update(model: Model, message: Message): UpdateReturn {
         foldComposer(child),
       ]),
     GotSelectionMessage: ({ message: child }) => foldSelection(model, child),
-    AddedSelection: () => ({ model }),
     CompletedRestoreScroll: () => ({ model }),
     TaskDetailLoaded: ({ repository, number, detail }) => {
       if (!isOpened(model, repository, number)) {
