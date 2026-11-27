@@ -126,6 +126,10 @@ type Engine struct {
 	pollWake chan struct{}
 	// dispatchWake makes the dispatch loop run before the end of poll_interval. It holds at most one value.
 	dispatchWake chan struct{}
+	// copyStepsMu makes the steps of pollRepository from applyIncomingChanges to the end of the tree copy, and
+	// dispatchAll, take turns. Else the loop can dispatch an issue after its Start and before the copy of its blocker.
+	// It is taken before stopMu.
+	copyStepsMu sync.Mutex
 	// closingMu guards closing.
 	closingMu sync.Mutex
 	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.

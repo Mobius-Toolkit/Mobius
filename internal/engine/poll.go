@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -167,6 +168,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	e.copyStepsMu.Lock()
+	unlock := sync.OnceFunc(e.copyStepsMu.Unlock)
+	defer unlock()
 	if err := e.applyIncomingChanges(ctx, repository); err != nil {
 		return err
 	}
@@ -194,6 +198,7 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 			break
 		}
 	}
+	unlock()
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
 	}

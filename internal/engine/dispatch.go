@@ -157,7 +157,10 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 // dispatchAll runs dispatchReady for each repository. A failed repository does not stop the next one.
 func (e *Engine) dispatchAll(ctx context.Context) {
 	for _, repository := range e.github.Repositories() {
-		if err := e.dispatchReady(ctx, repository); err != nil {
+		e.copyStepsMu.Lock()
+		err := e.dispatchReady(ctx, repository)
+		e.copyStepsMu.Unlock()
+		if err != nil {
 			log.Printf("dispatch the ready issues of %s: %v", repository.FullName, err)
 		}
 	}
