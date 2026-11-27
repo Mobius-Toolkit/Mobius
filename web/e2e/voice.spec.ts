@@ -1095,7 +1095,7 @@ test("a conversion that ends while the page shows another chat puts its text int
   await expect(removeVoice(page)).toBeVisible();
 });
 
-test("a send in an Answer panel input removes the card and sends no voice mark", async ({
+test("a send in an Answer panel input removes the card and sends the voice mark", async ({
   page,
 }) => {
   await routeInboxItems(page, [coordinatorQuestion]);
@@ -1125,7 +1125,7 @@ test("a send in an Answer panel input removes the card and sends no voice mark",
   await panel.getByRole("button", { name: "Send", exact: true }).click();
   await response;
   await expect(panel).toBeHidden();
-  expect(bodies.map(formFields)).toEqual([{ text: "red roses" }]);
+  expect(bodies.map(formFields)).toEqual([{ text: "red roses", voice: "true" }]);
   await expect.poll(() => drafts(page)).toEqual([]);
 });
 

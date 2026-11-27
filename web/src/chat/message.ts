@@ -7,12 +7,10 @@ import {
   ChatMessage,
   ChatPage,
   ChatState,
-  Draft,
   DraftInboxItem,
   InboxItem,
   PendingAction,
   Queued,
-  VoiceState,
   Workstream,
 } from "./schemas";
 
@@ -50,6 +48,7 @@ export const Message = defineMessageUnion({
   StopChatCompleted: { error: Schema.NullOr(Schema.String) },
 
   GotComposerMessage: { message: Composer.Message },
+  GotAnswerComposerMessage: { message: Composer.Message },
   DraftInboxItemAdded: { item: DraftInboxItem },
   CompletedSaveDraft: {},
 
@@ -72,15 +71,11 @@ export const Message = defineMessageUnion({
   },
   ClosePanel: {},
   CompletedFocusPanel: {},
-  CompletedShowFile: {},
   OptionToggled: {
     questionIndex: Schema.Number,
     optionIndex: Schema.Number,
     multiple: Schema.Boolean,
   },
-  AnswerTextChanged: { text: Schema.String },
-  ReceivedAnswerDraft: { id: Schema.Number, draft: Draft },
-  AnswerSubmitted: {},
   AnswerCompleted: { id: Schema.Number, error: Schema.String },
   ActionDecided: { decision: Schema.String },
   ActionCompleted: { id: Schema.Number, action: PendingAction },
@@ -100,16 +95,6 @@ export const Message = defineMessageUnion({
   ResumeClicked: { item: InboxItem },
   ResumeCompleted: { id: Schema.Number, error: Schema.optional(Schema.String) },
 
-  VoiceButtonClicked: {},
-  VoiceResendClicked: {},
-  VoiceRemoveClicked: {},
-  VoiceChanged: { voice: VoiceState },
-  VoiceTicked: { now: Schema.Number },
-  CompletedToggleVoice: {},
-  CompletedStopVoice: {},
-  CompletedResendVoice: {},
-  CompletedRemoveVoice: {},
-  CompletedScrollLive: {},
   StopReadyChanged: { ready: Schema.Boolean },
 
   OpenTodoList: { repository: Schema.String, pullRequest: Schema.Number },
@@ -136,6 +121,9 @@ export type OutMessage = typeof OutMessage.Type;
 
 export const toGotComposerMessage = (message: Composer.Message): Message =>
   Message.GotComposerMessage({ message });
+
+export const toGotAnswerComposerMessage = (message: Composer.Message): Message =>
+  Message.GotAnswerComposerMessage({ message });
 
 export const toGotSelectionMessage = (message: Selection.Message): Message =>
   Message.GotSelectionMessage({ message });

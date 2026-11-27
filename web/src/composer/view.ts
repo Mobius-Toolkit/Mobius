@@ -503,15 +503,56 @@ export function composerBox<Msg>(
   );
 }
 
+// The Send button of a field. The parent of a field with its own buttons builds the same button with its own builder.
+export function sendButton<Msg>(
+  h: HtmlBuilder<Msg>,
+  options: {
+    label: string;
+    disabled: boolean;
+    muted: boolean;
+    voiceBusy: boolean;
+    className?: string;
+    onClick?: Msg;
+    content: Html[];
+  },
+): Html {
+  return h.button(
+    [
+      // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
+      // A Stop button of type submit sends nothing, because the draft is empty then.
+      h.Type("submit"),
+      h.AriaLabel(options.label),
+      h.Attribute("title", options.label),
+      h.DataAttribute("keep-focus", ""),
+      h.Disabled(options.disabled),
+      ...(options.voiceBusy ? [h.DataAttribute("voice-busy", "")] : []),
+      h.Class(
+        cn(
+          buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+          options.className,
+          options.muted && "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+        ),
+      ),
+      ...(options.onClick ? [h.OnClick(options.onClick)] : []),
+    ],
+    options.content,
+  );
+}
+
+// actions builds the buttons of the parent, and null gives the Send or Stop button. A Submodel runs a function of its
+// view inputs in the boundary of the parent, so the buttons send Messages of the parent.
 export type ViewInputs = {
   stoppable: boolean;
   stopping: boolean;
   stopReady: boolean;
+  locked: boolean;
+  autoFocus: boolean;
   selectionTime: (messageId: number) => string | undefined;
+  actions: (() => Html[]) | null;
 };
 
 export const view = defineView<Model, Message, ViewInputs>(
-  (model, { stoppable, stopping, stopReady, selectionTime }, h) => {
+  (model, { stoppable, stopping, stopReady, locked, autoFocus, selectionTime, actions }, h) => {
     const images = model.draftImages;
     const inboxItems = model.draftInboxItems;
     const empty = isEmptyDraft(model);
@@ -533,11 +574,11 @@ export const view = defineView<Model, Message, ViewInputs>(
         label: model.label,
         placeholder: model.placeholder,
         text: model.draftText,
-        readOnly: !model.draftLoaded,
+        readOnly: !model.draftLoaded || locked,
         onInput: (text) => Message.DraftTextChanged({ text }),
         submit: Message.SendSubmitted(),
         enter: "send",
-        autoFocus: true,
+        autoFocus,
         images,
         inboxItems,
         selections: model.draftSelections,
@@ -551,36 +592,24 @@ export const view = defineView<Model, Message, ViewInputs>(
         onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
         onSelectionRemoveClick: (id) => Message.DraftSelectionRemoved({ id }),
         onImagesChosen: (files) => Message.ImagesChosen({ files }),
-        actions: [
-          h.button(
-            [
-              // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
-              // A Stop button of type submit sends nothing, because the draft is empty then.
-              h.Type("submit"),
-              h.AriaLabel(sendLabel),
-              h.Attribute("title", sendLabel),
-              h.DataAttribute("keep-focus", ""),
-              h.Disabled(sendDisabled),
-              ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
-              h.Class(
-                cn(
-                  buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-                  showStop &&
-                    !stopReady &&
-                    !buttonPending &&
-                    "disabled:pointer-events-auto disabled:opacity-100",
-                  cannotSend &&
-                    !showStop &&
-                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-                ),
-              ),
-              ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
+        actions: actions
+          ? actions()
+          : [
+              sendButton(h, {
+                label: sendLabel,
+                disabled: sendDisabled,
+                muted: cannotSend && !showStop,
+                voiceBusy: voiceBusy(model.draftVoice),
+                className:
+                  showStop && !stopReady && !buttonPending
+                    ? "disabled:pointer-events-auto disabled:opacity-100"
+                    : "",
+                ...(showStop ? { onClick: Message.StopClicked() } : {}),
+                content: buttonPending
+                  ? [spinnerIcon(h)]
+                  : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
+              }),
             ],
-            buttonPending
-              ? [spinnerIcon(h)]
-              : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-          ),
-        ],
       },
       (message) => message,
     );

@@ -14,7 +14,7 @@ import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { DraftInboxItems, DraftSelections, Images, Queued } from "@/chat/schemas";
 
-const clearDraft = (key: string) =>
+export const clearDraft = (key: string) =>
   store(() =>
     updateDraft(key, (draft) => ({
       ...draft,
@@ -35,7 +35,22 @@ const readyVoice = (seconds: number, text: string): DraftVoice => ({
   text,
 });
 
-const restoreDraft = (
+export const sentInboxItems = (items: readonly DraftInboxItem[]) =>
+  items.map(({ reference, title, reason, link }) => ({ reference, title, reason, link }));
+
+export const sentSelections = (selections: readonly DraftSelection[]) =>
+  selections.map((selection) => ({
+    source: selection.source,
+    text: selection.text,
+    context: selection.context,
+    reference: selection.reference,
+    link: selection.link,
+    part: selection.part,
+    messageId: selection.messageId,
+    messageAuthor: selection.messageAuthor,
+  }));
+
+export const restoreDraft = (
   key: string,
   sent: {
     text: string;
@@ -202,22 +217,8 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
         workstream,
         text,
         images,
-        inboxItems: inboxItems.map(({ reference, title, reason, link }) => ({
-          reference,
-          title,
-          reason,
-          link,
-        })),
-        selections: selections.map((selection) => ({
-          source: selection.source,
-          text: selection.text,
-          context: selection.context,
-          reference: selection.reference,
-          link: selection.link,
-          part: selection.part,
-          messageId: selection.messageId,
-          messageAuthor: selection.messageAuthor,
-        })),
+        inboxItems: sentInboxItems(inboxItems),
+        selections: sentSelections(selections),
         voice,
         voiceSeconds,
         time: new Date().toISOString(),

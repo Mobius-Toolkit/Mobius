@@ -1,19 +1,11 @@
 import { Effect, Option, Queue, Schema, Stream } from "effect";
 import * as Subscription from "foldkit/subscription";
-import {
-  draftValues,
-  subscriptions as composerSubscriptions,
-  voiceClock,
-  voiceInput,
-} from "@/composer/subscriptions";
-import { answerDraftKey } from "@/lib/draft";
+import { subscriptions as composerSubscriptions } from "@/composer/subscriptions";
 import { currentOutboxVersion, subscribeOutbox } from "@/lib/outbox";
 import { currentUnread, subscribeUnread, unreadCount } from "@/lib/unread";
-import { subscribeVoice, voiceSnapshot } from "@/lib/voice";
 import { currentWorkstreams, subscribeWorkstreams } from "@/lib/workstreams";
 import { storeValues } from "@/live/stores";
-import { answerInputId } from "./composer";
-import { Message, toGotComposerMessage } from "./message";
+import { Message, toGotAnswerComposerMessage, toGotComposerMessage } from "./message";
 import type { Model } from "./model";
 
 const stopDelay = 500;
@@ -45,9 +37,14 @@ const chatDependencies = {
   workstream: Schema.Number,
 };
 
+const liftedAnswerComposer = Subscription.lift(composerSubscriptions)<Model, Message>({
+  read: (model) => Option.fromNullishOr(model.answerComposer),
+  toParentMessage: toGotAnswerComposerMessage,
+});
+
 // The Subscriptions of the rows of Inbox items and of their answer panel. The chat program and the Inbox program both
-// have them.
-export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => ({
+// have them, each with its own keys.
+const itemEntries = Subscription.make<Model, Message>()((entry) => ({
   chatItemWorkstreams: entry(
     {},
     {
@@ -56,44 +53,6 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
         storeValues(subscribeWorkstreams, currentWorkstreams, (state) =>
           Message.ReceivedWorkstreams({ workstreams: state.list ?? null }),
         ),
-    },
-  ),
-  chatItemAnswerDraft: entry(
-    { id: Schema.NullOr(Schema.Number) },
-    {
-      modelToDependencies: (model) => ({
-        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
-      }),
-      dependenciesToStream: ({ id }) =>
-        id === null
-          ? Stream.empty
-          : draftValues(answerDraftKey(id), (draft) => Message.ReceivedAnswerDraft({ id, draft })),
-    },
-  ),
-  chatItemVoice: entry(
-    {},
-    {
-      modelToDependencies: () => ({}),
-      dependenciesToStream: () =>
-        storeValues(subscribeVoice, voiceSnapshot, (voice) => Message.VoiceChanged({ voice })),
-    },
-  ),
-  chatItemVoiceClock: entry(
-    { recording: Schema.Boolean },
-    {
-      modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) =>
-        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
-    },
-  ),
-  chatItemAnswerVoiceInput: entry(
-    { id: Schema.NullOr(Schema.Number) },
-    {
-      modelToDependencies: (model) => ({
-        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
-      }),
-      dependenciesToStream: ({ id }) =>
-        id === null ? Stream.empty : voiceInput(answerDraftKey(id), answerInputId),
     },
   ),
   chatItemEscapeKey: entry(
@@ -110,7 +69,7 @@ export const itemSubscriptions = Subscription.make<Model, Message>()((entry) => 
   ),
 }));
 
-export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry) => ({
+const inboxItemEntries = Subscription.make<Model, Message>()((entry) => ({
   inboxItemWorkstreams: entry(
     {},
     {
@@ -119,44 +78,6 @@ export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry
         storeValues(subscribeWorkstreams, currentWorkstreams, (state) =>
           Message.ReceivedWorkstreams({ workstreams: state.list ?? null }),
         ),
-    },
-  ),
-  inboxItemAnswerDraft: entry(
-    { id: Schema.NullOr(Schema.Number) },
-    {
-      modelToDependencies: (model) => ({
-        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
-      }),
-      dependenciesToStream: ({ id }) =>
-        id === null
-          ? Stream.empty
-          : draftValues(answerDraftKey(id), (draft) => Message.ReceivedAnswerDraft({ id, draft })),
-    },
-  ),
-  inboxItemVoice: entry(
-    {},
-    {
-      modelToDependencies: () => ({}),
-      dependenciesToStream: () =>
-        storeValues(subscribeVoice, voiceSnapshot, (voice) => Message.VoiceChanged({ voice })),
-    },
-  ),
-  inboxItemVoiceClock: entry(
-    { recording: Schema.Boolean },
-    {
-      modelToDependencies: (model) => ({ recording: model.voice.recording }),
-      dependenciesToStream: ({ recording }) =>
-        recording ? voiceClock((now) => Message.VoiceTicked({ now })) : Stream.empty,
-    },
-  ),
-  inboxItemAnswerVoiceInput: entry(
-    { id: Schema.NullOr(Schema.Number) },
-    {
-      modelToDependencies: (model) => ({
-        id: model.activePanel?.type === "answer" ? model.activePanel.item.id : null,
-      }),
-      dependenciesToStream: ({ id }) =>
-        id === null ? Stream.empty : voiceInput(answerDraftKey(id), answerInputId),
     },
   ),
   inboxItemEscapeKey: entry(
@@ -172,6 +93,20 @@ export const inboxItemSubscriptions = Subscription.make<Model, Message>()((entry
     },
   ),
 }));
+
+const itemSubscriptions = Subscription.aggregate(itemEntries, {
+  chatItemAnswerDraft: liftedAnswerComposer.draft,
+  chatItemAnswerVoice: liftedAnswerComposer.voice,
+  chatItemAnswerVoiceClock: liftedAnswerComposer.voiceClock,
+  chatItemAnswerVoiceInput: liftedAnswerComposer.voiceInput,
+});
+
+export const inboxItemSubscriptions = Subscription.aggregate(inboxItemEntries, {
+  inboxItemAnswerDraft: liftedAnswerComposer.draft,
+  inboxItemAnswerVoice: liftedAnswerComposer.voice,
+  inboxItemAnswerVoiceClock: liftedAnswerComposer.voiceClock,
+  inboxItemAnswerVoiceInput: liftedAnswerComposer.voiceInput,
+});
 
 const chatSubscriptions = Subscription.make<Model, Message>()((entry) => ({
   chatUnread: entry(chatDependencies, {

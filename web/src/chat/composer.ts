@@ -1,146 +1,143 @@
-import { Match } from "effect";
 import type { HtmlBuilder, Html } from "foldkit/html";
-import { cn } from "cn";
 import * as Composer from "@/composer";
 import { InboxItemKind } from "@/api/api.gen";
 import { roleName } from "@/lib/actions";
 import { answerDraftKey } from "@/lib/draft";
 import { buttonClass } from "@/ui/button";
 import { arrowUpIcon, banIcon, checkIcon, spinnerIcon } from "@/ui/icons";
-import { Message } from "./message";
+import { Message, toGotAnswerComposerMessage } from "./message";
 import { hasNote, type Model } from "./model";
 import type { InboxItem } from "./schemas";
 
 type H = HtmlBuilder<Message>;
 
-export const answerInputId = "answer-input";
+function fieldTexts(item: InboxItem) {
+  const action = item.action;
+  const note = hasNote(item);
+  const role = action ? (roleName[action.role] ?? action.role) : "";
+  return {
+    label: action ? `Note for the ${role}` : note ? "Note" : "Your answer",
+    placeholder: action
+      ? `Add a note for the ${role} (optional)`
+      : note
+        ? "Note (optional)"
+        : item.questions.length > 0
+          ? "Add a note (optional)"
+          : "Write your answer",
+  };
+}
 
-// The Mounts of the shared composer send only these Messages to the chat: the answer panel has no picker and no image.
-export const fromComposerMount = (message: Composer.Message): Message =>
-  Match.value(message).pipe(
-    Match.tag("SendSubmitted", () => Message.AnswerSubmitted()),
-    Match.tag("CompletedScrollLive", () => Message.CompletedScrollLive()),
-    Match.orElse(() => Message.CompletedShowFile()),
-  );
+// The composer of the answer panel of an item. It shows the draft of the item and sends it with the request of the
+// chat.
+export function newAnswerComposer(model: Model, item: InboxItem, error = ""): Composer.Model {
+  return {
+    ...Composer.initialModel({
+      draftKey: answerDraftKey(item.id),
+      instance: "answer",
+      sends: "parent",
+      ...fieldTexts(item),
+      organization: model.organization,
+      repository: model.repository,
+      workstream: model.workstream,
+    }),
+    sendError: error,
+  };
+}
 
 // The field of the answer panel. A pending action has the buttons Reject and Approve, and each other item has the
 // Send button.
-export function renderPanelComposer(h: H, model: Model, item: InboxItem): Html {
+export function renderPanelComposer(
+  h: H,
+  model: Model,
+  composer: Composer.Model,
+  item: InboxItem,
+  timeOf: (messageId: number) => string | undefined,
+): Html {
   const action = item.action;
   const note = hasNote(item);
   const selected = Object.values(model.selectedOptions).some((options) => options.length > 0);
   const decide = Boolean(action);
   const running = model.trayRunning[item.id];
   const busy = model.requesting.includes(item.id) || running !== undefined;
-  const holdsVoice = Composer.voiceBusy(model.answerVoice);
-  const empty = !model.answerText.trim() && !(note ? true : !action && selected);
+  const holdsVoice = Composer.voiceBusy(composer.draftVoice);
+  const empty = Composer.isEmptyDraft(composer) && !(note ? true : !action && selected);
   const cannotSend = empty || holdsVoice;
-  const role = action ? (roleName[action.role] ?? action.role) : "";
-  const label = action ? `Note for the ${role}` : note ? "Note" : "Your answer";
   const sendLabel = item.kind === InboxItemKind.stopped ? "Resume" : "Send";
-  const placeholder = action
-    ? `Add a note for the ${role} (optional)`
-    : note
-      ? "Note (optional)"
-      : item.questions.length > 0
-        ? "Add a note (optional)"
-        : "Write your answer";
 
-  return Composer.composerBox(
-    h,
-    model.voice,
-    model.now,
-    {
-      field: answerInputId,
-      picker: Composer.pickerId("answer"),
-      key: answerDraftKey(item.id),
-      voiceCard: model.answerVoice,
-      label,
-      placeholder,
-      text: model.answerText,
-      readOnly: !model.answerLoaded || busy,
-      onInput: (text) => Message.AnswerTextChanged({ text }),
-      submit: decide ? null : Message.AnswerSubmitted(),
-      enter: decide ? "none" : "send",
+  const actions = () =>
+    decide
+      ? [
+          h.button(
+            [
+              h.Type("button"),
+              h.AriaLabel("Reject"),
+              h.Attribute("title", "Reject"),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(busy || holdsVoice),
+              h.Class(
+                buttonClass({
+                  variant: "ghost",
+                  size: "icon",
+                  className: "rounded-full text-muted-foreground max-md:size-11",
+                }),
+              ),
+              h.OnClick(Message.ActionDecided({ decision: "reject" })),
+            ],
+            [banIcon(h, "size-4")],
+          ),
+          h.button(
+            [
+              h.Type("button"),
+              h.DataAttribute("keep-focus", ""),
+              h.Disabled(busy || holdsVoice),
+              h.Class(buttonClass({ className: "rounded-full max-md:h-11 max-md:px-4" })),
+              h.OnClick(Message.ActionDecided({ decision: "approve" })),
+            ],
+            [checkIcon(h, "size-4"), "Approve"],
+          ),
+        ]
+      : [
+          ...(item.todo?.dismissable
+            ? [
+                h.button(
+                  [
+                    h.Type("button"),
+                    h.DataAttribute("keep-focus", ""),
+                    h.Disabled(busy || holdsVoice),
+                    h.Class(
+                      buttonClass({
+                        variant: "outline",
+                        className: "rounded-full max-md:h-11 max-md:px-4",
+                      }),
+                    ),
+                    h.OnClick(Message.TrayActionClicked({ item, kind: "dismiss" })),
+                  ],
+                  [...(running === "dismiss" ? [spinnerIcon(h)] : []), "Dismiss"],
+                ),
+              ]
+            : []),
+          Composer.sendButton(h, {
+            label: sendLabel,
+            disabled: busy || cannotSend,
+            muted: cannotSend,
+            voiceBusy: holdsVoice,
+            content: [arrowUpIcon(h)],
+          }),
+        ];
+
+  return h.submodel({
+    slotId: "answer-composer",
+    model: composer,
+    view: Composer.view,
+    viewInputs: {
+      stoppable: false,
+      stopping: false,
+      stopReady: false,
+      locked: busy,
       autoFocus: false,
-      images: null,
-      inboxItems: [],
-      selections: [],
-      onVoiceButtonClick: Message.VoiceButtonClicked(),
-      onVoiceResendClick: Message.VoiceResendClicked(),
-      onVoiceRemoveClick: Message.VoiceRemoveClicked(),
-      actions: decide
-        ? [
-            h.button(
-              [
-                h.Type("button"),
-                h.AriaLabel("Reject"),
-                h.Attribute("title", "Reject"),
-                h.DataAttribute("keep-focus", ""),
-                h.Disabled(busy || holdsVoice),
-                h.Class(
-                  buttonClass({
-                    variant: "ghost",
-                    size: "icon",
-                    className: "rounded-full text-muted-foreground max-md:size-11",
-                  }),
-                ),
-                h.OnClick(Message.ActionDecided({ decision: "reject" })),
-              ],
-              [banIcon(h, "size-4")],
-            ),
-            h.button(
-              [
-                h.Type("button"),
-                h.DataAttribute("keep-focus", ""),
-                h.Disabled(busy || holdsVoice),
-                h.Class(buttonClass({ className: "rounded-full max-md:h-11 max-md:px-4" })),
-                h.OnClick(Message.ActionDecided({ decision: "approve" })),
-              ],
-              [checkIcon(h, "size-4"), "Approve"],
-            ),
-          ]
-        : [
-            ...(item.todo?.dismissable
-              ? [
-                  h.button(
-                    [
-                      h.Type("button"),
-                      h.DataAttribute("keep-focus", ""),
-                      h.Disabled(busy || holdsVoice),
-                      h.Class(
-                        buttonClass({
-                          variant: "outline",
-                          className: "rounded-full max-md:h-11 max-md:px-4",
-                        }),
-                      ),
-                      h.OnClick(Message.TrayActionClicked({ item, kind: "dismiss" })),
-                    ],
-                    [...(running === "dismiss" ? [spinnerIcon(h)] : []), "Dismiss"],
-                  ),
-                ]
-              : []),
-            h.button(
-              [
-                h.Type("submit"),
-                h.AriaLabel(sendLabel),
-                h.Attribute("title", sendLabel),
-                h.DataAttribute("keep-focus", ""),
-                h.Disabled(busy || cannotSend),
-                ...(holdsVoice ? [h.DataAttribute("voice-busy", "")] : []),
-                h.Class(
-                  cn(
-                    buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-                    cannotSend &&
-                      "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-                  ),
-                ),
-              ],
-              [arrowUpIcon(h)],
-            ),
-          ],
-      error: model.answerErrorId === item.id ? model.answerError : "",
+      selectionTime: timeOf,
+      actions,
     },
-    fromComposerMount,
-  );
+    toParentMessage: toGotAnswerComposerMessage,
+  });
 }
