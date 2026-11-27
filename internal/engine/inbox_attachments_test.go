@@ -352,3 +352,30 @@ func TestDoneOfATodoWithAnAttachmentAddsOneMessageThatTheAgentGetsAndDoneWithOnl
 		})
 	}
 }
+
+func TestAnAnswerOfAGitHubQuestionWithOnlyAnImagePostsACommentThatNamesTheChatAndAddsTheImageMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := askedServer(t, fake)
+	authorize(t, server)
+	item := waitForItem(t, server, "question")
+
+	status, body := postForm(t, server, "/api/inbox/"+itoa(item.ID)+"/answer", pngPart)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	want := testkit.Comment{Author: "owner", Body: "The images of my answer are in the Lead chat."}
+	if got := fake.Comments(shop, 41); !slices.Contains(got, want) {
+		t.Errorf("comments = %v", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		for _, message := range ownerChatMessages(t, server, leadChat) {
+			if message.Author == "Owner" && message.Images == 1 && !message.DisplayOnly && message.DeliveredAt != nil {
+				return true
+			}
+		}
+		return false
+	})
+}

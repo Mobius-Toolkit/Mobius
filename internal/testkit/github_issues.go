@@ -1708,7 +1708,7 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		message(w, status, "Resource not accessible by integration")
 		return
 	}
-	if utf8.RuneCountInString(request.Body) > 65535 {
+	if strings.TrimSpace(request.Body) == "" || utf8.RuneCountInString(request.Body) > 65535 {
 		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}

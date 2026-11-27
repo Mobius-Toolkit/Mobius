@@ -345,6 +345,13 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, att
 			body += "\n\n" + text
 		}
 	}
+	if empty(body) {
+		chat := "Lead chat"
+		if item.Workstream == 0 {
+			chat = "Coordinator chat"
+		}
+		body = "The images of my answer are in the " + chat + "."
+	}
 	comment, err := asOwner.AddComment(ctx, item.Issue, body)
 	if err != nil {
 		return "", err
