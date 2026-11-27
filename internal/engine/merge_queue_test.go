@@ -656,12 +656,14 @@ shell = "branch=$(git branch --show-current); echo $branch > ${branch##*/}.txt &
 		// A new Lead session gets the chat history in its first prompt, and the script matches "Approve #43" first.
 		cfg.LeadIdleTimeout = 30 * time.Second
 	})
+	logLeadStateOnFailure(t, server)
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")
 	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	// approveAgain gives the pull request of task 41 the lower number, so task 43 starts after task 41 has its pull request.
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "approval" })
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "approval" })
 
 	oldHead41 := head(t, fake, "mobius/41")
