@@ -4,11 +4,9 @@ import { Mount } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { trackKeyboardHeight } from "@/lib/keyboard";
 import { buttonClass } from "./button";
+import { trapTab } from "./focus";
 import { xIcon } from "./icons";
 import { renderBackButton } from "./page";
-
-const focusable =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const portalSelector = '[data-slot="dialog-portal"]';
 
@@ -43,19 +41,7 @@ export function defineDialogMount<
               if (layer && layer !== dialog) {
                 return;
               }
-              const items = [...dialog.querySelectorAll<HTMLElement>(focusable)];
-              const first = items[0];
-              const last = items[items.length - 1];
-              if (!first || !dialog.contains(document.activeElement)) {
-                event.preventDefault();
-                (first ?? dialog).focus();
-              } else if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-              } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-              }
+              trapTab(event, dialog);
             };
             (element.querySelector<HTMLElement>("[data-autofocus]") ?? dialog).focus();
             document.body.dataset.pageOverflow ??= document.body.style.overflow;
