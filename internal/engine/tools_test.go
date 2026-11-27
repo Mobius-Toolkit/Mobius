@@ -933,7 +933,16 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCopiesTheBlocker(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"), func(cfg *config.Config) { cfg.PollInterval = time.Hour })
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
+	first := startServer(t, fake, dataDir, "")
+	first.WaitForFirstPoll(t, shop)
+	first.Stop()
+	cfg := testserver.Config(t, dataDir)
+	cfg.PollInterval = time.Hour
+	server := testserver.StartWith(t, cfg, fake.URL)
 	testkit.WaitFor(t, server.Engine.PollEnded)
 	fake.AddIssue(shop, 49, "Add the invoice table")
 	fake.AddIssue(shop, 50, "Add invoices")
