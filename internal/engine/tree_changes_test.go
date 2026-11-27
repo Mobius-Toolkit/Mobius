@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func TestATrustedUserAddsASubIssueBelowATaskAndPollAddsItsRow(t *testing.T) {
@@ -393,6 +394,41 @@ func TestAFailedUpdateCopyRefreshesLabelsAndTextsOnSyncCopyWithoutChangingTreeOr
 	if got := fake.BlockerNumbers(shop, 50); len(got) != 0 {
 		t.Errorf("blockers of #50 on GitHub = %v", got)
 	}
+}
+
+func TestAFailedUpdateCopyIsRepairedByTheFirstPollAfterARestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddIssue(shop, 50, "Store the price in cents")
+	fake.AddLabel(shop, 50, "bug", "owner")
+	fake.AddSubIssue(shop, 41, 50)
+	server := startServer(t, fake, dataDir, "")
+	server.WaitForFirstPoll(t, shop)
+	testkit.WaitFor(t, func() bool { return slices.Contains(copiedLabels(t, server, 50), "bug") })
+	if _, err := server.DB.Exec(`CREATE TRIGGER fail_issue_update BEFORE UPDATE OF metadata ON issues WHEN NEW.number = 50 BEGIN SELECT RAISE(ABORT, 'busy'); END`); err != nil {
+		t.Fatal(err)
+	}
+	fake.RemoveLabel(shop, 50, "bug", "owner")
+	fake.AddLabel(shop, 50, "enhancement", "owner")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM sync_cursors WHERE repository = ? AND endpoint = 'copy_repair'", shop) == 1
+	})
+	server.Stop()
+	if _, err := server.DB.Exec(`DROP TRIGGER fail_issue_update`); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := testserver.Start(t, dataDir, fake.URL)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(copiedLabels(t, restarted, 50), []string{"enhancement"}) })
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, restarted, "SELECT count(*) FROM sync_cursors WHERE repository = ? AND endpoint = 'copy_repair'", shop) == 0
+	})
 }
 
 func TestRecopyTreesKeepsParentAndBlockersOfExistingRowsAndIgnoresUserIssues(t *testing.T) {
