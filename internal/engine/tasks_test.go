@@ -641,6 +641,10 @@ func TestTheTasksTabWritesNoHeldWorkWhileTheStartSwitchIsOff(t *testing.T) {
 	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
+	testkit.WaitFor(t, func() bool { return len(getSwitches(t, server).Held) == 1 })
+	if _, err := server.DB.Exec("DELETE FROM held_work"); err != nil {
+		t.Fatal(err)
+	}
 
 	lines := taskTab(t, server)
 
