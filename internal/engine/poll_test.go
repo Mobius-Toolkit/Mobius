@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -259,5 +260,22 @@ func TestPollStepGivesTheErrorOfTheStep(t *testing.T) {
 
 	if !errors.Is(err, wantErr) {
 		t.Errorf("err = %v, want %v", err, wantErr)
+	}
+}
+
+// Serial: it sets the output of the log package.
+func TestTheFirstPollLogsTheTimeOfRefreshFixLabelsAndSyncCopy(t *testing.T) {
+	logged := &logBuffer{}
+	log.SetOutput(logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	fake := testkit.NewFakeGitHub(t)
+	startServer(t, fake, t.TempDir(), "")
+
+	testkit.WaitFor(t, func() bool { return strings.Contains(logged.String(), "poll step owner/shop syncCopy: ") })
+
+	for _, want := range []string{"poll step refresh: ", "poll step owner/shop FixLabels: ", "poll step owner/shop syncCopy: "} {
+		if !strings.Contains(logged.String(), want) {
+			t.Errorf("log has no %q", want)
+		}
 	}
 }

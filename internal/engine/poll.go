@@ -70,7 +70,7 @@ func (e *Engine) poll(ctx context.Context) {
 	for _, repository := range repositories {
 		if !e.labelsFixed[repository.FullName] {
 			e.labelsFixed[repository.FullName] = true
-			if err := FixLabels(ctx, repository); err != nil {
+			if err := e.timeStep(repository.FullName+" FixLabels", true, func() error { return FixLabels(ctx, repository) }); err != nil {
 				log.Printf("fix the labels of %s: %v", repository.FullName, err)
 			}
 		}
