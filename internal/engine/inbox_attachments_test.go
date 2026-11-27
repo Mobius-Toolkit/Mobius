@@ -285,6 +285,14 @@ reply = ["Asked"]
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Got the answer"+imageReply(pngImage))
+	testkit.WaitFor(t, func() bool {
+		for _, message := range ownerChatMessages(t, server, coordinatorChat) {
+			if message.Author == "Owner" && message.Text == "Cents, please." && message.DeliveredAt != nil {
+				return true
+			}
+		}
+		return false
+	})
 	var found []ownerChatMessage
 	for _, message := range ownerChatMessages(t, server, coordinatorChat) {
 		if message.Author == "Owner" && message.Text == "Cents, please." {
