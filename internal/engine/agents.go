@@ -1178,7 +1178,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		return nil
 	}
 	spec := a.spec
-	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, nil, false)
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil, nil, false, 0)
 	a.message = message.ID
 	return err
 }

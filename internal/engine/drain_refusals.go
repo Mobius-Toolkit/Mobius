@@ -122,7 +122,7 @@ func (e *Engine) giveCoordinatorDrainRefusals(ctx context.Context, key ChatKey, 
 	var message store.ChatMessage
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		var err error
-		if message, err = e.storeChatMessage(ctx, q, key, mobiusAuthor, text, "", "", nil, nil, false); err != nil {
+		if message, err = e.storeChatMessage(ctx, q, key, mobiusAuthor, text, "", "", nil, nil, false, 0); err != nil {
 			return err
 		}
 		return remove(q)

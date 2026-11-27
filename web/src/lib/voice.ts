@@ -342,19 +342,26 @@ export const settle = async (key: string, result: Result, fieldId: string) => {
     await setVoice(key, (voice) => ({ ...voice, state: "failed", conversion: "", error }));
     return;
   }
-  const ready: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+  const ready = (voice: DraftVoice): DraftVoice => ({
+    ...voice,
+    state: "ready",
+    audio: null,
+    conversion: "",
+    error: "",
+    text: result.text,
+  });
   const input =
     inputs.find(
       (other) => other.key === key && other.fieldId === fieldId && document.getElementById(fieldId),
     ) ?? inputs.findLast((other) => other.key === key);
   if (input) {
     input.insert(result.text);
-    await setVoice(key, () => ready);
+    await setVoice(key, ready);
   } else {
     await updateDraft(key, (draft) => ({
       ...draft,
       text: insertVoiceText(draft.text, result.text).text,
-      voice: ready,
+      voice: draft.voice && ready(draft.voice),
     }));
   }
 };
@@ -392,12 +399,20 @@ const finish = async (notice: string) => {
   releaseScreen();
   await Promise.all([stopMedia(recording.stream, recording.context), loadDraft(key)]);
   const audio = wav(recording.chunks);
+  const samples = recording.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const stored = updateDraft(key, (draft) => ({
     ...draft,
-    voice: { state: "converting", audio, conversion: "", error: "" },
+    voice: {
+      state: "converting",
+      audio,
+      conversion: "",
+      error: "",
+      seconds: Math.round(samples / sampleRate),
+      text: "",
+    },
   }));
   stopping = false;
-  publish({ recording: false, live: "", notice: notice ? { key, text: notice } : snapshot.notice });
+  publish({ recording: false, notice: notice ? { key, text: notice } : snapshot.notice });
   await stored;
   const conversion = await finishLive(recording);
   if (conversion) {

@@ -56,7 +56,7 @@ func (e *Engine) addQuestion(ctx context.Context, params store.AddInboxItemParam
 // storeQuestion writes the chat message and the item of addQuestion with q, and sends them to no listener.
 func (e *Engine) storeQuestion(ctx context.Context, q *store.Queries, params store.AddInboxItemParams) (store.InboxItem, store.ChatMessage, error) {
 	key := ChatKey{params.Organization, params.WorkstreamRepository, params.Workstream}
-	message, err := e.storeChatMessage(ctx, q, key, questionAuthor, params.Text, "", "", nil, nil, false)
+	message, err := e.storeChatMessage(ctx, q, key, questionAuthor, params.Text, "", "", nil, nil, false, 0)
 	if err != nil {
 		return store.InboxItem{}, message, err
 	}
@@ -271,7 +271,7 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		e.publish(Change{Message: &cancelled})
 	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems, selections, message.Voice != 0); err != nil {
+	if err := e.storeChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems, selections, message.Voice != 0, message.VoiceSeconds); err != nil {
 		restored, undoErr := e.queries.UndoCancelChatMessage(context.WithoutCancel(ctx), message.ID)
 		if undoErr == nil && restored.Author != approvalAuthor {
 			e.publish(Change{Message: &restored})
@@ -309,7 +309,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, att
 			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
-		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice); err != nil {
+		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, 0); err != nil {
 			return "", err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
@@ -552,7 +552,7 @@ func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem,
 // the Owner with the card of item to inboxChat(item). The agent of the chat gets it. A failed write only goes to the
 // log, because the action has succeeded.
 func (e *Engine) postInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string, attachments Attachments) {
-	err := e.postChat(ctx, inboxChat(item), ownerAuthor, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice)
+	err := e.postChat(ctx, inboxChat(item), ownerAuthor, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, 0)
 	if err != nil {
 		log.Printf("post an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
 	}

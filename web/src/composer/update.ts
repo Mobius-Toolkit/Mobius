@@ -133,6 +133,7 @@ export function update(model: Model, message: Message): UpdateReturn {
             inboxItems: model.draftInboxItems,
             selections: model.draftSelections,
             voice: model.draftVoice?.state === "ready",
+            voiceSeconds: model.draftVoice?.seconds ?? 0,
           }),
         ],
       };

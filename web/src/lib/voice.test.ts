@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emptyDraft, updateDraft } from "./draft";
+import { emptyDraft, loadDraft, updateDraft } from "./draft";
 import { registerVoiceInput, settle } from "./voice";
 
 describe("voice input field targeting", () => {
@@ -8,7 +8,7 @@ describe("voice input field targeting", () => {
   beforeEach(async () => {
     await updateDraft(key, () => ({
       ...emptyDraft,
-      voice: { state: "converting", audio: null, conversion: "", error: "" },
+      voice: { state: "converting", audio: null, conversion: "", error: "", seconds: 7, text: "" },
     }));
   });
 
@@ -34,7 +34,7 @@ describe("voice input field targeting", () => {
 
     await updateDraft(key, (draft) => ({
       ...draft,
-      voice: { state: "converting", audio: null, conversion: "", error: "" },
+      voice: { state: "converting", audio: null, conversion: "", error: "", seconds: 7, text: "" },
     }));
 
     vi.stubGlobal("document", {
@@ -48,6 +48,24 @@ describe("voice input field targeting", () => {
 
     unregister1();
     unregister2();
+    vi.unstubAllGlobals();
+  });
+
+  it("the converted card keeps the seconds of the recording and holds the text", async () => {
+    vi.stubGlobal("document", { getElementById: () => ({ id: "chat-input" }) });
+    const unregister = registerVoiceInput(key, "chat-input", () => {});
+
+    await settle(key, { text: "Hello", error: "" }, "chat-input");
+
+    expect((await loadDraft(key)).voice).toEqual({
+      state: "ready",
+      audio: null,
+      conversion: "",
+      error: "",
+      seconds: 7,
+      text: "Hello",
+    });
+    unregister();
     vi.unstubAllGlobals();
   });
 });

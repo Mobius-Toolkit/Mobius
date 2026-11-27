@@ -10,6 +10,14 @@ import { arrowUpIcon, micIcon, paperclipIcon, spinnerIcon, squareIcon, xIcon } f
 import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
 import { selectionCardFields } from "@/ui/selection";
 import { textareaClass } from "@/ui/textarea";
+import {
+  formatDuration,
+  voiceBodyClass,
+  voiceCardFields,
+  voiceCardLabel,
+  voiceHeader,
+  voiceIcon,
+} from "@/ui/voice";
 import { Message } from "./message";
 import { inputId, isEmptyDraft, type Model, pickerId, voiceBusy } from "./model";
 
@@ -235,12 +243,11 @@ export const ScrollToEnd = Mount.define("ScrollToEnd", {
 });
 
 function elapsed(voiceState: { startedAt: number }, now: number) {
-  const seconds = Math.max(0, Math.floor((now - voiceState.startedAt) / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return formatDuration(Math.max(0, Math.floor((now - voiceState.startedAt) / 1000)));
 }
 
-// The card of the voice in the draft of a field: the recording with its live text, the conversion, the failure, or the
-// converted voice.
+// The card of the voice in the draft of a field: the recording with its live text, the conversion with the last live
+// text, the failure, or the converted voice.
 function voiceCard<Msg>(
   h: HtmlBuilder<Msg>,
   voiceState: { recording: boolean; key: string; startedAt: number; live: string },
@@ -253,6 +260,15 @@ function voiceCard<Msg>(
   if (!recording && !card) {
     return h.empty;
   }
+  const live = voiceState.key === box.key ? voiceState.live : "";
+  const liveText = h.span(
+    [
+      h.Key(`live-${live}`),
+      h.OnMount(Mount.mapMessage(ScrollToEnd(), toParent)),
+      h.Class(voiceBodyClass),
+    ],
+    [live],
+  );
   const small = (label: string, msg: Msg) =>
     h.button(
       [
@@ -263,83 +279,43 @@ function voiceCard<Msg>(
       ],
       [label],
     );
-  return h.div(
-    [
-      h.Role("group"),
-      h.AriaLabel("Voice recording"),
-      h.Class(
-        "flex w-72 max-w-full min-w-0 items-start gap-2 rounded-lg border bg-card px-2 py-1.5 text-sm",
-      ),
-    ],
-    [
-      micIcon(
-        h,
-        cn("mt-0.5 size-4 shrink-0 text-muted-foreground", recording && "text-destructive"),
-      ),
-      recording
-        ? h.div(
-            [h.Class("grid min-w-0 flex-1 gap-0.5")],
-            [
-              h.span(
-                [h.Class("font-medium")],
-                ["Recording ", h.span([], [elapsed(voiceState, now)])],
-              ),
-              h.p(
-                [
-                  h.Key(`live-${voiceState.live}`),
-                  h.OnMount(Mount.mapMessage(ScrollToEnd(), toParent)),
-                  h.Class(
-                    "max-h-10 min-h-10 overflow-hidden text-xs/5 wrap-anywhere text-muted-foreground",
-                  ),
-                ],
-                [voiceState.live],
-              ),
-            ],
-          )
-        : card?.state === "failed"
-          ? h.div(
-              [h.Class("grid min-w-0 flex-1 gap-1.5")],
+  const fields =
+    recording || !card
+      ? {
+          icon: voiceIcon(h, true),
+          header: `Recording ${elapsed(voiceState, now)}`,
+          body: liveText,
+        }
+      : card.state === "failed"
+        ? {
+            icon: voiceIcon(h),
+            header: h.span(
+              [h.Role("alert"), h.Attribute("title", card.error), h.Class("text-destructive")],
+              [card.error],
+            ),
+            body: h.span(
+              [h.Class(cn(voiceBodyClass, "flex items-center gap-2"))],
               [
-                h.p([h.Role("alert"), h.Class("text-destructive wrap-anywhere")], [card.error]),
-                h.div(
-                  [h.Class("flex gap-2")],
-                  [
-                    small("Send again", box.onVoiceResendClick),
-                    small("Discard", box.onVoiceRemoveClick),
-                  ],
-                ),
-              ],
-            )
-          : h.div(
-              [h.Class("contents")],
-              [
-                h.span(
-                  [h.Class("min-w-0 flex-1 font-medium")],
-                  [card?.state === "converting" ? "Converting" : "Voice"],
-                ),
-                card?.state === "ready"
-                  ? h.button(
-                      [
-                        h.Type("button"),
-                        h.AriaLabel("Remove voice"),
-                        h.Attribute("title", "Remove voice"),
-                        h.DataAttribute("keep-focus", ""),
-                        h.Class(
-                          buttonClass({
-                            variant: "secondary",
-                            size: "icon-sm",
-                            className: "-my-0.5 -mr-1 rounded-full max-md:size-8",
-                          }),
-                        ),
-                        h.OnClick(box.onVoiceRemoveClick),
-                      ],
-                      [xIcon(h)],
-                    )
-                  : h.empty,
+                small("Send again", box.onVoiceResendClick),
+                small("Discard", box.onVoiceRemoveClick),
               ],
             ),
-    ],
-  );
+          }
+        : card.state === "converting"
+          ? {
+              icon: voiceIcon(h),
+              header: voiceHeader("Converting", card.seconds),
+              body: liveText,
+            }
+          : { ...voiceCardFields(h, card), onRemove: box.onVoiceRemoveClick };
+  return renderAttachmentCard(h, {
+    kind: "voice",
+    key: "voice",
+    label: voiceCardLabel,
+    removeLabel: "Remove voice",
+    fixedWidth: true,
+    ...fields,
+  });
 }
 
 function voiceButton<Msg>(

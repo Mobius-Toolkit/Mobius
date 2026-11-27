@@ -1,0 +1,1 @@
+ALTER TABLE chat_messages ADD COLUMN voice_seconds INTEGER NOT NULL DEFAULT 0;

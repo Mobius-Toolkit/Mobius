@@ -82,6 +82,9 @@ type chatMessage struct {
 	Text      string `json:"text"`
 	Images    int64  `json:"images"`
 	BrowserID string `json:"browserId"`
+	Voice     bool   `json:"voice"`
+
+	VoiceSeconds int64 `json:"voiceSeconds"`
 }
 
 func getMessages(t *testing.T, server *testserver.Server) []chatMessage {
@@ -132,6 +135,62 @@ func TestSendChatKeepsTheTextAndTheImagesOfAMessage(t *testing.T) {
 		if reply.StatusCode != http.StatusOK || reply.Header.Get("Content-Type") != want.contentType || !bytes.Equal(data, want.data) {
 			t.Errorf("image %d: status %d, type %q, data %q", position, reply.StatusCode, reply.Header.Get("Content-Type"), data)
 		}
+	}
+}
+
+// sendVoiceChat posts a voice message to the Coordinator chat of the organization owner. A seconds of "" sends no
+// voiceSeconds part, as an older browser does.
+func sendVoiceChat(t *testing.T, server *testserver.Server, id, seconds string) int {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	fields := map[string]string{"id": id, "organization": "owner", "text": "Plant roses", "voice": "true"}
+	if seconds != "" {
+		fields["voiceSeconds"] = seconds
+	}
+	for name, value := range fields {
+		if err := form.WriteField(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/chat/messages", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	reply, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reply.Body.Close()
+	return reply.StatusCode
+}
+
+func TestSendChatKeepsTheSecondsOfAVoiceMessage(t *testing.T) {
+	server := startChat(t)
+
+	if status := sendVoiceChat(t, server, "timed", "42"); status != http.StatusNoContent {
+		t.Fatalf("status = %d", status)
+	}
+	if status := sendVoiceChat(t, server, "untimed", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d", status)
+	}
+	if status := sendVoiceChat(t, server, "negative", "-1"); status == http.StatusNoContent {
+		t.Fatalf("status = %d for a negative duration", status)
+	}
+
+	messages := getMessages(t, server)
+	if len(messages) != 2 {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if !messages[0].Voice || messages[0].VoiceSeconds != 42 {
+		t.Errorf("timed message = %+v", messages[0])
+	}
+	if !messages[1].Voice || messages[1].VoiceSeconds != 0 {
+		t.Errorf("untimed message = %+v", messages[1])
 	}
 }
 

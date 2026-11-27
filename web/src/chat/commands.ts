@@ -62,7 +62,14 @@ const clearDraft = (key: string) =>
     })),
   ).pipe(Effect.ignore);
 
-const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+const readyVoice = (text: string): DraftVoice => ({
+  state: "ready",
+  audio: null,
+  conversion: "",
+  error: "",
+  seconds: 0,
+  text,
+});
 
 // Puts a draft that did not go out back in the store. The Owner can have typed or added an item in the meantime.
 const restoreDraft = (
@@ -84,7 +91,7 @@ const restoreDraft = (
         ...sent.inboxItems,
         ...draft.inboxItems.filter((item) => !sent.inboxItems.some(({ id }) => id === item.id)),
       ],
-      voice: draft.voice ?? (sent.voice ? readyVoice : null),
+      voice: draft.voice ?? (sent.voice ? readyVoice(sent.text) : null),
     })),
   ).pipe(Effect.ignore);
 
@@ -180,6 +187,14 @@ export const FetchOlder = Command.define("FetchOlder", {
     ),
 });
 
+export const readQueued = (record: typeof StoredQueued.Type): Queued => ({
+  ...record,
+  inboxItems: record.inboxItems ?? [],
+  selections: record.selections ?? [],
+  voice: record.voice ?? false,
+  voiceSeconds: record.voiceSeconds ?? 0,
+});
+
 export const ListQueued = Command.define("ListQueued", {
   args: {
     organization: Schema.String,
@@ -192,14 +207,7 @@ export const ListQueued = Command.define("ListQueued", {
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(StoredQueued))),
       Effect.map((records) =>
         Message.QueueLoaded({
-          items: records
-            .map((record) => ({
-              ...record,
-              inboxItems: record.inboxItems ?? [],
-              selections: record.selections ?? [],
-              voice: record.voice ?? false,
-            }))
-            .toSorted((a, b) => a.time.localeCompare(b.time)),
+          items: records.map(readQueued).toSorted((a, b) => a.time.localeCompare(b.time)),
         }),
       ),
       Effect.catch((error) => Effect.succeed(Message.QueueFailed({ error: error.message }))),

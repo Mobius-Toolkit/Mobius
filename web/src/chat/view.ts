@@ -20,7 +20,6 @@ import {
   circleXIcon,
   clockIcon,
   messageSquareIcon,
-  micIcon,
   spinnerIcon,
   trash2Icon,
   triangleAlertIcon,
@@ -33,6 +32,7 @@ import { fromComposerMount, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
 import { renderSelectionPopover, selectionCardFields, Watch } from "@/ui/selection";
+import { voiceCardFields } from "@/ui/voice";
 import {
   Message,
   toGotComposerMessage,
@@ -376,19 +376,6 @@ function renderEventBody(h: H, id: number, summary: string, body: string, open: 
   );
 }
 
-function renderVoiceCard(h: H): Html {
-  return h.div(
-    [
-      h.Role("img"),
-      h.AriaLabel("Voice"),
-      h.Class(
-        "flex size-24 items-center justify-center rounded-lg border bg-muted text-muted-foreground",
-      ),
-    ],
-    [micIcon(h, "size-8")],
-  );
-}
-
 type TimeOfMessage = (id: number) => string | undefined;
 
 function renderMessage(
@@ -477,7 +464,14 @@ function renderMessage(
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
             [
-              ...(message.voice ? [renderVoiceCard(h)] : []),
+              ...(message.voice
+                ? [
+                    renderAttachmentCard(h, {
+                      kind: "voice",
+                      ...voiceCardFields(h, { seconds: message.voiceSeconds, text: message.text }),
+                    }),
+                  ]
+                : []),
               ...Array.from({ length: message.images }, (_, position) =>
                 h.img([
                   h.Attribute("src", getGetChatImageUrl(message.id, position)),
@@ -542,7 +536,14 @@ function renderQueuedMessage(
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
             [
-              ...(item.voice ? [renderVoiceCard(h)] : []),
+              ...(item.voice
+                ? [
+                    renderAttachmentCard(h, {
+                      kind: "voice",
+                      ...voiceCardFields(h, { seconds: item.voiceSeconds, text: item.text }),
+                    }),
+                  ]
+                : []),
               ...item.images.map((_, position) =>
                 Composer.renderFileImage(
                   h,

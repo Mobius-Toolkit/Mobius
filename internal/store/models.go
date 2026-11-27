@@ -31,6 +31,7 @@ type ChatMessage struct {
 	Voice        int64
 	Selections   string
 	DisplayOnly  int64
+	VoiceSeconds int64
 }
 
 type CheckTimeout struct {

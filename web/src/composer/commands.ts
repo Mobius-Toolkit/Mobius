@@ -26,7 +26,14 @@ const clearDraft = (key: string) =>
     })),
   ).pipe(Effect.ignore);
 
-const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+const readyVoice = (seconds: number, text: string): DraftVoice => ({
+  state: "ready",
+  audio: null,
+  conversion: "",
+  error: "",
+  seconds,
+  text,
+});
 
 const restoreDraft = (
   key: string,
@@ -36,6 +43,7 @@ const restoreDraft = (
     inboxItems: DraftInboxItem[];
     selections: DraftSelection[];
     voice: boolean;
+    voiceSeconds: number;
   },
 ) =>
   store(() =>
@@ -53,7 +61,7 @@ const restoreDraft = (
           (selection) => !sent.selections.some(({ id }) => id === selection.id),
         ),
       ],
-      voice: draft.voice ?? (sent.voice ? readyVoice : null),
+      voice: draft.voice ?? (sent.voice ? readyVoice(sent.voiceSeconds, sent.text) : null),
     })),
   ).pipe(Effect.ignore);
 
@@ -171,6 +179,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     inboxItems: DraftInboxItems,
     selections: DraftSelections,
     voice: Schema.Boolean,
+    voiceSeconds: Schema.Number,
   },
   messages: [Message.MessageQueued, Message.MessageRefused],
   execute: ({
@@ -183,6 +192,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     inboxItems,
     selections,
     voice,
+    voiceSeconds,
   }) =>
     Effect.gen(function* () {
       const item: Queued = {
@@ -209,6 +219,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
           messageAuthor: selection.messageAuthor,
         })),
         voice,
+        voiceSeconds,
         time: new Date().toISOString(),
       };
       yield* clearDraft(key);
@@ -216,7 +227,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
       return Message.MessageQueued({ item });
     }).pipe(
       Effect.catchTag("StoreFailed", (error) =>
-        restoreDraft(key, { text, images, inboxItems, selections, voice }).pipe(
+        restoreDraft(key, { text, images, inboxItems, selections, voice, voiceSeconds }).pipe(
           Effect.as(Message.MessageRefused({ error: error.message })),
         ),
       ),

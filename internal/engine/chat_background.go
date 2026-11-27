@@ -110,7 +110,7 @@ func (e *Engine) tellBackgroundResult(c *chat, a *Agent) error {
 	if c.key.Workstream == 0 {
 		author = coordinatorAuthor
 	}
-	_, err := e.addChatMessage(c.ctx, c.key, author, text, "", "", nil, nil, false)
+	_, err := e.addChatMessage(c.ctx, c.key, author, text, "", "", nil, nil, false, 0)
 	return err
 }
 

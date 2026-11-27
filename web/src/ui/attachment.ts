@@ -10,23 +10,28 @@ export function renderAttachmentCard<Msg>(
   options: {
     kind: "selection" | "inbox-item" | "voice";
     key?: string;
+    label?: string;
     icon: Html;
     header: Html | string;
     body?: Html;
     onRemove?: Msg;
     removeLabel: string;
+    fixedWidth?: boolean;
     onClick?: Msg;
     href?: string;
   },
 ): Html {
-  const { kind, key, icon, header, body, onRemove, removeLabel, onClick, href } = options;
+  const { kind, key, label, icon, header, body, onRemove, removeLabel, fixedWidth, onClick, href } =
+    options;
   const attributes = [
     ...(key ? [h.Key(key)] : []),
+    ...(label ? [h.Role("group"), h.AriaLabel(label)] : []),
     h.DataAttribute("attachment-card", kind),
     h.Class(
       cn(
         "relative flex min-w-0 max-w-full items-start gap-2 rounded-lg border bg-card px-2 py-1.5 text-left text-sm",
-        onRemove && "w-64 pr-9",
+        (onRemove || fixedWidth) && "w-64",
+        onRemove && "pr-9",
         (onClick || href) && "hover:bg-accent",
       ),
     ),
