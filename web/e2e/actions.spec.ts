@@ -41,6 +41,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { buttonNames } from "./buttons.js";
+import { png } from "./images.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
 import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
 import { cancelDrain } from "./upgrade.js";
@@ -313,7 +314,10 @@ test("a failed action keeps the panel with its error and its note, and a second 
   await reject(page).click();
   await expect(panel(page)).toBeHidden();
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-  expect(approvals.map(formFields)).toEqual([{ message: "Go ahead." }, { message: "Go ahead." }]);
+  expect(approvals.map(formFields)).toEqual([
+    { message: "Go ahead.", voice: "false" },
+    { message: "Go ahead.", voice: "false" },
+  ]);
 });
 
 test("a decision with an empty note goes out one time and hides the row while the request runs", async ({
@@ -343,10 +347,10 @@ test("a decision with an empty note goes out one time and hides the row while th
 
   await expect(waiting(page, 1)).toBeHidden();
   expect((await answered).ok()).toBe(true);
-  expect(bodies).toEqual([{ message: "" }]);
+  expect(bodies).toEqual([{ message: "", voice: "false" }]);
 });
 
-test("the panel has the microphone button and no attach button", async ({ page }) => {
+test("the panel has the microphone button and the attach button", async ({ page }) => {
   await page.addInitScript(fakeMicrophone);
   await openChat(page);
   await ask(page, keepPrices);
@@ -355,7 +359,7 @@ test("the panel has the microphone button and no attach button", async ({ page }
   await answer(page, leadTitle);
 
   await expect(panel(page).getByRole("button", { name: "Start voice input" })).toBeVisible();
-  await expect(panel(page).getByRole("button", { name: "Attach images" })).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: "Attach images" })).toBeVisible();
   await expect(panel(page).getByRole("button", { name: "Send" })).toHaveCount(0);
 });
 
@@ -1018,6 +1022,42 @@ test("the read-only dialog of a done edit_brief action shows the changes, and th
     await expect(removedSwitch(panel(page))).toHaveCount(0);
   } finally {
     await page.unroute("**/api/chat?*");
+    await restoreBrief(page);
+  }
+});
+
+test("the Owner approves an edit_brief action with an image, and the request carries it", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  const bodies: string[] = [];
+  await page.route("**/api/actions/*/approve", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.continue();
+  });
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  try {
+    await panel(page)
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "plan.png",
+        mimeType: "image/png",
+        buffer: await png(page, 40, 30, "red"),
+      });
+    await expect(panel(page).getByRole("img", { name: "Image 1" })).toBeVisible();
+    await panel(page).getByRole("textbox", { name: "Note for the Lead" }).fill("See the plan.");
+    const answered = approved(page);
+    await approve(page).click();
+    expect((await answered).ok()).toBe(true);
+
+    await expect(panel(page)).toBeHidden();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain('name="images"; filename="');
+    expect(formFields(bodies[0])).toEqual({ message: "See the plan.", voice: "false" });
+  } finally {
     await restoreBrief(page);
   }
 });

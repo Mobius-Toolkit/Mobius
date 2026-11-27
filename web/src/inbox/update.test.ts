@@ -1,14 +1,10 @@
 import { Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { Command as StoryCommand, given, message, model, story } from "foldkit/story";
-import {
-  AnswerInboxItem,
-  OpenChatWithItem,
-  ResumeIssue,
-  RunTrayAction,
-  SaveDraftText,
-} from "@/chat/commands";
-import { Message, toGotWorkstreamSetupMessage } from "@/chat/message";
+import { AnswerInboxItem, OpenChatWithItem, ResumeIssue, RunTrayAction } from "@/chat/commands";
+import { SaveDraftText } from "@/composer/commands";
+import * as ComposerFixture from "@/composer/fixtures";
+import { Message, toGotAnswerComposerMessage, toGotWorkstreamSetupMessage } from "@/chat/message";
 import { initialModel, type Model } from "@/chat/model";
 import type { InboxItem } from "@/chat/schemas";
 import { update } from "@/chat/update";
@@ -214,14 +210,19 @@ describe("inbox update story tests", () => {
         given(createModel({ trayItems: [question] })),
         message(Message.OpenAnswerPanel({ item: question })),
         message(
-          Message.ReceivedAnswerDraft({
-            id: 7,
-            draft: { text: "", images: [], inboxItems: [], selections: [], voice: null },
-          }),
+          toGotAnswerComposerMessage(
+            ComposerFixture.draftReceived({
+              text: "",
+              images: [],
+              inboxItems: [],
+              selections: [],
+              voice: null,
+            }),
+          ),
         ),
-        message(Message.AnswerTextChanged({ text: "Yes" })),
-        StoryCommand.resolve(SaveDraftText, Message.CompletedSaveDraft()),
-        message(Message.AnswerSubmitted()),
+        message(toGotAnswerComposerMessage(ComposerFixture.draftTextChanged("Yes"))),
+        StoryCommand.resolve(SaveDraftText, ComposerFixture.saved),
+        message(toGotAnswerComposerMessage(ComposerFixture.sendSubmitted)),
         StoryCommand.expectExact(
           AnswerInboxItem({
             id: 7,
@@ -229,6 +230,9 @@ describe("inbox update story tests", () => {
             issue: 45,
             answer: "Yes",
             notice: "Sent the answer to the Lead of #12",
+            images: [],
+            inboxItems: [],
+            selections: [],
             voice: false,
           }),
         ),
@@ -242,9 +246,9 @@ describe("inbox update story tests", () => {
         update,
         given(createModel({ trayItems: [question] })),
         message(Message.OpenAnswerPanel({ item: question })),
-        message(Message.AnswerTextChanged({ text: "Yes" })),
-        StoryCommand.resolve(SaveDraftText, Message.CompletedSaveDraft()),
-        message(Message.AnswerSubmitted()),
+        message(toGotAnswerComposerMessage(ComposerFixture.draftTextChanged("Yes"))),
+        StoryCommand.resolve(SaveDraftText, ComposerFixture.saved),
+        message(toGotAnswerComposerMessage(ComposerFixture.sendSubmitted)),
         model((m) => {
           expect(m.requesting).toEqual([7]);
         }),
@@ -254,7 +258,7 @@ describe("inbox update story tests", () => {
         ),
         model((m) => {
           expect(m.activePanel?.item.id).toBe(7);
-          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerComposer?.sendError).toBe("The server failed.");
           expect(m.requesting).toEqual([]);
           expect(m.trayItems).toEqual([question]);
         }),

@@ -112,12 +112,18 @@ export function update(model: Model, message: Message): UpdateReturn {
       };
     },
 
-    // The Send button and Enter stop a voice run and send nothing.
+    // The Send button and Enter stop a voice run and send nothing. A parent decides if its draft is empty.
     SendSubmitted: () => {
       if (model.voice.recording) {
         return { model, commands: [StopVoice()] };
       }
-      if (isEmptyDraft(model) || voiceBusy(model.draftVoice)) {
+      if (voiceBusy(model.draftVoice)) {
+        return { model };
+      }
+      if (model.sends === "parent") {
+        return { model, outMessage: OutMessage.DraftSubmitted() };
+      }
+      if (isEmptyDraft(model)) {
         return { model };
       }
       return {

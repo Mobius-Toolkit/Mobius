@@ -28,7 +28,7 @@ import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { defineRouterLink } from "@/ui/link";
 import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
 import * as Composer from "@/composer";
-import { fromComposerMount, renderPanelComposer } from "./composer";
+import { renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
 import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
 import { renderSelectionPopover, selectionCardFields, Watch } from "@/ui/selection";
@@ -553,7 +553,7 @@ function renderQueuedMessage(
                     h.Alt(`Picture ${position + 1} of an unsent message`),
                     h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
                   ],
-                  fromComposerMount,
+                  toGotComposerMessage,
                 ),
               ),
             ],
@@ -1452,7 +1452,16 @@ export function renderAnswerDialog(h: H, model: Model): Html {
     close: Message.ClosePanel(),
     back: fromTodoList ? Message.ClosePanel() : undefined,
     body,
-    footer: input ? renderPanelComposer(h, model, item) : h.empty,
+    footer:
+      input && model.answerComposer
+        ? renderPanelComposer(
+            h,
+            model,
+            model.answerComposer,
+            item,
+            (id) => model.messages.find((message) => message.id === id)?.time,
+          )
+        : h.empty,
   });
 }
 
@@ -1641,7 +1650,10 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
           stoppable: model.stoppable,
           stopping: model.stopping,
           stopReady: model.stopReady,
+          locked: false,
+          autoFocus: true,
           selectionTime: timeOf,
+          actions: null,
         },
         toParentMessage: toGotComposerMessage,
       }),

@@ -19,20 +19,27 @@ import {
   addDraftSelection,
   answerDraftKey,
   chatDraftKey,
-  type Draft as StoredDraft,
   type DraftInboxItem,
-  type DraftVoice,
-  updateDraft,
+  type DraftSelection,
 } from "@/lib/draft";
+import { clearDraft, restoreDraft, sentInboxItems, sentSelections } from "@/composer/commands";
 import { StoreFailed, request, store } from "@/lib/effects";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { pushUrl } from "@/lib/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
 import { listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
-import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
-import { ChatSelection, InboxItem, PendingAction, Queued, StoredQueued } from "./schemas";
+import {
+  ChatSelection,
+  DraftInboxItems,
+  DraftSelections,
+  Images,
+  InboxItem,
+  PendingAction,
+  Queued,
+  StoredQueued,
+} from "./schemas";
 
 type Outcome = { message: Message; status?: number | undefined };
 
@@ -49,51 +56,6 @@ function withLogin<A extends Outcome>(
     Effect.map(({ message }) => message),
   );
 }
-
-const clearDraft = (key: string) =>
-  store(() =>
-    updateDraft(key, (draft) => ({
-      ...draft,
-      text: "",
-      images: [],
-      inboxItems: [],
-      selections: [],
-      voice: null,
-    })),
-  ).pipe(Effect.ignore);
-
-const readyVoice = (text: string): DraftVoice => ({
-  state: "ready",
-  audio: null,
-  conversion: "",
-  error: "",
-  seconds: 0,
-  text,
-});
-
-// Puts a draft that did not go out back in the store. The Owner can have typed or added an item in the meantime.
-const restoreDraft = (
-  key: string,
-  sent: {
-    text: string;
-    images: File[];
-    inboxItems: DraftInboxItem[];
-    voice: boolean;
-  },
-) =>
-  store(() =>
-    updateDraft(key, (draft) => ({
-      ...draft,
-      text:
-        draft.text === sent.text ? sent.text : [sent.text, draft.text].filter(Boolean).join(" "),
-      images: sent.images,
-      inboxItems: [
-        ...sent.inboxItems,
-        ...draft.inboxItems.filter((item) => !sent.inboxItems.some(({ id }) => id === item.id)),
-      ],
-      voice: draft.voice ?? (sent.voice ? readyVoice(sent.text) : null),
-    })),
-  ).pipe(Effect.ignore);
 
 const showNoticeOf = (text: string) => Effect.sync(() => showNotice(text));
 
@@ -304,18 +266,6 @@ export const StopChat = Command.define("StopChat", {
     ),
 });
 
-const savedDraft = (key: string, change: (draft: StoredDraft) => StoredDraft) =>
-  store(() => updateDraft(key, change)).pipe(
-    Effect.ignore,
-    Effect.as(Message.CompletedSaveDraft()),
-  );
-
-export const SaveDraftText = Command.define("SaveDraftText", {
-  args: { key: Schema.String, text: Schema.String },
-  messages: [Message.CompletedSaveDraft],
-  execute: ({ key, text }) => savedDraft(key, (draft) => ({ ...draft, text })),
-});
-
 export const SaveTrayState = Command.define("SaveTrayState", {
   args: { collapsed: Schema.Boolean },
   messages: [Message.CompletedSaveTrayState],
@@ -402,6 +352,31 @@ const refusalOf = (res: { status: number; data: { error: string } }): Refusal =>
 const unreachable = (error: { message: string }): Effect.Effect<Refusal> =>
   Effect.succeed({ error: error.message });
 
+// The parts of the draft that go with the text of a request.
+const partArgs = {
+  images: Images,
+  inboxItems: DraftInboxItems,
+  selections: DraftSelections,
+  voice: Schema.Boolean,
+};
+
+type Parts = {
+  images: File[];
+  inboxItems: DraftInboxItem[];
+  selections: DraftSelection[];
+  voice: boolean;
+};
+
+const bodyParts = ({ images, inboxItems, selections, voice }: Parts) => ({
+  images,
+  inboxItems: sentInboxItems(inboxItems),
+  selections: sentSelections(selections),
+  voice,
+});
+
+const restoreParts = (key: string, text: string, parts: Parts) =>
+  restoreDraft(key, { text, ...parts, voiceSeconds: 0 });
+
 export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   args: {
     id: Schema.Number,
@@ -409,15 +384,17 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
     issue: Schema.Number,
     answer: Schema.String,
     notice: Schema.String,
-    voice: Schema.Boolean,
+    ...partArgs,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, answer, notice, voice }) =>
+  execute: ({ id, repository, issue, answer, notice, ...parts }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
         yield* clearDraft(answerDraftKey(id));
-        const refusal = yield* request(() => answerInboxItem(id, { text: answer })).pipe(
+        const refusal = yield* request(() =>
+          answerInboxItem(id, { text: answer, ...bodyParts(parts) }),
+        ).pipe(
           Effect.map((res) => (res.status === 200 ? null : refusalOf(res))),
           Effect.catchTag("RequestFailed", unreachable),
         );
@@ -425,12 +402,7 @@ export const AnswerInboxItem = Command.define("AnswerInboxItem", {
           yield* showNoticeOf(notice);
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        yield* restoreDraft(answerDraftKey(id), {
-          text: answer,
-          images: [],
-          inboxItems: [],
-          voice,
-        });
+        yield* restoreParts(answerDraftKey(id), answer, parts);
         yield* Effect.sync(() => restoreInboxItem(id));
         return {
           message: Message.AnswerCompleted({ id, error: refusal.error }),
@@ -447,15 +419,15 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
     issue: Schema.Number,
     notice: Schema.String,
     note: Schema.String,
-    voice: Schema.Boolean,
+    ...partArgs,
   },
   messages: [Message.AnswerCompleted],
-  execute: ({ id, repository, issue, notice, note, voice }) =>
+  execute: ({ id, repository, issue, notice, note, ...parts }) =>
     withLogin(
       Effect.gen(function* () {
         yield* Effect.sync(() => hideInboxItem({ id, repository, issue }));
         yield* clearDraft(answerDraftKey(id));
-        const refusal = yield* request(() => doneInboxItem(id, { note })).pipe(
+        const refusal = yield* request(() => doneInboxItem(id, { note, ...bodyParts(parts) })).pipe(
           Effect.map((res) => (res.status === 200 ? null : refusalOf(res))),
           Effect.catchTag("RequestFailed", unreachable),
         );
@@ -463,7 +435,7 @@ export const DoneInboxItem = Command.define("DoneInboxItem", {
           yield* showNoticeOf(notice);
           return { message: Message.AnswerCompleted({ id, error: "" }) };
         }
-        yield* restoreDraft(answerDraftKey(id), { text: note, images: [], inboxItems: [], voice });
+        yield* restoreParts(answerDraftKey(id), note, parts);
         yield* Effect.sync(() => restoreInboxItem(id));
         return {
           message: Message.AnswerCompleted({ id, error: refusal.error }),
@@ -522,7 +494,8 @@ function decide(decision: "approve" | "reject") {
     issue,
     title,
     text,
-  }: {
+    ...parts
+  }: Parts & {
     actionId: number;
     inboxItemId: number;
     repository: string;
@@ -553,7 +526,9 @@ function decide(decision: "approve" | "reject") {
             }
             return { message: Message.ActionCompleted({ id: inboxItemId, action: decided }) };
           });
-        return yield* request(() => decisions[decision](actionId, { message: text })).pipe(
+        return yield* request(() =>
+          decisions[decision](actionId, { message: text, ...bodyParts(parts) }),
+        ).pipe(
           Effect.flatMap((res) =>
             res.status === 200
               ? completed(res.data.data)
@@ -572,6 +547,7 @@ const decisionArgs = {
   issue: Schema.Number,
   title: Schema.String,
   text: Schema.String,
+  ...partArgs,
 };
 
 export const ApproveAction = Command.define("ApproveAction", {
@@ -691,42 +667,5 @@ export const RunTrayAction = Command.define("RunTrayAction", {
           }),
         ),
       ),
-    ),
-});
-
-export const ToggleVoice = Command.define("ToggleVoice", {
-  args: { key: Schema.String, fieldId: Schema.String },
-  messages: [Message.CompletedToggleVoice],
-  execute: ({ key, fieldId }) =>
-    Effect.sync(() => {
-      toggleVoice(key, fieldId);
-      return Message.CompletedToggleVoice();
-    }),
-});
-
-export const StopVoice = Command.define("StopVoice", {
-  messages: [Message.CompletedStopVoice],
-  execute: Effect.sync(() => {
-    stopVoice();
-    return Message.CompletedStopVoice();
-  }),
-});
-
-export const ResendVoice = Command.define("ResendVoice", {
-  args: { key: Schema.String, fieldId: Schema.String },
-  messages: [Message.CompletedResendVoice],
-  execute: ({ key, fieldId }) =>
-    store(() => resend(key, fieldId)).pipe(
-      Effect.ignore,
-      Effect.as(Message.CompletedResendVoice()),
-    ),
-});
-
-export const RemoveVoice = Command.define("RemoveVoice", {
-  args: { key: Schema.String },
-  messages: [Message.CompletedRemoveVoice],
-  execute: ({ key }) =>
-    savedDraft(key, (draft) => ({ ...draft, voice: null })).pipe(
-      Effect.as(Message.CompletedRemoveVoice()),
     ),
 });

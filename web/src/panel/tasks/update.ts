@@ -131,6 +131,7 @@ const foldComposer = Update.foldChild({
     ComposerOutMessage.match<Update.Step<Model, Message>>(outMessage, {
       StopClicked: () => (model) => ({ model }),
       MessageEnqueued: () => (model) => ({ model }),
+      DraftSubmitted: () => (model) => ({ model }),
     }),
 });
 

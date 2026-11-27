@@ -86,6 +86,7 @@ export function initialModel(options: {
     composer: Composer.initialModel({
       draftKey: chatDraftKey(options.owner, `${options.owner}/${options.name}`, options.number),
       instance: `${options.instance}-task`,
+      sends: "outbox",
       label: "Message to the Lead",
       placeholder: "Write to the Lead",
       organization: options.owner,

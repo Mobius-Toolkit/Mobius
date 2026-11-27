@@ -26,6 +26,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { routeLongNameOfPaused } from "./agents.js";
+import { answerDraftKeyOf, attachToPanel } from "./drafts.js";
 import { waitForEvergreen } from "./evergreen.js";
 import {
   checkupRoute,
@@ -3098,6 +3099,26 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }).click();
     },
   );
+  const questionKey = await answerDraftKeyOf(page, (item) => item.kind === "question");
+  await screenshot(
+    page,
+    "inbox-answer-attachments",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }),
+      page.getByRole("dialog").locator("[data-attachment-card='inbox-item']"),
+      page.getByRole("dialog").locator("[data-attachment-card='selection']"),
+      page.getByRole("dialog").getByRole("img", { name: "Image 1" }),
+      page.getByRole("dialog").getByRole("button", { name: "Send" }),
+    ],
+    async (device) => {
+      await attachToPanel(page, questionKey, () => openPanel("Answer", 0)(device));
+    },
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+    },
+  );
   const readyRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
   const merged = noticeOf(page, "Started the merge of PR #44");
   await screenshot(page, "inbox-merge", "/inbox", (device) => [
@@ -5007,6 +5028,30 @@ test("screenshots", async ({ page }) => {
       await expect(removedText(panel)).toHaveCount(2);
     },
     () => page.keyboard.press("Escape"),
+  );
+  const briefKey = await answerDraftKeyOf(
+    page,
+    (item) => item.action?.tool === "edit_brief" && item.action.state === "pending",
+  );
+  await screenshot(
+    page,
+    "action-brief-attachments",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      addedText(panel).first(),
+      panel.locator("[data-attachment-card='inbox-item']"),
+      panel.locator("[data-attachment-card='selection']"),
+      panel.getByRole("img", { name: "Image 1" }),
+      panel.getByRole("button", { name: "Approve" }),
+    ],
+    async () => {
+      await attachToPanel(page, briefKey, openBrief);
+    },
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+    },
   );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
   await decide(page, panel, "approve");

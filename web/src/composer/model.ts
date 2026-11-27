@@ -13,24 +13,33 @@ import {
 export const inputId = (instance: string) => `${instance}-input`;
 export const pickerId = (instance: string) => `${instance}-attach`;
 
+export const hasAttachments = (model: {
+  draftImages: readonly File[];
+  draftInboxItems: readonly DraftInboxItem[];
+  draftSelections: readonly DraftSelection[];
+}) =>
+  model.draftImages.length > 0 ||
+  model.draftInboxItems.length > 0 ||
+  model.draftSelections.length > 0;
+
 export const isEmptyDraft = (model: {
   draftText: string;
   draftImages: readonly File[];
   draftInboxItems: readonly DraftInboxItem[];
   draftSelections: readonly DraftSelection[];
-}) =>
-  !model.draftText.trim() &&
-  model.draftImages.length === 0 &&
-  model.draftInboxItems.length === 0 &&
-  model.draftSelections.length === 0;
+}) => !model.draftText.trim() && !hasAttachments(model);
 
 // A card that converts or has failed blocks each send.
 export const voiceBusy = (voice: DraftVoice | null) =>
   voice?.state === "converting" || voice?.state === "failed";
 
+// A send goes to the outbox of the Lead chat, or to the parent, which sends the draft with its own request.
+export const Sends = Schema.Literals(["outbox", "parent"]);
+
 export const Model = Schema.Struct({
   draftKey: Schema.String,
   instance: Schema.String,
+  sends: Sends,
   label: Schema.String,
   placeholder: Schema.String,
   organization: Schema.String,
@@ -52,6 +61,7 @@ export type Model = Schema.Schema.Type<typeof Model>;
 export function initialModel(options: {
   draftKey: string;
   instance: string;
+  sends: Schema.Schema.Type<typeof Sends>;
   label: string;
   placeholder: string;
   organization: string;

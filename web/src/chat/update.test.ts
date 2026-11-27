@@ -18,16 +18,16 @@ import {
   PostQueued,
   readQueued,
   RemoveQueued,
-  RemoveVoice,
-  ResendVoice,
   RunTrayAction,
   SaveTrayState,
   StopChat,
-  StopVoice,
-  ToggleVoice,
   WaitToRetry,
 } from "./commands";
-import { Message, OutMessage } from "./message";
+import { StopVoice } from "@/composer/commands";
+import type * as Composer from "@/composer";
+import * as ComposerFixture from "@/composer/fixtures";
+import { newAnswerComposer } from "./composer";
+import { Message, OutMessage, toGotAnswerComposerMessage } from "./message";
 import { initialModel, retryDelays, type Model, type Waiting } from "./model";
 import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
 import { enqueue, stopChat, update } from "./update";
@@ -62,6 +62,24 @@ function createTestModel(overrides: Partial<Model> = {}): Model {
     ...overrides,
   };
 }
+
+// A model whose answer panel of the item is open and whose field has read its draft.
+function createPanelModel(
+  item: InboxItem,
+  field: Partial<Composer.Model> = {},
+  overrides: Partial<Model> = {},
+): Model {
+  const base = createTestModel();
+  return createTestModel({
+    activePanel: { type: "answer", item },
+    answerComposer: { ...newAnswerComposer(base, item), draftLoaded: true, ...field },
+    ...overrides,
+  });
+}
+
+const submitted = toGotAnswerComposerMessage(ComposerFixture.sendSubmitted);
+
+const noParts = { images: [], inboxItems: [], selections: [], voice: false };
 
 function createQueuedItem(id: string, text: string): Queued {
   return {
@@ -811,9 +829,10 @@ describe("chat update story tests", () => {
           FetchActionBrief,
           Message.ActionBriefFetched({ brief: "Old brief content" }),
         ),
-        message(Message.ReceivedAnswerDraft({ id: 101, draft: createDraft("") })),
+        message(toGotAnswerComposerMessage(ComposerFixture.draftReceived(createDraft("")))),
         model((m) => {
-          expect(m.answerLoaded).toBe(true);
+          expect(m.answerComposer?.draftLoaded).toBe(true);
+          expect(m.answerComposer?.draftKey).toBe("answerDraft:101");
         }),
         StoryCommand.expectNone(),
       );
@@ -893,20 +912,17 @@ describe("chat update story tests", () => {
           expect(m.trayItems).toEqual([question]);
           expect(m.activePanel?.item).toBe(approval);
           expect(m.closedPanel).toBeNull();
-          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerComposer?.draftKey).toBe("answerDraft:8");
+          expect(m.answerComposer?.draftLoaded).toBe(false);
+          expect(m.answerComposer?.sendError).toBe("The server failed.");
           expect(m.requesting).toEqual([]);
         }),
-        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
 
     it("keeps the panel with the error when the tray without its row comes after the failed request", () => {
-      const base = createTestModel({
-        trayItems: [approval],
-        activePanel: { type: "answer", item: approval },
-        requesting: [8],
-      });
+      const base = createPanelModel(approval, {}, { trayItems: [approval], requesting: [8] });
 
       story(
         update,
@@ -916,23 +932,19 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.activePanel?.item).toBe(approval);
           expect(m.closedPanel).toBeNull();
-          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerComposer?.sendError).toBe("The server failed.");
         }),
         message(Message.ReceivedTrayItems({ items: [approval] })),
         model((m) => {
           expect(m.activePanel?.item).toBe(approval);
-          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerComposer?.sendError).toBe("The server failed.");
         }),
         StoryCommand.expectNone(),
       );
     });
 
     it("opens the panel again with the error when the tray without its row comes before the failed request", () => {
-      const base = createTestModel({
-        trayItems: [approval],
-        activePanel: { type: "answer", item: approval },
-        requesting: [8],
-      });
+      const base = createPanelModel(approval, {}, { trayItems: [approval], requesting: [8] });
 
       story(
         update,
@@ -940,25 +952,21 @@ describe("chat update story tests", () => {
         message(Message.ReceivedTrayItems({ items: [] })),
         model((m) => {
           expect(m.activePanel).toBeNull();
+          expect(m.answerComposer).toBeNull();
           expect(m.closedPanel?.item).toBe(approval);
         }),
         message(Message.ActionFailed({ id: 8, error: "The server failed." })),
         model((m) => {
           expect(m.activePanel?.item).toBe(approval);
           expect(m.closedPanel).toBeNull();
-          expect(m.answerError).toBe("The server failed.");
+          expect(m.answerComposer?.sendError).toBe("The server failed.");
         }),
-        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
 
     it("closes the panel with the error when a list without its row comes after a read that showed the row", () => {
-      const base = createTestModel({
-        trayItems: [approval],
-        activePanel: { type: "answer", item: approval },
-        requesting: [8],
-      });
+      const base = createPanelModel(approval, {}, { trayItems: [approval], requesting: [8] });
 
       story(
         update,
@@ -975,11 +983,7 @@ describe("chat update story tests", () => {
     });
 
     it("shows no old error in a panel that the Owner opens again", () => {
-      const base = createTestModel({
-        trayItems: [approval],
-        activePanel: { type: "answer", item: approval },
-        requesting: [8],
-      });
+      const base = createPanelModel(approval, {}, { trayItems: [approval], requesting: [8] });
 
       story(
         update,
@@ -987,56 +991,50 @@ describe("chat update story tests", () => {
         message(Message.ActionFailed({ id: 8, error: "The server failed." })),
         message(Message.ClosePanel()),
         model((m) => {
-          expect(m.answerError).toBe("");
-          expect(m.answerErrorId).toBe(0);
+          expect(m.answerComposer).toBeNull();
         }),
         message(Message.OpenAnswerPanel({ item: approval })),
         model((m) => {
-          expect(m.answerError).toBe("");
+          expect(m.answerComposer?.sendError).toBe("");
         }),
-        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
 
-    it("clears the error of an item when its panel opens from the tray with no close before", () => {
+    it("shows the error of a request in no panel of another item", () => {
       const other = createInboxItem({ id: 11 });
-      const base = createTestModel({
-        trayItems: [approval],
-        activePanel: { type: "answer", item: other },
-        closedPanel: { type: "answer", item: approval },
-        requesting: [8],
-      });
+      const base = createPanelModel(
+        other,
+        {},
+        { trayItems: [approval], closedPanel: { type: "answer", item: approval }, requesting: [8] },
+      );
 
       story(
         update,
         given(base),
         message(Message.ActionFailed({ id: 8, error: "The server failed." })),
         model((m) => {
-          expect(m.answerError).toBe("The server failed.");
-          expect(m.answerErrorId).toBe(8);
+          expect(m.activePanel?.item.id).toBe(11);
+          expect(m.answerComposer?.draftKey).toBe("answerDraft:11");
+          expect(m.answerComposer?.sendError).toBe("");
         }),
         message(Message.OpenAnswerPanel({ item: approval })),
         model((m) => {
           expect(m.activePanel?.item.id).toBe(8);
-          expect(m.answerError).toBe("");
-          expect(m.answerErrorId).toBe(0);
+          expect(m.answerComposer?.draftKey).toBe("answerDraft:8");
+          expect(m.answerComposer?.sendError).toBe("");
         }),
-        message(Message.ReceivedAnswerDraft({ id: 8, draft: createDraft("") })),
         StoryCommand.expectNone(),
       );
     });
 
     it("sends a todo with an empty note", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: todo },
-        answerLoaded: true,
-      });
+      const base = createPanelModel(todo);
 
       story(
         update,
         given(base),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         model((m) => {
           expect(m.requesting).toEqual([9]);
         }),
@@ -1047,7 +1045,7 @@ describe("chat update story tests", () => {
             issue: 5,
             notice: "Marked the todo plan as done",
             note: "",
-            voice: false,
+            ...noParts,
           }),
         ),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 9, error: "" })),
@@ -1063,16 +1061,12 @@ describe("chat update story tests", () => {
         pullRequest: 8,
         pullRequestUrl: "https://github.com/test-repo/pull/8",
       });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: ownerAction },
-        answerLoaded: true,
-        answerText: "Logged in.",
-      });
+      const base = createPanelModel(ownerAction, { draftText: "Logged in." });
 
       story(
         update,
         given(base),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         StoryCommand.expectExact(
           DoneInboxItem({
             id: 12,
@@ -1080,7 +1074,7 @@ describe("chat update story tests", () => {
             issue: 5,
             notice: "Marked the action as done",
             note: "Logged in.",
-            voice: false,
+            ...noParts,
           }),
         ),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 12, error: "" })),
@@ -1093,15 +1087,12 @@ describe("chat update story tests", () => {
 
     it("resumes a stopped item with an empty note and does not answer", () => {
       const stopped = createInboxItem({ id: 13, kind: "stopped", issue: 6 });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: stopped },
-        answerLoaded: true,
-      });
+      const base = createPanelModel(stopped);
 
       story(
         update,
         given(base),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         StoryCommand.expectExact(
           ResumeStoppedItem({
             id: 13,
@@ -1120,16 +1111,12 @@ describe("chat update story tests", () => {
 
     it("answers a stopped item with a note and does not resume", () => {
       const stopped = createInboxItem({ id: 13, kind: "stopped", issue: 6 });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: stopped },
-        answerLoaded: true,
-        answerText: "Try again.",
-      });
+      const base = createPanelModel(stopped, { draftText: "Try again." });
 
       story(
         update,
         given(base),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         StoryCommand.expectExact(
           AnswerInboxItem({
             id: 13,
@@ -1137,7 +1124,7 @@ describe("chat update story tests", () => {
             issue: 6,
             answer: "Try again.",
             notice: "Resumed #6",
-            voice: false,
+            ...noParts,
           }),
         ),
         StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 13, error: "" })),
@@ -1290,10 +1277,7 @@ describe("chat update story tests", () => {
 
     it("keeps the panel of another item when a request ends with an error, and shows the error only for its item", () => {
       const other = createInboxItem({ id: 11 });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: other },
-        closedPanel: { type: "answer", item: question },
-      });
+      const base = createPanelModel(other, {}, { closedPanel: { type: "answer", item: question } });
 
       story(
         update,
@@ -1302,27 +1286,22 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.activePanel?.item).toBe(other);
           expect(m.closedPanel?.item).toBe(question);
-          expect(m.answerError).toBe("No.");
-          expect(m.answerErrorId).toBe(7);
+          expect(m.answerComposer?.draftKey).toBe("answerDraft:11");
+          expect(m.answerComposer?.sendError).toBe("");
         }),
         StoryCommand.expectNone(),
       );
     });
 
     it("clears the error at a new decision", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: approval },
-        answerError: "Old error.",
-        answerErrorId: 7,
-      });
+      const base = createPanelModel(approval, { sendError: "Old error." });
 
       story(
         update,
         given(base),
         message(Message.ActionDecided({ decision: "approve" })),
         model((m) => {
-          expect(m.answerError).toBe("");
-          expect(m.answerErrorId).toBe(0);
+          expect(m.answerComposer?.sendError).toBe("");
         }),
         StoryCommand.expectExact(
           StopVoice(),
@@ -1333,9 +1312,10 @@ describe("chat update story tests", () => {
             issue: 3,
             title: "Approve it",
             text: "",
+            ...noParts,
           }),
         ),
-        StoryCommand.resolve(StopVoice, Message.CompletedStopVoice()),
+        StoryCommand.resolve(StopVoice, ComposerFixture.voiceStopped),
         StoryCommand.resolve(ApproveAction, Message.ActionFailed({ id: 8, error: "x" })),
         StoryCommand.expectNone(),
       );
@@ -1369,10 +1349,7 @@ describe("chat update story tests", () => {
     });
 
     it("ignores a second tap on Approve while the first request runs, and sends the note of the field", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: approval },
-        answerText: "Go ahead.",
-      });
+      const base = createPanelModel(approval, { draftText: "Go ahead." });
 
       const first = update(base, Message.ActionDecided({ decision: "approve" }));
       expect(first.model.requesting).toEqual([8]);
@@ -1387,6 +1364,7 @@ describe("chat update story tests", () => {
         issue: 3,
         title: "Approve it",
         text: "Go ahead.",
+        ...noParts,
       });
       const second = update(first.model, Message.ActionDecided({ decision: "reject" }));
       expect(second.model).toBe(first.model);
@@ -1394,15 +1372,12 @@ describe("chat update story tests", () => {
     });
 
     it("sends an answer one time when the Owner taps Send again before the row leaves", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Ten seats.",
-      });
+      const base = createPanelModel(question, { draftText: "Ten seats." });
 
-      const sent = update(base, Message.AnswerSubmitted());
+      const sent = update(base, submitted);
       expect(sent.model.requesting).toEqual([7]);
-      const second = update(sent.model, Message.AnswerSubmitted());
-      expect(second.model).toBe(sent.model);
+      const second = update(sent.model, submitted);
+      expect(second.model.requesting).toEqual([7]);
       expect(second.commands ?? []).toEqual([]);
       const done = update(sent.model, Message.AnswerCompleted({ id: 7, error: "" }));
       expect(done.model.requesting).toEqual([]);
@@ -1412,8 +1387,6 @@ describe("chat update story tests", () => {
       const base = createTestModel({
         activePanel: null,
         closedPanel: { type: "answer", item: question },
-        answerText: "The note of another item.",
-        answerLoaded: true,
       });
 
       story(
@@ -1422,12 +1395,14 @@ describe("chat update story tests", () => {
         message(Message.AnswerCompleted({ id: 7, error: "No." })),
         model((m) => {
           expect(m.activePanel?.item).toBe(question);
-          expect(m.answerText).toBe("");
-          expect(m.answerLoaded).toBe(false);
+          expect(m.answerComposer?.draftText).toBe("");
+          expect(m.answerComposer?.draftLoaded).toBe(false);
         }),
-        message(Message.ReceivedAnswerDraft({ id: 7, draft: createDraft("My own note.") })),
+        message(
+          toGotAnswerComposerMessage(ComposerFixture.draftReceived(createDraft("My own note."))),
+        ),
         model((m) => {
-          expect(m.answerText).toBe("My own note.");
+          expect(m.answerComposer?.draftText).toBe("My own note.");
         }),
         StoryCommand.expectNone(),
       );
@@ -1448,16 +1423,12 @@ describe("chat update story tests", () => {
 
     it("lets another item send while the request of the first item runs", () => {
       const other = createInboxItem({ id: 11 });
-      const base = createTestModel({
-        activePanel: { type: "answer", item: other },
-        answerText: "Eleven.",
-        requesting: [7],
-      });
+      const base = createPanelModel(other, { draftText: "Eleven." }, { requesting: [7] });
 
       story(
         update,
         given(base),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         model((m) => {
           expect(m.requesting).toEqual([7, 11]);
         }),
@@ -1468,7 +1439,7 @@ describe("chat update story tests", () => {
             issue: 0,
             answer: "Eleven.",
             notice: "Sent the answer to the Lead of #1428",
-            voice: false,
+            ...noParts,
           }),
         ),
         StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 11, error: "" })),
@@ -1561,21 +1532,16 @@ describe("chat update story tests", () => {
         live: "",
         notice: { key: "", text: "" },
       };
-      const answer = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Ten seats.",
-        voice,
-      });
-      const answerResult = update(answer, Message.AnswerSubmitted());
-      expect(answerResult.model).toBe(answer);
-      expect(described(answerResult.commands)).toEqual(described([StopVoice()]));
+      const answer = createPanelModel(question, { draftText: "Ten seats.", voice });
+      const answerResult = update(answer, submitted);
+      expect(answerResult.model.requesting).toEqual([]);
+      expect(answerResult.commands?.map(({ name }) => name)).toEqual(["StopVoice"]);
     });
 
     it("sends the answer with the voice mark when the card of the panel is ready", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Ten seats.",
-        answerVoice: {
+      const base = createPanelModel(question, {
+        draftText: "Ten seats.",
+        draftVoice: {
           state: "ready",
           audio: null,
           conversion: "",
@@ -1585,7 +1551,7 @@ describe("chat update story tests", () => {
         },
       });
 
-      const result = update(base, Message.AnswerSubmitted());
+      const result = update(base, submitted);
       expect(described(result.commands)).toEqual(
         described([
           AnswerInboxItem({
@@ -1594,6 +1560,7 @@ describe("chat update story tests", () => {
             issue: 0,
             answer: "Ten seats.",
             notice: "Sent the answer to the Lead of #1428",
+            ...noParts,
             voice: true,
           }),
         ]),
@@ -1602,87 +1569,146 @@ describe("chat update story tests", () => {
 
     it("sends nothing from the panel while its voice card converts or has failed", () => {
       for (const state of ["converting", "failed"] as const) {
-        const base = createTestModel({
-          activePanel: { type: "answer", item: question },
-          answerText: "Ten seats.",
-          answerVoice: { state, audio: null, conversion: "", error: "", seconds: 0, text: "" },
-        });
-        const send = update(base, Message.AnswerSubmitted());
-        expect(send.model).toBe(base);
+        const draftVoice = { state, audio: null, conversion: "", error: "", seconds: 0, text: "" };
+        const send = update(
+          createPanelModel(question, { draftText: "Ten seats.", draftVoice }),
+          submitted,
+        );
+        expect(send.model.requesting).toEqual([]);
         expect(send.commands ?? []).toEqual([]);
         const decide = update(
-          { ...base, activePanel: { type: "answer", item: approval } },
+          createPanelModel(approval, { draftText: "Ten seats.", draftVoice }),
           Message.ActionDecided({ decision: "approve" }),
         );
         expect(decide.commands ?? []).toEqual([]);
       }
     });
 
-    it("starts the voice of the field of the answer panel", () => {
-      const base = createTestModel({ activePanel: { type: "answer", item: question } });
-
-      expect(described(update(base, Message.VoiceButtonClicked()).commands)).toEqual(
-        described([ToggleVoice({ key: "answerDraft:7", fieldId: "answer-input" })]),
-      );
-      expect(update(createTestModel(), Message.VoiceButtonClicked()).commands ?? []).toEqual([]);
-    });
-
-    it("sends again and removes the voice card of the answer panel", () => {
-      const base = createTestModel({ activePanel: { type: "answer", item: question } });
-
-      expect(described(update(base, Message.VoiceResendClicked()).commands)).toEqual(
-        described([ResendVoice({ key: "answerDraft:7", fieldId: "answer-input" })]),
-      );
-      expect(described(update(base, Message.VoiceRemoveClicked()).commands)).toEqual(
-        described([RemoveVoice({ key: "answerDraft:7" })]),
-      );
-    });
-
-    it("takes the voice state and the time from the Subscriptions", () => {
-      const voice = {
-        recording: true,
-        key: "chatDraft:test-org/test-repo/1428",
-        startedAt: 1000,
-        live: "Show",
-        notice: { key: "", text: "" },
+    it("sends the images, the Inbox items and the selections of the field with the answer", () => {
+      const image = new File(["x"], "a.png", { type: "image/png" });
+      const inboxItem = { id: 3, reference: "#3", title: "Plan", reason: "", link: "" };
+      const selection = {
+        id: "s1",
+        source: "message" as const,
+        text: "Part",
+        context: "A part of the message.",
+        reference: "",
+        link: "",
+        part: "",
+        messageId: 5,
+        messageAuthor: "Lead",
       };
+      const base = createPanelModel(question, {
+        draftImages: [image],
+        draftInboxItems: [inboxItem],
+        draftSelections: [selection],
+      });
 
-      const changed = update(createTestModel(), Message.VoiceChanged({ voice }));
-      expect(changed.model.voice).toEqual(voice);
-      expect(update(changed.model, Message.VoiceTicked({ now: 4000 })).model.now).toBe(4000);
+      story(
+        update,
+        given(base),
+        message(submitted),
+        model((m) => {
+          expect(m.requesting).toEqual([7]);
+        }),
+        StoryCommand.expectExact(
+          AnswerInboxItem({
+            id: 7,
+            repository: "test-repo",
+            issue: 0,
+            answer: "",
+            notice: "Sent the answer to the Lead of #1428",
+            images: [image],
+            inboxItems: [inboxItem],
+            selections: [selection],
+            voice: false,
+          }),
+        ),
+        StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 7, error: "" })),
+        StoryCommand.expectNone(),
+      );
     });
 
-    it("takes the draft of the panel only when the panel of that item is open", () => {
-      const draft = createDraft("My note.", {
-        voice: {
-          state: "converting",
-          audio: null,
-          conversion: "c1",
-          error: "",
-          seconds: 0,
-          text: "",
-        },
+    it("sends the decision with the images, the Inbox items and the selections of the field", () => {
+      const image = new File(["x"], "a.png", { type: "image/png" });
+      const base = createPanelModel(approval, {
+        draftText: "No.",
+        draftImages: [image],
+        draftInboxItems: [{ id: 3, reference: "#3", title: "Plan", reason: "", link: "" }],
       });
-      const base = createTestModel({ activePanel: { type: "answer", item: question } });
 
-      const other = update(base, Message.ReceivedAnswerDraft({ id: 99, draft }));
-      expect(other.model).toBe(base);
-      const own = update(base, Message.ReceivedAnswerDraft({ id: 7, draft }));
-      expect(own.model.answerText).toBe("My note.");
-      expect(own.model.answerVoice?.state).toBe("converting");
-      expect(own.model.answerLoaded).toBe(true);
+      const rejected = update(base, Message.ActionDecided({ decision: "reject" }));
+      expect(rejected.commands?.[1].name).toBe("RejectAction");
+      expect(rejected.commands?.[1].args).toEqual({
+        actionId: 42,
+        inboxItemId: 8,
+        repository: "test-repo",
+        issue: 3,
+        title: "Approve it",
+        text: "No.",
+        images: [image],
+        inboxItems: [{ id: 3, reference: "#3", title: "Plan", reason: "", link: "" }],
+        selections: [],
+        voice: false,
+      });
     });
 
-    it("keeps the answer of an open panel when the Owner opens the same panel again", () => {
-      const base = createTestModel({
-        activePanel: { type: "answer", item: question },
-        answerText: "Typed.",
-        answerLoaded: true,
+    it("sends a stopped item with only an attachment as an answer, and does not resume", () => {
+      const stopped = createInboxItem({ id: 13, kind: "stopped", issue: 6 });
+      const image = new File(["x"], "a.png", { type: "image/png" });
+      const base = createPanelModel(stopped, { draftImages: [image] });
+
+      const result = update(base, submitted);
+      expect(result.commands?.map(({ name }) => name)).toEqual(["AnswerInboxItem"]);
+    });
+
+    it("sends a todo with only an attachment, and a question with only a selected option", () => {
+      const image = new File(["x"], "a.png", { type: "image/png" });
+      const attached = update(createPanelModel(todo, { draftImages: [image] }), submitted);
+      expect(attached.commands?.[0].args).toMatchObject({ note: "", images: [image] });
+
+      const asked = createInboxItem({
+        id: 14,
+        questions: [
+          { text: "How many?", multiple: false, options: [{ title: "Ten", details: "" }] },
+        ],
       });
+      const selected = update(
+        createPanelModel(asked, {}, { selectedOptions: { 0: [0] } }),
+        submitted,
+      );
+      expect(selected.commands?.[0].args).toMatchObject({ answer: "How many?\n- Ten" });
+
+      const nothing = update(createPanelModel(asked), submitted);
+      expect(nothing.commands ?? []).toEqual([]);
+    });
+
+    it("gives the panel the field of its own item", () => {
+      const base = createPanelModel(question, { draftText: "The note of another item." });
+
+      const opened = update(base, Message.OpenAnswerPanel({ item: approval }));
+      expect(opened.model.answerComposer?.draftKey).toBe("answerDraft:8");
+      expect(opened.model.answerComposer?.draftText).toBe("");
+      expect(opened.model.answerComposer?.draftLoaded).toBe(false);
+    });
+
+    it("keeps the field of an open panel when the Owner opens the same panel again", () => {
+      const base = createPanelModel(question, { draftText: "Typed.", sendError: "Old error." });
 
       const result = update(base, Message.OpenAnswerPanel({ item: question }));
-      expect(result.model.answerText).toBe("Typed.");
-      expect(result.model.answerLoaded).toBe(true);
+      expect(result.model.answerComposer?.draftText).toBe("Typed.");
+      expect(result.model.answerComposer?.draftLoaded).toBe(true);
+      expect(result.model.answerComposer?.sendError).toBe("");
+    });
+
+    it("removes the field with its panel", () => {
+      const base = createPanelModel(question);
+
+      expect(update(base, Message.ClosePanel()).model.answerComposer).toBeNull();
+      expect(
+        update(base, Message.OpenDetailsPanel({ item: question })).model.answerComposer,
+      ).toBeNull();
+      expect(update(base, Message.NavigateTo({ path: "/" })).model.answerComposer).toBeNull();
     });
 
     it("opens the todo list, moves to a todo panel, returns to the list, and closes when no todo remains", () => {
@@ -1747,7 +1773,7 @@ describe("chat update story tests", () => {
           expect(m.todoList).toEqual({ repository: "owner/shop", pullRequest: 44 });
         }),
         message(Message.OpenAnswerPanel({ item: todo1 })),
-        message(Message.AnswerSubmitted()),
+        message(submitted),
         model((m) => {
           expect(m.requesting).toEqual([101]);
         }),
@@ -1758,7 +1784,7 @@ describe("chat update story tests", () => {
             issue: 10,
             notice: "Marked the todo Rotate webhook secret as done",
             note: "",
-            voice: false,
+            ...noParts,
           }),
         ),
         StoryCommand.resolve(DoneInboxItem, Message.AnswerCompleted({ id: 101, error: "" })),
@@ -1858,11 +1884,14 @@ describe("chat update story tests", () => {
       story(
         update,
         given(
-          createTestModel({
-            trayItems: [todo1, todo2],
-            todoList: { repository: "owner/shop", pullRequest: 44 },
-            activePanel: { type: "answer", item: todo2 },
-          }),
+          createPanelModel(
+            todo2,
+            {},
+            {
+              trayItems: [todo1, todo2],
+              todoList: { repository: "owner/shop", pullRequest: 44 },
+            },
+          ),
         ),
         message(Message.TrayActionClicked({ item: todo2, kind: "dismiss" })),
         model((m) => {
@@ -1881,13 +1910,12 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.trayRunning).toEqual({});
           expect(m.activePanel?.item.id).toBe(202);
-          expect(m.answerError).toBe("Cannot dismiss");
-          expect(m.answerErrorId).toBe(202);
+          expect(m.answerComposer?.sendError).toBe("Cannot dismiss");
           expect(m.trayError).toBe("");
         }),
         message(Message.TrayActionClicked({ item: todo2, kind: "dismiss" })),
         model((m) => {
-          expect(m.answerError).toBe("");
+          expect(m.answerComposer?.sendError).toBe("");
         }),
         StoryCommand.expectExact(RunTrayAction({ item: todo2, kind: "dismiss" })),
         StoryCommand.resolve(
