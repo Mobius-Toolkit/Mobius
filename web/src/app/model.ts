@@ -223,6 +223,44 @@ export const initialUpgradeState: UpgradeState = {
   changesError: "",
 };
 
+// A screen that the Owner left has no Submodel, so no live event reaches it.
+export const noScreens: Pick<
+  Model,
+  | "chat"
+  | "panel"
+  | "inboxProgram"
+  | "workstreamsProgram"
+  | "tasksProgram"
+  | "agentsProgram"
+  | "checkupProgram"
+  | "usageProgram"
+  | "settingsProgram"
+  | "rolesProgram"
+  | "memoryProgram"
+  | "mcpServersProgram"
+  | "switchesProgram"
+  | "voiceProgram"
+  | "devicesProgram"
+  | "githubProgram"
+> = {
+  chat: Option.none(),
+  panel: Option.none(),
+  inboxProgram: Option.none(),
+  workstreamsProgram: Option.none(),
+  tasksProgram: Option.none(),
+  agentsProgram: Option.none(),
+  checkupProgram: Option.none(),
+  usageProgram: Option.none(),
+  settingsProgram: Option.none(),
+  rolesProgram: Option.none(),
+  memoryProgram: Option.none(),
+  mcpServersProgram: Option.none(),
+  switchesProgram: Option.none(),
+  voiceProgram: Option.none(),
+  devicesProgram: Option.none(),
+  githubProgram: Option.none(),
+};
+
 export const wideQuery = "(min-width: 768px)";
 
 export const initialModel = (route: AppRoute): Model => {
@@ -271,21 +309,6 @@ export const initialModel = (route: AppRoute): Model => {
     closeBusy: false,
     closeError: "",
     chosenAutopilot: Option.none(),
-    chat: Option.none(),
-    panel: Option.none(),
-    inboxProgram: Option.none(),
-    workstreamsProgram: Option.none(),
-    tasksProgram: Option.none(),
-    agentsProgram: Option.none(),
-    checkupProgram: Option.none(),
-    usageProgram: Option.none(),
-    settingsProgram: Option.none(),
-    rolesProgram: Option.none(),
-    memoryProgram: Option.none(),
-    mcpServersProgram: Option.none(),
-    switchesProgram: Option.none(),
-    voiceProgram: Option.none(),
-    devicesProgram: Option.none(),
-    githubProgram: Option.none(),
+    ...noScreens,
   };
 };
