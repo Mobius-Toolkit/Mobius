@@ -185,8 +185,8 @@ func TestTheDispatchLoopAndAutopilotDispatchOneIssueOneTime(t *testing.T) {
 }
 
 // startWithBrokenPullRequest starts a server whose task of #41 has the pull request #42 and the state taskState, adds the
-// ready issue #43, and makes each read of a single pull request fail. It requests the Start of #41 and then of #43.
-func startWithBrokenPullRequest(t *testing.T, taskState string) *testserver.Server {
+// ready issue #43, and calls breakReads. It requests the Start of #41 and then of #43.
+func startWithBrokenPullRequest(t *testing.T, taskState string, breakReads func(*testkit.FakeGitHub)) *testserver.Server {
 	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
 	server := seedEnded(t, fake, nil, 0, nil, fmt.Sprintf("UPDATE tasks SET state = '%s' WHERE id = 1", taskState))
@@ -195,7 +195,7 @@ func startWithBrokenPullRequest(t *testing.T, taskState string) *testserver.Serv
 	testkit.WaitFor(t, func() bool {
 		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = 'owner/shop' AND number = 43 AND workstream IS NOT NULL") == 1
 	})
-	fake.FailPullRequestReads(true)
+	breakReads(fake)
 	for _, number := range []int64{41, 43} {
 		if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
 			t.Fatal(err)
@@ -206,7 +206,7 @@ func startWithBrokenPullRequest(t *testing.T, taskState string) *testserver.Serv
 
 func TestAFailedPullRequestReadOfAnEndedTaskDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
 	t.Parallel()
-	server := startWithBrokenPullRequest(t, "ended")
+	server := startWithBrokenPullRequest(t, "ended", func(fake *testkit.FakeGitHub) { fake.FailPullRequestReads(true) })
 
 	liveTaskOf(t, server, 43)
 
@@ -217,7 +217,18 @@ func TestAFailedPullRequestReadOfAnEndedTaskDoesNotStopTheDispatchOfALaterIssueA
 
 func TestAFailedPullRequestReadOfAStoppedTaskDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
 	t.Parallel()
-	server := startWithBrokenPullRequest(t, "stopped")
+	server := startWithBrokenPullRequest(t, "stopped", func(fake *testkit.FakeGitHub) { fake.FailPullRequestReads(true) })
+
+	liveTaskOf(t, server, 43)
+
+	if taskStateOf(t, server, 41) != "stopped" || !hasStart(t, server, 41) {
+		t.Errorf("task state of #41 = %s, start of #41 = %t", taskStateOf(t, server, 41), hasStart(t, server, 41))
+	}
+}
+
+func TestAFailedReviewCommentReadOfAStoppedTaskDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
+	t.Parallel()
+	server := startWithBrokenPullRequest(t, "stopped", func(fake *testkit.FakeGitHub) { fake.FailReviewCommentReads(true) })
 
 	liveTaskOf(t, server, 43)
 

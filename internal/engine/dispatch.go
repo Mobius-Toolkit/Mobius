@@ -91,7 +91,8 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if pendingParent {
 			_, ws, err := e.workstreamOf(ctx, repository, row.Number)
 			if err != nil {
-				return err
+				skipFailedRead(readFailure{err}, repository.FullName, row.Number)
+				continue
 			}
 			if ws == 0 {
 				continue
@@ -1299,7 +1300,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	if !conflict {
 		head := pullRequest.GetHead().GetSHA()
 		if ci, err = ciItems(ctx, repository, head); err != nil {
-			return false, err
+			return false, readFailure{err}
 		}
 		if ci != "" {
 			diagnosis, err := e.endedDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
@@ -1354,7 +1355,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	threads, err := repository.ReviewThreads(ctx, int64(number))
 	if err != nil {
-		return "", err
+		return "", readFailure{err}
 	}
 	if err := e.sendFollowUps(ctx, repository, task, title, number, threads, appLogin(repository.AppSlug), trusted); err != nil {
 		return "", err
@@ -1366,11 +1367,14 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 		}
 	}
 	items, err := fixThreads(ctx, repository, int64(number), open, trusted)
+	if err != nil {
+		return "", readFailure{err}
+	}
 	items += ci
-	if items == "" && err == nil {
+	if items == "" {
 		return finishTheIssue, nil
 	}
-	return items, err
+	return items, nil
 }
 
 // openThread tells if the review thread is open: it is not resolved, a trusted author started it, and its last trusted
