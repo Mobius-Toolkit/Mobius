@@ -1197,7 +1197,11 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		if err != nil {
 			return false, err
 		}
-		if active >= int64(e.implementerMax()) {
+		limit, err := e.implementerMax(ctx)
+		if err != nil {
+			return false, err
+		}
+		if active >= int64(limit) {
 			return true, nil
 		}
 		current, err := source.Issue(ctx, number)

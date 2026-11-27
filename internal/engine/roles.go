@@ -412,11 +412,17 @@ func (e *Engine) implementerList() []ImplementerBinding {
 	return bindingList(e.roles.Implementer, e.moreBindings)
 }
 
-// implementerMax gives the sum of the max of the Implementer bindings.
-func (e *Engine) implementerMax() int {
-	total := 0
-	for _, b := range e.implementerList() {
-		total += b.Binding.Max
+// implementerMax gives the sum of the max of the Implementer bindings that have no hold.
+func (e *Engine) implementerMax(ctx context.Context) (int, error) {
+	slots, err := e.implementerSlots(ctx, Spec{})
+	if err != nil {
+		return 0, err
 	}
-	return total
+	total := 0
+	for _, c := range slots.choices {
+		if c.hold.none() {
+			total += c.Binding.Max
+		}
+	}
+	return total, nil
 }
