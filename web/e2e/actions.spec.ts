@@ -1269,6 +1269,34 @@ for (const [device, viewport] of [
       await expect(dialog).toBeHidden();
     });
 
+    test("a selection in the changes of an edit_brief action on the Inbox screen goes into the note field", async ({
+      page,
+    }) => {
+      await openLeadChat(page);
+      await sendToLead(page, editBrief);
+      await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+      await link(page, "/inbox").click();
+      await answer(page, briefTitle);
+      const dialog = panel(page);
+      const popover = page.getByRole("button", { name: "Add to the note" });
+      await expect(dialog.getByRole("textbox", { name: "Note for the Lead" })).toBeEditable();
+
+      await selectText(addedText(dialog).first(), "two months");
+      await expect(popover).toBeVisible();
+      await popover.click();
+      const card = dialog.locator("[data-attachment-card='selection']");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("· brief");
+      await expect(card).toContainText("two months");
+      await expect(popover).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+
+      const decided = rejected(page);
+      await reject(page).click();
+      expect((await decided).ok()).toBe(true);
+      await expect(dialog).toBeHidden();
+    });
+
     test("a selection in a question card of the chat goes into the chat composer", async ({
       page,
     }) => {
