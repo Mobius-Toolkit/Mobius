@@ -75,7 +75,7 @@ func TestCompleteAndDismissChangeTheLineOfTheTodoToCheckedWithItsState(t *testin
 	todos := itemsOf(t, server, "todo")
 	waitForBody(t, fake, "<!-- todos -->")
 
-	if status, body := doneTodo(t, server, todos[0].ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todos[0].ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -104,7 +104,7 @@ func TestAnAfterMergeTodoShowsTheMarkAndCompleteAfterTheMergeChangesTheBodyOfThe
 		t.Fatalf("body = %q", pullBody(fake))
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Added."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Added."); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -152,7 +152,7 @@ func TestAFailedWriteOfTheTodosSectionKeepsTheTodoItemOpenAndASecondCompleteWrit
 	waitForBody(t, fake, "<!-- todos -->")
 	fake.FailBodyWrites(true)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status == http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status == http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -161,7 +161,7 @@ func TestAFailedWriteOfTheTodosSectionKeepsTheTodoItemOpenAndASecondCompleteWrit
 	}
 	fake.FailBodyWrites(false)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 

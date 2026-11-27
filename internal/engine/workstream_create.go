@@ -161,7 +161,7 @@ func (e *Engine) endRefusedCreate(ctx context.Context, workstream int64) error {
 	text := fmt.Sprintf("The Owner approved %s. The result: GitHub refused the write.", name)
 	c := actionCaller(action)
 	if c.role != TriagerRole {
-		return e.postResult(ctx, action, text)
+		return e.postResult(ctx, action, text, Attachments{})
 	}
 	triaged, err := e.repository(c.repository)
 	if err != nil {
@@ -253,7 +253,7 @@ func (e *Engine) endCreate(ctx context.Context, repository github.Repository, wo
 		if err != nil {
 			return err
 		}
-		if err := e.postResult(ctx, action, fmt.Sprintf("The Owner approved %s. The result: Created the Workstream #%d.", name, number)); err != nil {
+		if err := e.postResult(ctx, action, fmt.Sprintf("The Owner approved %s. The result: Created the Workstream #%d.", name, number), Attachments{}); err != nil {
 			return err
 		}
 		if err := e.queries.ClearPendingActionAwaitsNumber(ctx, action.ID); err != nil {

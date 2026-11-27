@@ -88,11 +88,7 @@ func waitForActions(t *testing.T, server *testserver.Server, count int) []action
 
 func decide(t *testing.T, server *testserver.Server, id int64, decision, message string) (int, string) {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"message": message})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return send(t, server, http.MethodPost, "/api/actions/"+itoa(id)+"/"+decision, string(body))
+	return postForm(t, server, "/api/actions/"+itoa(id)+"/"+decision, textPart("message", message))
 }
 
 func decided(t *testing.T, server *testserver.Server, id int64, decision, message string) actionJSON {

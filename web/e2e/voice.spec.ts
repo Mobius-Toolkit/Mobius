@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { formFields } from "./forms.js";
 import { countSamples, fakeMicrophone, fakeWakeLock } from "./microphone.js";
 import { coordinatorQuestion, routeInboxItems } from "./stops.js";
 
@@ -1122,7 +1123,7 @@ test("a send in an Answer panel input removes the card and sends no voice mark",
   await panel.getByRole("button", { name: "Send", exact: true }).click();
   await response;
   await expect(panel).toBeHidden();
-  expect(bodies.map((body) => JSON.parse(body))).toEqual([{ text: "red roses" }]);
+  expect(bodies.map(formFields)).toEqual([{ text: "red roses" }]);
   await expect.poll(() => drafts(page)).toEqual([]);
 });
 
