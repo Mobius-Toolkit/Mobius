@@ -292,8 +292,8 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 
 // addDisplayOnlyChatMessage stores an Owner message that the chat shows without giving it to an agent, and sends it
 // to the listeners.
-func (e *Engine) addDisplayOnlyChatMessage(ctx context.Context, key ChatKey, text string, inboxItems []ChatInboxItem, selections []ChatSelection) (store.ChatMessage, error) {
-	message, err := e.storeChatMessageRow(ctx, e.queries, key, ownerAuthor, text, "", "", inboxItems, selections, false, 0, true)
+func (e *Engine) addDisplayOnlyChatMessage(ctx context.Context, key ChatKey, text string, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool, voiceSeconds int64) (store.ChatMessage, error) {
+	message, err := e.storeChatMessageRow(ctx, e.queries, key, ownerAuthor, text, "", "", inboxItems, selections, voice, voiceSeconds, true)
 	if err != nil {
 		return message, err
 	}

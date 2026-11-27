@@ -60,6 +60,24 @@ func TestTheDoneNoteOfATodoWithAnImageKeepsTheVoiceSecondsInTheStoredChatMessage
 	}
 }
 
+func TestTheDoneNoteOfATodoWithOnlyTextAndVoiceKeepsTheVoiceSecondsInTheStoredDisplayOnlyMessage(t *testing.T) {
+	t.Parallel()
+	server := approvableWith(t, testkit.NewFakeGitHub(t), "off", true, mandatoryNeed)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. The Owner got it for review. The pull request stays a draft until the Owner closes the open todos.")
+	todo := waitForItem(t, server, "todo")
+
+	status, body := postForm(t, server, "/api/inbox/"+itoa(todo.ID)+"/done",
+		textPart("note", "Set in prod."), textPart("voice", "true"), textPart("voiceSeconds", "5"))
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if got := count(t, server, "SELECT voice_seconds FROM chat_messages WHERE author = 'Owner' AND text = 'Set in prod.' AND voice = 1 AND display_only = 1"); got != 5 {
+		t.Errorf("voice seconds = %d, want 5", got)
+	}
+}
+
 func TestTheDecisionOnAnActionKeepsTheVoiceSecondsInTheStoredApprovalMessage(t *testing.T) {
 	t.Parallel()
 	for _, decision := range []string{"approve", "reject"} {
