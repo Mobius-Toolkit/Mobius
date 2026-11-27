@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -51,17 +52,18 @@ func TestAReadyIssueWithAStoredStartDispatchesAfterARestartWhileTheFirstPollWait
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
 	first := startServer(t, fake, dataDir, "")
 	first.WaitForFirstPoll(t, shop)
-	// The held read of #41 stops the dispatch of the first server, so the Start stays in the database.
-	t.Cleanup(fake.HoldNext("GET /repos/{owner}/{repo}/issues/41"))
+	// The failed reads of #41 stop the dispatch of the first server, so the Start stays in the database.
+	fake.FailIssueReads(shop, 41, 1000)
 	if err := first.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
-			return request.Status == 0 && strings.HasSuffix(request.Path, "/issues/41")
+			return request.Status == http.StatusInternalServerError && strings.HasSuffix(request.Path, "/issues/41")
 		})
 	})
 	first.Stop()
+	fake.FailIssueReads(shop, 41, 0)
 	t.Cleanup(fake.HoldNext("GET /repos/{owner}/{repo}/issues"))
 
 	second := testserver.Start(t, dataDir, fake.URL)
