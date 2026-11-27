@@ -661,7 +661,7 @@ shell = "branch=$(git branch --show-current); echo $branch > ${branch##*/}.txt &
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")
 	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
-	// approveAgain gives the pull request of task 41 the lower number, so task 43 starts after task 41 has its pull request.
+	// approveAgain expects the lower pull request number for task 41, so task 43 starts after task 41 has its pull request.
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "approval" })
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
