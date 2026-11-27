@@ -45,6 +45,7 @@ func (e *Engine) poll(ctx context.Context) {
 		return
 	}
 	repositories := e.github.Repositories()
+	e.wakeDispatch()
 	if !slices.Equal(known, repositoryKeys(repositories)) {
 		e.publish(Change{Repositories: true})
 	}

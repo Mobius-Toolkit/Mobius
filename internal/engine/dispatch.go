@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -153,12 +154,31 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	return nil
 }
 
+// dispatchAll runs dispatchReady for each repository. A failed repository does not stop the next one.
+func (e *Engine) dispatchAll(ctx context.Context) {
+	for _, repository := range e.github.Repositories() {
+		if err := e.dispatchReady(ctx, repository); err != nil {
+			log.Printf("dispatch the ready issues of %s: %v", repository.FullName, err)
+		}
+	}
+}
+
+// wakeDispatch makes the dispatch loop run now.
+func (e *Engine) wakeDispatch() {
+	select {
+	case e.dispatchWake <- struct{}{}:
+	default:
+	}
+}
+
 // dispatchIssue reads the issue number from GitHub when dispatchReady acts on it, refuses pull requests and
-// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call.
+// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call. A failed
+// GitHub read gives no issue and no error, so dispatchReady skips only this issue and the Start stays.
 func (e *Engine) dispatchIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, bool, error) {
 	issue, err := repository.Issue(ctx, number)
 	if err != nil {
-		return nil, false, err
+		log.Printf("read %s#%d for the dispatch: %v", repository.FullName, number, err)
+		return nil, false, nil
 	}
 	if issue == nil || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
 		return nil, false, nil
