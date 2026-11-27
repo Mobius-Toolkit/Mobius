@@ -79,7 +79,7 @@ function createPanelModel(
 
 const submitted = toGotAnswerComposerMessage(ComposerFixture.sendSubmitted);
 
-const noParts = { images: [], inboxItems: [], selections: [], voice: false };
+const noParts = { images: [], inboxItems: [], selections: [], voice: false, voiceSeconds: 0 };
 
 function createQueuedItem(id: string, text: string): Queued {
   return {
@@ -1546,7 +1546,7 @@ describe("chat update story tests", () => {
           audio: null,
           conversion: "",
           error: "",
-          seconds: 0,
+          seconds: 12,
           text: "",
         },
       });
@@ -1562,6 +1562,7 @@ describe("chat update story tests", () => {
             notice: "Sent the answer to the Lead of #1428",
             ...noParts,
             voice: true,
+            voiceSeconds: 12,
           }),
         ]),
       );
@@ -1622,6 +1623,7 @@ describe("chat update story tests", () => {
             inboxItems: [inboxItem],
             selections: [selection],
             voice: false,
+            voiceSeconds: 0,
           }),
         ),
         StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 7, error: "" })),
@@ -1635,6 +1637,14 @@ describe("chat update story tests", () => {
         draftText: "No.",
         draftImages: [image],
         draftInboxItems: [{ id: 3, reference: "#3", title: "Plan", reason: "", link: "" }],
+        draftVoice: {
+          state: "ready",
+          audio: null,
+          conversion: "",
+          error: "",
+          seconds: 12,
+          text: "",
+        },
       });
 
       const rejected = update(base, Message.ActionDecided({ decision: "reject" }));
@@ -1649,7 +1659,8 @@ describe("chat update story tests", () => {
         images: [image],
         inboxItems: [{ id: 3, reference: "#3", title: "Plan", reason: "", link: "" }],
         selections: [],
-        voice: false,
+        voice: true,
+        voiceSeconds: 12,
       });
     });
 

@@ -177,6 +177,7 @@ function partsOf(composer: Composer.Model) {
     inboxItems: composer.draftInboxItems,
     selections: composer.draftSelections,
     voice: composer.draftVoice?.state === "ready",
+    voiceSeconds: composer.draftVoice?.seconds ?? 0,
   };
 }
 

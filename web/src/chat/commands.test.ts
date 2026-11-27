@@ -52,7 +52,13 @@ const selection = {
   messageId: 5,
   messageAuthor: "Lead",
 };
-const parts = { images: [image], inboxItems: [inboxItem], selections: [selection], voice: true };
+const parts = {
+  images: [image],
+  inboxItems: [inboxItem],
+  selections: [selection],
+  voice: true,
+  voiceSeconds: 12,
+};
 const body = {
   images: [image],
   inboxItems: [{ reference: "#3", title: "Plan", reason: "Why", link: "https://x/3" }],
@@ -69,6 +75,7 @@ const body = {
     },
   ],
   voice: true,
+  voiceSeconds: 12,
 };
 const target = { id: 7, repository: "owner/shop", issue: 45, notice: "Done" };
 const refused = { status: 500, data: { error: "The server failed." } };
@@ -131,6 +138,7 @@ describe("the requests of the answer panel", () => {
     expect(restored.inboxItems).toEqual([inboxItem]);
     expect(restored.selections).toEqual([selection]);
     expect(restored.voice?.state).toBe("ready");
+    expect(restored.voice?.seconds).toBe(12);
     expect(mocks.restoreInboxItem).toHaveBeenCalledWith(7);
   });
 
@@ -144,6 +152,7 @@ describe("the requests of the answer panel", () => {
     expect(restored.images).toEqual([image]);
     expect(restored.inboxItems).toEqual([inboxItem]);
     expect(restored.selections).toEqual([selection]);
+    expect(restored.voice?.seconds).toBe(12);
   });
 
   it("keeps the draft of a decision that the server refuses", async () => {

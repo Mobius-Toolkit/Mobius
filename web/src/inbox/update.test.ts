@@ -234,6 +234,7 @@ describe("inbox update story tests", () => {
             inboxItems: [],
             selections: [],
             voice: false,
+            voiceSeconds: 0,
           }),
         ),
         StoryCommand.resolve(AnswerInboxItem, Message.AnswerCompleted({ id: 7, error: "" })),

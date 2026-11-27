@@ -15,6 +15,10 @@ export const ApproveActionParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the action' })
 })
 
+export const approveActionBodyVoiceSecondsMin = 0;
+
+
+
 export const ApproveActionBody = S.Struct({
   "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
   "inboxItems": S.optional(S.Array(S.Struct({
@@ -34,7 +38,8 @@ export const ApproveActionBody = S.Struct({
   "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
-  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' })
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' }),
+  "voiceSeconds": S.optional(S.Number.check(S.isGreaterThanOrEqualTo(approveActionBodyVoiceSecondsMin))).annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds' })
 })
 
 export const ApproveActionResponse = S.Struct({
@@ -87,6 +92,10 @@ export const RejectActionParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the action' })
 })
 
+export const rejectActionBodyVoiceSecondsMin = 0;
+
+
+
 export const RejectActionBody = S.Struct({
   "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
   "inboxItems": S.optional(S.Array(S.Struct({
@@ -106,7 +115,8 @@ export const RejectActionBody = S.Struct({
   "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
-  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' })
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' }),
+  "voiceSeconds": S.optional(S.Number.check(S.isGreaterThanOrEqualTo(rejectActionBodyVoiceSecondsMin))).annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds' })
 })
 
 export const RejectActionResponse = S.Struct({
@@ -774,6 +784,10 @@ export const AnswerInboxItemParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
 })
 
+export const answerInboxItemBodyVoiceSecondsMin = 0;
+
+
+
 export const AnswerInboxItemBody = S.Struct({
   "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the answer, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
   "inboxItems": S.optional(S.Array(S.Struct({
@@ -793,7 +807,8 @@ export const AnswerInboxItemBody = S.Struct({
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the answer. The request has one part selections for each selection, in order, and each part is one JSON object' }),
   "text": S.optional(S.String).annotate({ description: 'Text is the answer of the Owner. It can be empty when the answer has an image, an Inbox item or a selection' }),
-  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the answer came from a voice recording' })
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the answer came from a voice recording' }),
+  "voiceSeconds": S.optional(S.Number.check(S.isGreaterThanOrEqualTo(answerInboxItemBodyVoiceSecondsMin))).annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds' })
 })
 
 export const AnswerInboxItemResponse = S.Struct({
@@ -818,6 +833,10 @@ export const DoneInboxItemParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
 })
 
+export const doneInboxItemBodyVoiceSecondsMin = 0;
+
+
+
 export const DoneInboxItemBody = S.Struct({
   "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the note, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
   "inboxItems": S.optional(S.Array(S.Struct({
@@ -837,7 +856,8 @@ export const DoneInboxItemBody = S.Struct({
   "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the note. The request has one part selections for each selection, in order, and each part is one JSON object' }),
-  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the note came from a voice recording' })
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the note came from a voice recording' }),
+  "voiceSeconds": S.optional(S.Number.check(S.isGreaterThanOrEqualTo(doneInboxItemBodyVoiceSecondsMin))).annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds' })
 })
 
 export const DoneInboxItemResponse = S.Struct({

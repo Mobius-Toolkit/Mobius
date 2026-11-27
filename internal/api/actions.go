@@ -94,6 +94,8 @@ type ApproveActionRequest struct {
 		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the message came from a voice recording
 		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
 }
 
@@ -114,7 +116,7 @@ type ApproveActionResponse struct {
 // PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
 func (h *handlers) ApproveAction(ctx context.Context, req ApproveActionRequest) (*ApproveActionResponse, error) {
 	body := req.Body
-	action, err := h.engine.ApproveAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice))
+	action, err := h.engine.ApproveAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err
@@ -141,6 +143,8 @@ type RejectActionRequest struct {
 		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the message came from a voice recording
 		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
 }
 
@@ -160,7 +164,7 @@ type RejectActionResponse struct {
 // JPEG, GIF or WebP, and 409 for an action that is not pending.
 func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*RejectActionResponse, error) {
 	body := req.Body
-	action, err := h.engine.RejectAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice))
+	action, err := h.engine.RejectAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err
