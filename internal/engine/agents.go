@@ -1314,7 +1314,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	for _, g := range groups {
 		binding, _ := roleBinding(&roles, g.role)
 		if g.role == ImplementerRole {
-			binding.Max = e.implementerMax()
+			if binding.Max, err = e.implementerMax(ctx); err != nil {
+				return ActiveAgents{}, err
+			}
 		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
