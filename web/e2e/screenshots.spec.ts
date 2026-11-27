@@ -3117,6 +3117,7 @@ test("screenshots", async ({ page }) => {
     async () => {
       await page.keyboard.press("Escape");
       await page.evaluate(clearDrafts);
+      await page.reload();
     },
   );
   const readyRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
@@ -5048,9 +5049,11 @@ test("screenshots", async ({ page }) => {
     async () => {
       await attachToPanel(page, briefKey, openBrief);
     },
+    // The page keeps the draft in memory, so it loads again. Else the approval below sends the attachments.
     async () => {
       await page.keyboard.press("Escape");
       await page.evaluate(clearDrafts);
+      await page.reload();
     },
   );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
