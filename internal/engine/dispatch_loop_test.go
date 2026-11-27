@@ -148,9 +148,14 @@ func TestTheDispatchLoopAndAutopilotDispatchOneIssueOneTime(t *testing.T) {
 	prepareAutopilot(fake, true)
 	server := startAutopilot(t, fake, func(*config.Config) {}, "")
 	server.WaitForFirstPoll(t, shop)
+	turnStartOff(t, server)
+	addTaskIssue(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = 'owner/shop' AND number = 41 AND workstream IS NOT NULL") == 1
+	})
 	reached, release := fake.HoldIssue(shop, 41)
 	t.Cleanup(release)
-	addTaskIssue(fake, 41, "Add plan model")
+	turnStartOn(t, server)
 	<-reached
 	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
