@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -31,6 +32,13 @@ func (e *Engine) ResumeNeedsHuman(ctx context.Context, repositoryName string, nu
 		return err
 	}
 	return e.resumeNeedsHuman(ctx, repository, issue, task, actor)
+}
+
+// TimeStep calls timeStep on an engine that reads its time from clock.
+func TimeStep(clock func() time.Time, name string, always bool, step func() error) error {
+	e := &Engine{}
+	e.SetClock(clock)
+	return e.timeStep(name, always, step)
 }
 
 // The tests make these waits short.

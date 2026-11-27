@@ -2,12 +2,17 @@ package engine_test
 
 import (
 	"database/sql"
+	"errors"
+	"log"
+	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -207,5 +212,52 @@ func TestAnIssueListOfMoreThanOnePageGivesNoETag(t *testing.T) {
 
 	if since, etag := cursor(t, server); !since.Valid || etag.Valid {
 		t.Errorf("cursor = %v, %v", since, etag)
+	}
+}
+
+// Serial: it sets the output of the log package.
+func TestPollStepLogsOnlyTheSlowSteps(t *testing.T) {
+	logged := &logBuffer{}
+	log.SetOutput(logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	takes := func(d time.Duration) func() error {
+		return func() error {
+			now = now.Add(d)
+			return nil
+		}
+	}
+
+	for _, step := range []struct {
+		name   string
+		always bool
+		take   time.Duration
+	}{
+		{"owner/shop fast", false, 999 * time.Millisecond},
+		{"owner/shop slow", false, 1234567 * time.Microsecond},
+		{"owner/shop exact", false, time.Second},
+		{"refresh", true, 12 * time.Millisecond},
+	} {
+		if err := engine.TimeStep(clock, step.name, step.always, takes(step.take)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := []string{"poll step owner/shop slow: 1.235s", "poll step owner/shop exact: 1s", "poll step refresh: 12ms"}
+	got := regexp.MustCompile(`(?m)poll step .*$`).FindAllString(logged.String(), -1)
+	if !slices.Equal(got, want) {
+		t.Errorf("poll step lines = %q, want %q", got, want)
+	}
+}
+
+func TestPollStepGivesTheErrorOfTheStep(t *testing.T) {
+	t.Parallel()
+	wantErr := errors.New("read failed")
+
+	err := engine.TimeStep(time.Now, "owner/shop changedIssues", false, func() error { return wantErr })
+
+	if !errors.Is(err, wantErr) {
+		t.Errorf("err = %v, want %v", err, wantErr)
 	}
 }
