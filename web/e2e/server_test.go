@@ -1251,7 +1251,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 		}
 		return err == nil
 	})
-	if _, err := server.Engine.ApproveAction(ctx, action, ""); err != nil {
+	if _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {

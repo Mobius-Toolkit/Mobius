@@ -118,7 +118,7 @@ func TestDoneOfAnOwnerActionResetsTheCountersAndStartsAReviewerOfTheCurrentHead(
 		t.Fatal(err)
 	}
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+	status, body := doneTodo(t, server, item.ID, "Logged in.")
 
 	if status != http.StatusOK || !strings.Contains(body, `"dismissedAt":"`) {
 		t.Fatalf("status = %d: %s", status, body)
@@ -148,11 +148,11 @@ func TestDoneOfAnOwnerActionResetsTheCountersAndStartsAReviewerOfTheCurrentHead(
 func TestDoneInboxItemRefusesADismissedOwnerActionItem(t *testing.T) {
 	t.Parallel()
 	server, _, item := pausedTask(t, secondAction+findingAndAction)
-	if status, body := doneTodo(t, server, item.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, item.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	status, body := doneTodo(t, server, item.ID, `{"note":""}`)
+	status, body := doneTodo(t, server, item.ID, "")
 
 	if status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)

@@ -189,9 +189,24 @@ type AnswerInboxItemRequest struct {
 		ID int64 `gork:"id"`
 	}
 	Body struct {
-		// Text is the answer of the Owner
+		// Text is the answer of the Owner. It can be empty when the answer has an image, an Inbox item or a selection
 		Text string `gork:"text"`
+		// Images are the images of the answer, PNG, JPEG, GIF or WebP, each at most 5 MB
+		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
+		// InboxItems are the Inbox items of the answer. The request has one part inboxItems for each item, in order,
+		// and each part is one JSON object
+		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Selections are the text selections of the answer. The request has one part selections for each selection, in order,
+		// and each part is one JSON object
+		Selections []ChatSelection `gork:"selections" validate:"dive"`
+		// Voice is true when the answer came from a voice recording
+		Voice bool `gork:"voice"`
 	}
+}
+
+// Validate checks the type of each image.
+func (r *AnswerInboxItemRequest) Validate() error {
+	return validateImages(r.Body.Images)
 }
 
 // AnswerInboxItemResponse is the response of AnswerInboxItem.
@@ -205,16 +220,22 @@ type AnsweredComment struct {
 	URL string `gork:"url"`
 }
 
-// AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as
-// a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius
-// App first. For a question of the Coordinator, it instead adds the text to the Coordinator chat as a message of the
-// Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the
-// steps when the Owner did not authorize the App.
+// AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. The comment has the Inbox
+// items and the selections of the request as Markdown before the text. Mobius treats the comment as a comment of a
+// trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first.
+// GitHub has no image in a comment, so the images go to the chat of the item in a message of the Owner with the URL of
+// the comment. For a question of the Coordinator, it instead adds the text with all parts to the Coordinator chat as a
+// message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue, for an
+// empty text with no image, no Inbox item and no selection, and for a request that has more than 4 images or an image
+// that is not PNG, JPEG, GIF or WebP, and 409 with the steps when the Owner did not authorize the App.
 func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, error) {
-	if strings.TrimSpace(req.Body.Text) == "" {
+	body := req.Body
+	text := unixLines(body.Text)
+	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice)
+	if strings.TrimSpace(text) == "" && attachments.Empty() {
 		return nil, api.NewHTTPError(http.StatusBadRequest, "The text must not be empty.")
 	}
-	url, err := h.engine.AnswerInboxItem(ctx, req.Path.ID, req.Body.Text)
+	url, err := h.engine.AnswerInboxItem(ctx, req.Path.ID, text, attachments)
 	if errors.Is(err, engine.ErrNoInboxItem) {
 		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}
@@ -275,7 +296,22 @@ type DoneInboxItemRequest struct {
 	Body struct {
 		// Note is the note of the Owner, or empty
 		Note string `gork:"note"`
+		// Images are the images of the note, PNG, JPEG, GIF or WebP, each at most 5 MB
+		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
+		// InboxItems are the Inbox items of the note. The request has one part inboxItems for each item, in order,
+		// and each part is one JSON object
+		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Selections are the text selections of the note. The request has one part selections for each selection, in order,
+		// and each part is one JSON object
+		Selections []ChatSelection `gork:"selections" validate:"dive"`
+		// Voice is true when the note came from a voice recording
+		Voice bool `gork:"voice"`
 	}
+}
+
+// Validate checks the type of each image.
+func (r *DoneInboxItemRequest) Validate() error {
+	return validateImages(r.Body.Images)
 }
 
 // DoneInboxItemResponse is the response of DoneInboxItem.
@@ -288,9 +324,12 @@ type DoneInboxItemResponse struct {
 // level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of
 // the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It
 // returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an
-// owner action item whose task does not wait for the action.
+// owner action item whose task does not wait for the action, and 400 for a request that has more than 4 images or an
+// image that is not PNG, JPEG, GIF or WebP. A note with an image, an Inbox item or a selection goes to the chat of the
+// item in a message of the Owner that the agent gets.
 func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
-	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, req.Body.Note)
+	body := req.Body
+	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, unixLines(body.Note), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice))
 	if errors.Is(err, engine.ErrNoInboxItem) {
 		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}

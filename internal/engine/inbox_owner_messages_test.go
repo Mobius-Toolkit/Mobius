@@ -21,6 +21,8 @@ type ownerChatMessage struct {
 	DeliveredAt *string        `json:"deliveredAt"`
 	DisplayOnly bool           `json:"displayOnly"`
 	InboxItems  []apiInboxItem `json:"inboxItems"`
+	Selections  []apiSelection `json:"selections"`
+	Images      int64          `json:"images"`
 }
 
 func ownerChatMessages(t *testing.T, server *testserver.Server, key engine.ChatKey) []ownerChatMessage {
@@ -155,7 +157,7 @@ func TestDoneOfATodoWithANoteAddsADisplayOnlyMessageBeforeTheRecord(t *testing.T
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. The Owner got it for review. The pull request stays a draft until the Owner closes the open todos.")
 	todo := waitForItem(t, server, "todo")
 
-	status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`)
+	status, body := doneTodo(t, server, todo.ID, "Set in prod.")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
@@ -198,7 +200,7 @@ func TestDoneOfATodoWithNoNoteAddsOnlyTheRecord(t *testing.T) {
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got the deployment todos: PLAN_API_KEY. The Owner got it for review. The pull request stays a draft until the Owner closes the open todos.")
 	todo := waitForItem(t, server, "todo")
 
-	status, body := doneTodo(t, server, todo.ID, `{"note":"   "}`)
+	status, body := doneTodo(t, server, todo.ID, "   ")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
@@ -227,7 +229,7 @@ func TestDoneOfAnOwnerActionWithNextImplementerAddsMessageWithoutNoteInRecordAnd
 	item := waitForItem(t, server, "owner action")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+	status, body := doneTodo(t, server, item.ID, "Logged in.")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
@@ -296,7 +298,7 @@ func TestDoneOfAnOwnerActionWithNextImplementerAndNoNoteAddsOnlyTheRecord(t *tes
 	item := waitForItem(t, server, "owner action")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"  "}`)
+	status, body := doneTodo(t, server, item.ID, "  ")
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}

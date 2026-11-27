@@ -184,9 +184,66 @@ export interface ActiveAgents {
   groups: AgentGroup[];
 }
 
+/**
+ * ChatInboxItem is an Inbox item that the Owner sends with a chat message.
+ */
+export interface ChatInboxItem {
+  /** Link is the GitHub URL of the issue or the pull request, or empty */
+  link: string;
+  /** Reason is the reason of the Inbox item */
+  reason: string;
+  /** Reference is #N or PR #N, or empty for an item with no issue */
+  reference: string;
+  /** Title is the title of the Inbox item */
+  title: string;
+}
+
+/**
+ * Source is the place of the selection
+ */
+export type ChatSelectionSource = typeof ChatSelectionSource[keyof typeof ChatSelectionSource];
+
+
+export const ChatSelectionSource = {
+  task: 'task',
+  message: 'message',
+  brief: 'brief',
+  inbox: 'inbox',
+} as const;
+
+/**
+ * ChatSelection is a text selection that the Owner sends with a chat message.
+ */
+export interface ChatSelection {
+  /** Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block */
+  context: string;
+  /** Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message */
+  link: string;
+  /** MessageAuthor is the author of the quoted chat message for message, or empty for the other sources */
+  messageAuthor: string;
+  /** MessageID is the id of the quoted chat message for message, or 0 for the other sources */
+  messageId: number;
+  /** Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message */
+  part: string;
+  /** Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message */
+  reference: string;
+  /** Source is the place of the selection */
+  source: ChatSelectionSource;
+  /** Text is the selected text */
+  text: string;
+}
+
 export interface AnswerInboxItemBody {
-  /** Text is the answer of the Owner */
+  /** Images are the images of the answer, PNG, JPEG, GIF or WebP, each at most 5 MB */
+  images?: (Blob | File)[];
+  /** InboxItems are the Inbox items of the answer. The request has one part inboxItems for each item, in order, and each part is one JSON object */
+  inboxItems?: ChatInboxItem[];
+  /** Selections are the text selections of the answer. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Text is the answer of the Owner. It can be empty when the answer has an image, an Inbox item or a selection */
   text?: string;
+  /** Voice is true when the answer came from a voice recording */
+  voice?: boolean;
 }
 
 /**
@@ -198,8 +255,16 @@ export interface AnsweredComment {
 }
 
 export interface ApproveActionBody {
+  /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
+  images?: (Blob | File)[];
+  /** InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object */
+  inboxItems?: ChatInboxItem[];
   /** Message is the message of the Owner for the agent. It can be empty */
   message?: string;
+  /** Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Voice is true when the message came from a voice recording */
+  voice?: boolean;
 }
 
 /**
@@ -439,20 +504,6 @@ export const ChatMessageAuthor = {
 } as const;
 
 /**
- * ChatInboxItem is an Inbox item that the Owner sends with a chat message.
- */
-export interface ChatInboxItem {
-  /** Link is the GitHub URL of the issue or the pull request, or empty */
-  link: string;
-  /** Reason is the reason of the Inbox item */
-  reason: string;
-  /** Reference is #N or PR #N, or empty for an item with no issue */
-  reference: string;
-  /** Title is the title of the Inbox item */
-  title: string;
-}
-
-/**
  * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner, and todo for a deployment need of a pull request, and access check for a Harness that has no access to the model of a Role, and tool upgrade for an automatic upgrade of an npm package of a Harness that failed, and missing maintenance for an organization with no Maintenance Workstream, and missing skills for an organization with no Skills Workstream
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
@@ -582,40 +633,6 @@ export interface InboxItem {
   workstream: number;
   /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository */
   workstreamRepository: string;
-}
-
-/**
- * Source is the place of the selection
- */
-export type ChatSelectionSource = typeof ChatSelectionSource[keyof typeof ChatSelectionSource];
-
-
-export const ChatSelectionSource = {
-  task: 'task',
-  message: 'message',
-  brief: 'brief',
-} as const;
-
-/**
- * ChatSelection is a text selection that the Owner sends with a chat message.
- */
-export interface ChatSelection {
-  /** Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block */
-  context: string;
-  /** Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message */
-  link: string;
-  /** MessageAuthor is the author of the quoted chat message for message, or empty for the other sources */
-  messageAuthor: string;
-  /** MessageID is the id of the quoted chat message for message, or 0 for the other sources */
-  messageId: number;
-  /** Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message */
-  part: string;
-  /** Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message */
-  reference: string;
-  /** Source is the place of the selection */
-  source: ChatSelectionSource;
-  /** Text is the selected text */
-  text: string;
 }
 
 /**
@@ -919,8 +936,16 @@ export interface Devices {
 }
 
 export interface DoneInboxItemBody {
+  /** Images are the images of the note, PNG, JPEG, GIF or WebP, each at most 5 MB */
+  images?: (Blob | File)[];
+  /** InboxItems are the Inbox items of the note. The request has one part inboxItems for each item, in order, and each part is one JSON object */
+  inboxItems?: ChatInboxItem[];
   /** Note is the note of the Owner, or empty */
   note?: string;
+  /** Selections are the text selections of the note. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Voice is true when the note came from a voice recording */
+  voice?: boolean;
 }
 
 /**
@@ -2720,8 +2745,16 @@ export interface McpServerBodyBody {
 }
 
 export interface RejectActionBody {
+  /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
+  images?: (Blob | File)[];
+  /** InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object */
+  inboxItems?: ChatInboxItem[];
   /** Message is the message of the Owner for the agent. It can be empty */
   message?: string;
+  /** Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object */
+  selections?: ChatSelection[];
+  /** Voice is true when the message came from a voice recording */
+  voice?: boolean;
 }
 
 export interface SaveMemoryBody {
@@ -3130,17 +3163,33 @@ export const getApproveActionUrl = (id: number,) => {
 }
 
 /**
- * ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ * ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
  */
 export const approveAction = async (id: number,
     approveActionBody: ApproveActionBody, ): Promise<approveActionResponse> => {
+    const formData = new FormData();
+if(approveActionBody.images !== undefined) {
+ approveActionBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(approveActionBody.inboxItems !== undefined) {
+ approveActionBody.inboxItems.forEach(value => formData.append(`inboxItems`, JSON.stringify(value)));
+ }
+if(approveActionBody.message !== undefined) {
+ formData.append(`message`, approveActionBody.message);
+ }
+if(approveActionBody.selections !== undefined) {
+ approveActionBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
+ }
+if(approveActionBody.voice !== undefined) {
+ formData.append(`voice`, approveActionBody.voice.toString())
+ }
 
   const res = await fetch(getApproveActionUrl(id),
   {
 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(approveActionBody)
+    method: 'POST'
+    ,
+    body: formData
   }
 )
 
@@ -3281,17 +3330,33 @@ export const getRejectActionUrl = (id: number,) => {
 }
 
 /**
- * RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ * RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
  */
 export const rejectAction = async (id: number,
     rejectActionBody: RejectActionBody, ): Promise<rejectActionResponse> => {
+    const formData = new FormData();
+if(rejectActionBody.images !== undefined) {
+ rejectActionBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(rejectActionBody.inboxItems !== undefined) {
+ rejectActionBody.inboxItems.forEach(value => formData.append(`inboxItems`, JSON.stringify(value)));
+ }
+if(rejectActionBody.message !== undefined) {
+ formData.append(`message`, rejectActionBody.message);
+ }
+if(rejectActionBody.selections !== undefined) {
+ rejectActionBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
+ }
+if(rejectActionBody.voice !== undefined) {
+ formData.append(`voice`, rejectActionBody.voice.toString())
+ }
 
   const res = await fetch(getRejectActionUrl(id),
   {
 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(rejectActionBody)
+    method: 'POST'
+    ,
+    body: formData
   }
 )
 
@@ -5225,17 +5290,33 @@ export const getAnswerInboxItemUrl = (id: number,) => {
 }
 
 /**
- * AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. For a question of the Coordinator, it instead adds the text to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the steps when the Owner did not authorize the App.
+ * AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. The comment has the Inbox items and the selections of the request as Markdown before the text. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. GitHub has no image in a comment, so the images go to the chat of the item in a message of the Owner with the URL of the comment. For a question of the Coordinator, it instead adds the text with all parts to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue, for an empty text with no image, no Inbox item and no selection, and for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 with the steps when the Owner did not authorize the App.
  */
 export const answerInboxItem = async (id: number,
     answerInboxItemBody: AnswerInboxItemBody, ): Promise<answerInboxItemResponse> => {
+    const formData = new FormData();
+if(answerInboxItemBody.images !== undefined) {
+ answerInboxItemBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(answerInboxItemBody.inboxItems !== undefined) {
+ answerInboxItemBody.inboxItems.forEach(value => formData.append(`inboxItems`, JSON.stringify(value)));
+ }
+if(answerInboxItemBody.selections !== undefined) {
+ answerInboxItemBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
+ }
+if(answerInboxItemBody.text !== undefined) {
+ formData.append(`text`, answerInboxItemBody.text);
+ }
+if(answerInboxItemBody.voice !== undefined) {
+ formData.append(`voice`, answerInboxItemBody.voice.toString())
+ }
 
   const res = await fetch(getAnswerInboxItemUrl(id),
   {
 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(answerInboxItemBody)
+    method: 'POST'
+    ,
+    body: formData
   }
 )
 
@@ -5371,17 +5452,33 @@ export const getDoneInboxItemUrl = (id: number,) => {
 }
 
 /**
- * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action.
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action, and 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP. A note with an image, an Inbox item or a selection goes to the chat of the item in a message of the Owner that the agent gets.
  */
 export const doneInboxItem = async (id: number,
     doneInboxItemBody: DoneInboxItemBody, ): Promise<doneInboxItemResponse> => {
+    const formData = new FormData();
+if(doneInboxItemBody.images !== undefined) {
+ doneInboxItemBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(doneInboxItemBody.inboxItems !== undefined) {
+ doneInboxItemBody.inboxItems.forEach(value => formData.append(`inboxItems`, JSON.stringify(value)));
+ }
+if(doneInboxItemBody.note !== undefined) {
+ formData.append(`note`, doneInboxItemBody.note);
+ }
+if(doneInboxItemBody.selections !== undefined) {
+ doneInboxItemBody.selections.forEach(value => formData.append(`selections`, JSON.stringify(value)));
+ }
+if(doneInboxItemBody.voice !== undefined) {
+ formData.append(`voice`, doneInboxItemBody.voice.toString())
+ }
 
   const res = await fetch(getDoneInboxItemUrl(id),
   {
 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(doneInboxItemBody)
+    method: 'POST'
+    ,
+    body: formData
   }
 )
 

@@ -258,6 +258,9 @@ function sourceLine(selection: ChatSelection, time: string | undefined) {
     return `${selection.messageAuthor} message${time ? ` · ${clock(time)}` : ""}`;
   }
   const part = selection.part ? ` · ${selection.part}` : "";
+  if (selection.source === "inbox") {
+    return `Inbox item${selection.reference ? ` ${selection.reference}` : ""}${part}`;
+  }
   return selection.source === "task"
     ? `${selection.reference}${part}`
     : `Brief of ${selection.reference}${part}`;

@@ -52,9 +52,9 @@ func todoRows(t *testing.T, server *testserver.Server) []store.DeploymentTodo {
 	return todos
 }
 
-func doneTodo(t *testing.T, server *testserver.Server, id int64, body string) (int, string) {
+func doneTodo(t *testing.T, server *testserver.Server, id int64, note string) (int, string) {
 	t.Helper()
-	return send(t, server, http.MethodPost, "/api/inbox/"+itoa(id)+"/done", body)
+	return postForm(t, server, "/api/inbox/"+itoa(id)+"/done", textPart("note", note))
 }
 
 func TestWithoutAMergeLevelEachDeploymentNeedGivesATodoAndTheOwnerGetsNoApproval(t *testing.T) {
@@ -79,7 +79,7 @@ func TestWithoutAMergeLevelEachDeploymentNeedGivesATodoAndTheOwnerGetsNoApproval
 		t.Errorf("todos = %+v, %+v", first.Todo, second.Todo)
 	}
 
-	if status, body := doneTodo(t, server, first.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, first.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -116,7 +116,7 @@ func TestWithAMergeLevelAMandatoryTodoBlocksTheMergeUntilTheOwnerMarksItAsDone(t
 		t.Errorf("task = %+v", task)
 	}
 
-	status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`)
+	status, body := doneTodo(t, server, todo.ID, "Set in prod.")
 
 	if status != http.StatusOK || !strings.Contains(body, `"dismissedAt":"`) || !strings.Contains(body, `"note":"Set in prod."`) {
 		t.Fatalf("status = %d: %s", status, body)
@@ -151,7 +151,7 @@ func TestTheDoneWriteOfATodoAddsOneRecordToTheLeadChatThatIsNotUnread(t *testing
 		t.Fatal(err)
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -171,7 +171,7 @@ func TestAFailedReadOfThePullRequestAtTheDoneWriteKeepsTheTodoOpenSoTheOwnerCanM
 	todo := waitForItem(t, server, "todo")
 	fake.FailPullRequestReads(true)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status == http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status == http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -180,7 +180,7 @@ func TestAFailedReadOfThePullRequestAtTheDoneWriteKeepsTheTodoOpenSoTheOwnerCanM
 	}
 	fake.FailPullRequestReads(false)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -287,10 +287,10 @@ func TestDoneInboxItemRefusesAnUnknownItemAndAnItemThatIsNotATodo(t *testing.T) 
 	sendChat(t, server, leadChat, "Approve #41")
 	ready := waitForItem(t, server, "ready for review")
 
-	if status, body := doneTodo(t, server, 9999, `{"note":""}`); status != http.StatusNotFound {
+	if status, body := doneTodo(t, server, 9999, ""); status != http.StatusNotFound {
 		t.Errorf("unknown item: status = %d: %s", status, body)
 	}
-	if status, body := doneTodo(t, server, ready.ID, `{"note":""}`); status != http.StatusConflict {
+	if status, body := doneTodo(t, server, ready.ID, ""); status != http.StatusConflict {
 		t.Errorf("ready for review item: status = %d: %s", status, body)
 	}
 }
@@ -340,7 +340,7 @@ func TestAnOptionalTodoOfANeedThatTheReviewerLaterReportsAsMandatoryContinuesThe
 		return len(items) == 1 && items[0].MergeRefusal == openTodosReason
 	})
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -545,7 +545,7 @@ func TestAMandatoryNeedThatIsAfterMergeDoesNotStopTheAutomaticMergeAndItsTodoSta
 		t.Fatalf("todo = %+v", todo)
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Added."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Added."); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -702,7 +702,7 @@ func TestWithNoMergeLevelCompleteOfTheLastMandatoryTodoMakesThePullRequestReadyA
 		t.Errorf("approvals = %d, draft = %v", approvals(fake), draft(fake))
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -743,7 +743,7 @@ func TestAFailureOfMarkReadyForReviewKeepsTheTodoItemOpenAndASecondCompleteMakes
 	todo := waitForItem(t, server, "todo")
 	fake.FailMarkReadyForReview(true)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status == http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status == http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -752,7 +752,7 @@ func TestAFailureOfMarkReadyForReviewKeepsTheTodoItemOpenAndASecondCompleteMakes
 	}
 	fake.FailMarkReadyForReview(false)
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -776,7 +776,7 @@ func TestACompletionRefusesAWorkstreamWithAnOpenTodoUntilTheOwnerCompletesIt(t *
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":"Set in prod."}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, "Set in prod."); status != http.StatusOK {
 		t.Fatalf("done status = %d: %s", status, body)
 	}
 	if status, body := complete(t, server, 12); status != http.StatusNoContent {
@@ -840,7 +840,7 @@ func TestAPullRequestWithABlockingTodoAndAnApprovalOfTheOwnerDoesNotMergeEvenWhe
 		t.Errorf("merge calls = %d, state = %s, draft = %v", fake.MergeCalls(), taskState(t, server), draft(fake))
 	}
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -908,7 +908,7 @@ func TestAnApprovalOfTheOwnerKeepsTheItemOfANewBlockingNeedNotMergingUntilTheTod
 	})
 	todo := waitForItem(t, server, "todo")
 
-	if status, body := doneTodo(t, server, todo.ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todo.ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 

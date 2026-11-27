@@ -13,11 +13,7 @@ import (
 
 func answer(t *testing.T, server *testserver.Server, id int64, text string) string {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"text": text})
-	if err != nil {
-		t.Fatal(err)
-	}
-	status, response := send(t, server, http.MethodPost, "/api/inbox/"+itoa(id)+"/answer", string(body))
+	status, response := postForm(t, server, "/api/inbox/"+itoa(id)+"/answer", textPart("text", text))
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, response)
 	}
@@ -143,7 +139,7 @@ func TestASecondAnswerFromTheInboxToTheSameItemIsRefusedWithNoCommentAndNoLeadEv
 	answer(t, server, item.ID, "Cents.")
 	comments := len(fake.Comments(shop, 41))
 
-	status, response := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/answer", `{"text": "Dollars."}`)
+	status, response := postForm(t, server, "/api/inbox/"+itoa(item.ID)+"/answer", textPart("text", "Dollars."))
 
 	if status != http.StatusConflict || !strings.Contains(response, "already answered or closed") {
 		t.Errorf("status = %d: %s", status, response)
@@ -206,8 +202,7 @@ func TestAnAnswerFromTheInboxThatFailsAfterTheCloseLeavesTheCommentToThePoll(t *
 	item := waitForItem(t, server, "question")
 	fake.FailReactions("eyes", true)
 
-	body := `{"text": "Cents."}`
-	if status, _ := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/answer", body); status == http.StatusOK {
+	if status, _ := postForm(t, server, "/api/inbox/"+itoa(item.ID)+"/answer", textPart("text", "Cents.")); status == http.StatusOK {
 		t.Fatalf("status = %d", status)
 	}
 	fake.FailReactions("eyes", false)

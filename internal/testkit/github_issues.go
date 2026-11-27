@@ -545,6 +545,13 @@ func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
+// SubIssueReads gives the number of the reads of the sub-issues of the issue.
+func (g *FakeGitHub) SubIssueReads(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.subIssueReads[issueKey{repository, number}]
+}
+
 // FailAddSubIssue makes each new sub-issue that Mobius adds below the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -1362,6 +1369,7 @@ func (g *FakeGitHub) subIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	g.subIssueReads[key]++
 	if g.failedSubIssues[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
@@ -1708,7 +1716,7 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		message(w, status, "Resource not accessible by integration")
 		return
 	}
-	if utf8.RuneCountInString(request.Body) > 65535 {
+	if strings.TrimSpace(request.Body) == "" || utf8.RuneCountInString(request.Body) > 65535 {
 		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}

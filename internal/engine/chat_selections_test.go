@@ -163,13 +163,22 @@ func TestSelectionBlockExactFormats(t *testing.T) {
 	taskNoLinkBlock := "Selection from task #42 (issue body)\nSelected text:\n> snippet\nContext:\n> surrounding"
 	briefNoPartBlock := "Selection from the Brief of #1651\nLink: https://github.com/owner/name/issues/1651\nSelected text:\n> intro text\nContext:\n> preamble"
 
-	if status, body := sendSelectionMessage(t, server, shop, "12", "All variants", taskNoPart, taskNoLink, briefNoPart); status != http.StatusNoContent {
+	inboxWithReference := `{"source":"inbox","text":"brief text","context":"the brief","reference":"PR #34","link":"https://github.com/owner/name/pull/34","part":"brief"}`
+	inboxNoReference := `{"source":"inbox","text":"which unit?","part":"question"}`
+	inboxNoPart := `{"source":"inbox","text":"item text","reference":"#12"}`
+
+	inboxWithReferenceBlock := "Selection from Inbox item PR #34 (brief)\nLink: https://github.com/owner/name/pull/34\nSelected text:\n> brief text\nContext:\n> the brief"
+	inboxNoReferenceBlock := "Selection from an Inbox item (question)\nSelected text:\n> which unit?"
+	inboxNoPartBlock := "Selection from Inbox item #12\nSelected text:\n> item text"
+
+	if status, body := sendSelectionMessage(t, server, shop, "12", "All variants", taskNoPart, taskNoLink, briefNoPart, inboxWithReference, inboxNoReference, inboxNoPart); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
 	waitForChat(t, server, leadChat, "Lead", "Seen")
 	prompts := leadPrompts(t, server)
-	if len(prompts) != 1 || !strings.HasSuffix(prompts[0], "# Owner message\n\n"+taskNoPartBlock+"\n\n"+taskNoLinkBlock+"\n\n"+briefNoPartBlock+"\n\nAll variants") {
+	wantBlocks := taskNoPartBlock + "\n\n" + taskNoLinkBlock + "\n\n" + briefNoPartBlock + "\n\n" + inboxWithReferenceBlock + "\n\n" + inboxNoReferenceBlock + "\n\n" + inboxNoPartBlock
+	if len(prompts) != 1 || !strings.HasSuffix(prompts[0], "# Owner message\n\n"+wantBlocks+"\n\nAll variants") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }

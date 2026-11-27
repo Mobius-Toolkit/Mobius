@@ -61,6 +61,13 @@ async function api<T>(page: Page, method: string, path: string, body?: object) {
   )) as { status: number; data: T };
 }
 
+// A decision on an action has a multipart body.
+async function decide<T>(page: Page, path: string) {
+  return (await page.evaluate(
+    `fetch(${JSON.stringify(path)}, { method: "POST", body: (() => { const form = new FormData(); form.append("message", ""); return form })() }).then(async (response) => ({ status: response.status, data: (await response.json()).data }))`,
+  )) as { status: number; data: T };
+}
+
 const coordinatorChat = "/api/chat?organization=owner&repository=&workstream=0";
 
 // Sends the text to the Coordinator chat without the composer.
@@ -108,9 +115,7 @@ export async function restoreBrief(page: Page) {
       return id;
     })
     .not.toBe(0);
-  const approved = await api<{ state: string }>(page, "POST", `/api/actions/${id}/approve`, {
-    message: "",
-  });
+  const approved = await decide<{ state: string }>(page, `/api/actions/${id}/approve`);
   expect(approved.data.state).toBe("done");
 }
 
@@ -159,7 +164,7 @@ export async function settle(page: Page) {
       );
       const pending = inbox.data.filter((item) => item.action?.state === "pending");
       for (const item of pending) {
-        await api(page, "POST", `/api/actions/${item.action?.id}/reject`, { message: "" });
+        await decide(page, `/api/actions/${item.action?.id}/reject`);
       }
       return pending.length;
     })

@@ -412,7 +412,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			copyChanged, err := e.updateCopy(ctx, repository, issue, labelChanges)
 			if err != nil {
 				log.Printf("update the copy of %s: %v", repository.FullName, err)
-				delete(e.copied, repository.FullName)
+				e.breakCopy(ctx, repository.FullName)
 			}
 			listChanged = listChanged || copyChanged
 		}

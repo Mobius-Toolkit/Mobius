@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -80,17 +78,20 @@ type ChatInboxItem struct {
 // ChatSelection is a text selection that the Owner sends with a chat message.
 type ChatSelection struct {
 	// Source is the place of the selection
-	Source string `gork:"source" validate:"oneof=task message brief"`
+	Source string `gork:"source" validate:"oneof=task message brief inbox"`
 	// Text is the selected text
 	Text string `gork:"text" validate:"required"`
 	// Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block
 	Context string `gork:"context"`
 	// Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task,
-	// the reference of the Workstream (#N) for brief, or empty for message
+	// the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference,
+	// or empty) for inbox, or empty for message
 	Reference string `gork:"reference"`
-	// Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message
+	// Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of
+	// the Inbox item or empty for inbox, or empty for message
 	Link string `gork:"link"`
-	// Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message
+	// Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief,
+	// the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message
 	Part string `gork:"part"`
 	// MessageID is the id of the quoted chat message for message, or 0 for the other sources
 	MessageID int64 `gork:"messageId"`
@@ -181,12 +182,7 @@ type SendChatRequest struct {
 
 // Validate checks the type of each image.
 func (r *SendChatRequest) Validate() error {
-	for _, image := range r.Body.Images {
-		if !slices.Contains(imageTypes, image.ContentType) {
-			return &api.BodyValidationError{Errors: []string{"an image must be PNG, JPEG, GIF or WebP"}}
-		}
-	}
-	return nil
+	return validateImages(r.Body.Images)
 }
 
 // SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Coordinator. Mobius
@@ -195,21 +191,8 @@ func (r *SendChatRequest) Validate() error {
 // returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
-	// A browser sends each new line of a multipart text field as CRLF.
-	text := strings.ReplaceAll(body.Text, "\r\n", "\n")
-	images := make([]engine.Image, 0, len(body.Images))
-	for _, image := range body.Images {
-		images = append(images, engine.Image{MIMEType: image.ContentType, Data: image.Data})
-	}
-	inboxItems := make([]engine.ChatInboxItem, 0, len(body.InboxItems))
-	for _, item := range body.InboxItems {
-		inboxItems = append(inboxItems, engine.ChatInboxItem(item))
-	}
-	selections := make([]engine.ChatSelection, 0, len(body.Selections))
-	for _, selection := range body.Selections {
-		selections = append(selections, engine.ChatSelection(selection))
-	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems, selections, body.Voice)
+	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, unixLines(body.Text), attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
