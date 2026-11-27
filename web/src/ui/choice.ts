@@ -3,6 +3,38 @@ import { buttonClass } from "./button";
 import { checkIcon, chevronDownIcon, spinnerIcon } from "./icons";
 import { menuItemClass } from "./menu";
 
+// An item of a menu of values. The item of the chosen value shows a check mark.
+export function renderChoiceItem<M>(
+  h: HtmlBuilder<M>,
+  options: {
+    key: string;
+    checked: boolean;
+    className: string;
+    onClick: M;
+    children: ReadonlyArray<Html | string>;
+  },
+): Html {
+  return h.keyed("button")(
+    options.key,
+    [
+      h.Type("button"),
+      h.Role("menuitemradio"),
+      h.AriaChecked(options.checked),
+      h.Class(options.className),
+      h.OnClick(options.onClick),
+    ],
+    [
+      ...options.children,
+      options.checked
+        ? h.span(
+            [h.Class("pointer-events-none absolute right-2 flex items-center justify-center")],
+            [checkIcon(h, "size-4")],
+          )
+        : h.empty,
+    ],
+  );
+}
+
 // A button that opens a menu of values on one side of it. toggle is the Message of the button, and close is the Message of the
 // layer behind the menu. The menu shows a spinner while loading is true.
 export function renderChoice<M>(
@@ -47,29 +79,13 @@ export function renderChoice<M>(
             options.loading
               ? [h.div([h.Class("flex justify-center p-2")], [spinnerIcon(h)])]
               : options.values.map((value) =>
-                  h.keyed("button")(
-                    value,
-                    [
-                      h.Type("button"),
-                      h.Role("menuitemradio"),
-                      h.AriaChecked(value === options.value),
-                      h.Class(menuItemClass),
-                      h.OnClick(options.pick(value)),
-                    ],
-                    [
-                      value,
-                      value === options.value
-                        ? h.span(
-                            [
-                              h.Class(
-                                "pointer-events-none absolute right-2 flex items-center justify-center",
-                              ),
-                            ],
-                            [checkIcon(h, "size-4")],
-                          )
-                        : h.empty,
-                    ],
-                  ),
+                  renderChoiceItem(h, {
+                    key: value,
+                    checked: value === options.value,
+                    className: menuItemClass,
+                    onClick: options.pick(value),
+                    children: [value],
+                  }),
                 ),
           )
         : h.empty,
