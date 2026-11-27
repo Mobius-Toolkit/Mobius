@@ -1,14 +1,11 @@
 package runner
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 )
 
 // portURLEnv is the environment variable of a script or an agent process that gives the URL of its free ports.
@@ -35,7 +32,7 @@ func Port(args []string, getenv func(string) string, stdout, stderr io.Writer) i
 	if endpoint == "" {
 		return fail(stderr, 1, "mobius-port runs only in a script or an agent session of Mobius.")
 	}
-	ports, err := reservePorts(endpoint + "?" + url.Values{"count": {strconv.Itoa(count)}}.Encode())
+	ports, err := responseBody(http.MethodPost, endpoint+"?"+url.Values{"count": {strconv.Itoa(count)}}.Encode())
 	if err != nil {
 		return fail(stderr, 1, err.Error())
 	}
@@ -48,26 +45,4 @@ func Port(args []string, getenv func(string) string, stdout, stderr io.Writer) i
 func fail(stderr io.Writer, code int, text string) int {
 	_, _ = io.WriteString(stderr, text+"\n")
 	return code
-}
-
-// reservePorts gives the body of the response to a POST to endpoint. The body of a response with an error status is the
-// error.
-func reservePorts(endpoint string) (string, error) {
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, nil)
-	if err != nil {
-		return "", err
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = response.Body.Close() }()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return "", err
-	}
-	if response.StatusCode != http.StatusOK {
-		return "", errors.New(strings.TrimSpace(string(body)))
-	}
-	return string(body), nil
 }
