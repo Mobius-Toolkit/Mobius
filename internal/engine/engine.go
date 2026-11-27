@@ -130,6 +130,10 @@ type Engine struct {
 	// dispatchAll, take turns. Else the loop can dispatch an issue after its Start and before the copy of its blocker.
 	// It is taken before stopMu.
 	copyStepsMu sync.Mutex
+	// dispatchMu makes dispatchSteps of the poll and dispatchAll take turns. Else both can dispatch one issue, because
+	// startAutopilot reads the tasks before it reads the issue from GitHub. It is taken after copyStepsMu and before
+	// stopMu.
+	dispatchMu sync.Mutex
 	// closingMu guards closing.
 	closingMu sync.Mutex
 	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.

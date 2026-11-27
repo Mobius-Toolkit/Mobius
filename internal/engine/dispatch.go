@@ -154,11 +154,24 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	return nil
 }
 
+// dispatchSteps runs dispatchReady and then startAutopilot. It holds dispatchMu, so the dispatch loop does not dispatch
+// an issue that startAutopilot is about to dispatch.
+func (e *Engine) dispatchSteps(ctx context.Context, repository github.Repository) error {
+	e.dispatchMu.Lock()
+	defer e.dispatchMu.Unlock()
+	if err := e.dispatchReady(ctx, repository); err != nil {
+		return err
+	}
+	return e.startAutopilot(ctx, repository)
+}
+
 // dispatchAll runs dispatchReady for each repository. A failed repository does not stop the next one.
 func (e *Engine) dispatchAll(ctx context.Context) {
 	for _, repository := range e.github.Repositories() {
 		e.copyStepsMu.Lock()
+		e.dispatchMu.Lock()
 		err := e.dispatchReady(ctx, repository)
+		e.dispatchMu.Unlock()
 		e.copyStepsMu.Unlock()
 		if err != nil {
 			log.Printf("dispatch the ready issues of %s: %v", repository.FullName, err)

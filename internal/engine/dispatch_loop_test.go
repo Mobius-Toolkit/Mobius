@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -138,5 +139,32 @@ func TestTheDispatchLoopWaitsForTheBlockerCopyOfThePollAfterAReadyLabelOfThePoll
 	}
 	if hasLiveTask(t, server, 41) || startByOf(t, server, shop, 41) != "owner" {
 		t.Errorf("live task = %t, start_requested_by = %q", hasLiveTask(t, server, 41), startByOf(t, server, shop, 41))
+	}
+}
+
+func TestTheDispatchLoopAndAutopilotDispatchOneIssueOneTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	server.WaitForFirstPoll(t, shop)
+	reached, release := fake.HoldIssue(shop, 41)
+	t.Cleanup(release)
+	addTaskIssue(fake, 41, "Add plan model")
+	<-reached
+	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+		t.Fatal(err)
+	}
+	// Without the lock, the loop dispatches the issue while Autopilot waits for its read.
+	for deadline := time.Now().Add(2 * time.Second); taskState(t, server) == "" && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	release()
+
+	liveTaskOf(t, server, 41)
+	waitForPolls(t, fake)
+	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 41"); got != 1 {
+		t.Errorf("tasks of #41 = %d", got)
 	}
 }
