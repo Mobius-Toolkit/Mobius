@@ -5,8 +5,6 @@ import { inboxIcon, xIcon } from "./icons";
 
 type InboxItemFields = { reference?: string; title: string; reason?: string };
 
-// The root is a button with onClick, a link with href, or else a div. onRemove adds the remove button and the width
-// of a card in a composer.
 export function renderAttachmentCard<Msg>(
   h: HtmlBuilder<Msg>,
   options: {
@@ -76,7 +74,6 @@ export function renderAttachmentCard<Msg>(
   return h.div(attributes, children);
 }
 
-// The reference is the header when the item has one. Else the title is the header.
 export function inboxItemFields<Msg>(h: HtmlBuilder<Msg>, item: InboxItemFields) {
   const lines = [
     ...(item.reference ? [h.span([h.Class("truncate font-medium")], [item.title])] : []),
