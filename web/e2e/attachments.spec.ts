@@ -130,6 +130,29 @@ test("Chat on an Inbox item with no Workstream opens the Coordinator chat with t
   ).toHaveCount(1);
 });
 
+test("the card of an Inbox item with a long title and a long reason keeps its text inside the card", async ({
+  page,
+}) => {
+  const long = {
+    ...stopped,
+    title: "Show the selection and the Inbox item in one attachment card for each message",
+    reason: "The agent asked a question about the width of the card in the composer of the chat",
+  };
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: [long] } }));
+  await page.goto("/inbox");
+  await page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: long.title })
+    .getByRole("button", { name: "Chat about #41", exact: true })
+    .click();
+
+  const card = page.getByRole("main").locator("form [data-attachment-card='inbox-item']");
+  await expect(card).toContainText(long.title);
+  await expect(card).toContainText(long.reason);
+  expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
 test("the draft keeps its text and image after a reload, and Chat adds the item to it", async ({
   page,
 }) => {

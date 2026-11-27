@@ -84,7 +84,7 @@ export function inboxItemFields<Msg>(h: HtmlBuilder<Msg>, item: InboxItemFields)
   return {
     icon: inboxIcon(h, "size-4"),
     header: item.reference || item.title,
-    body: lines.length > 0 ? h.span([h.Class("grid gap-0.5")], lines) : undefined,
+    body: lines.length > 0 ? h.span([h.Class("grid min-w-0 gap-0.5")], lines) : undefined,
     removeLabel: `Remove ${item.reference || item.title}`,
   };
 }
