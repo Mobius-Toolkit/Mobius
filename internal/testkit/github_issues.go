@@ -864,6 +864,14 @@ func (g *FakeGitHub) AfterNextIssueListRead(repository string, f func()) {
 	g.afterIssueListReads[repository] = f
 }
 
+// AfterNextIssueEventsRead makes the fake run f once, after the next event list read of the issue number. The poll gets
+// the answer after f returns, and the answer has only the events from before f runs.
+func (g *FakeGitHub) AfterNextIssueEventsRead(repository string, number int64, f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterIssueEventsReads[issueKey{repository, number}] = f
+}
+
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
 // the Lead writes it. It gives the id of the comment.
 func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) int64 {
@@ -1606,10 +1614,19 @@ func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
 		h.wait()
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	if key, ok := g.issue(w, r); ok {
-		writeJSON(w, http.StatusOK, page(w, r, g.issues[key].events))
+	key, ok := g.issue(w, r)
+	if !ok {
+		g.mu.Unlock()
+		return
 	}
+	events := page(w, r, g.issues[key].events)
+	after := g.afterIssueEventsReads[key]
+	delete(g.afterIssueEventsReads, key)
+	g.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {

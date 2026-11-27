@@ -139,6 +139,11 @@ func TestAcceptIssueClearsTheTriageStateAndRemovesTheLabelAndRefusesAnIssueWithN
 		call("accept_issue", `{ repository = "owner/shop", n = 30 }`)+
 			call("accept_issue", `{ repository = "owner/shop", n = 31 }`)+
 			call("accept_issue", `{ repository = "owner/shop", n = 32 }`))
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Log(triageState(t, server, fake, 30))
+		}
+	})
 	fake.AddIssue(shop, 30, "Add plan price")
 	fake.AddLabel(shop, 30, "mobius:triage", "owner")
 	fake.AddIssue(shop, 31, "Rename plans")
@@ -193,6 +198,50 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheCopyOfTheTreeAddsItsRowBeforeThePoll
 		t.Errorf("reply = %q", got)
 	}
 	release()
+	waitForPolls(t, fake)
+
+	row, _ := triageRowOf(t, server, 30)
+	if row.Triage || slices.Contains(fake.Labels(shop, 30), "mobius:triage") {
+		t.Error(triageState(t, server, fake, 30))
+	}
+}
+
+func TestAnAcceptedIssueStaysAcceptedWhenTheAcceptComesAfterThePollReadTheLabelEventAndBeforeThePollReadsTheRemoval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 30, "Add plan price")
+	fake.AddIssue(shop, 31, "Rename plans")
+	server, _ := connect(t, fake, call("accept_issue", `{ repository = "owner/shop", n = 30 }`))
+	read := make(chan struct{})
+	accepted := make(chan struct{})
+	var release func()
+	// The copy of the tree gives #30 the triage state from the label. The next poll then reads the label event, and the
+	// answer of that read waits for the accept.
+	fake.AfterNextIssueListRead(shop, func() {
+		release = fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+		fake.AddLabel(shop, 30, "mobius:triage", "owner")
+		fake.AddSubIssue(shop, 12, 30)
+		fake.AddSubIssue(shop, 12, 31)
+	})
+	testkit.WaitFor(t, func() bool {
+		first, found := triageRowOf(t, server, 30)
+		_, second := triageRowOf(t, server, 31)
+		return found && first.Triage && second
+	})
+	fake.AfterNextIssueListRead(shop, func() {
+		fake.AfterNextIssueEventsRead(shop, 30, func() {
+			close(read)
+			<-accepted
+		})
+	})
+	release()
+	<-read
+
+	session := run(t, server, leadSpec(t), "1. ")
+	if got := reply(t, server, session); got != "Accepted owner/shop#30." {
+		t.Errorf("reply = %q", got)
+	}
+	close(accepted)
 	waitForPolls(t, fake)
 
 	row, _ := triageRowOf(t, server, 30)
