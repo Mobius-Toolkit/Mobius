@@ -315,8 +315,8 @@ test("a failed action keeps the panel with its error and its note, and a second 
   await expect(panel(page)).toBeHidden();
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
   expect(approvals.map(formFields)).toEqual([
-    { message: "Go ahead.", voice: "false" },
-    { message: "Go ahead.", voice: "false" },
+    { message: "Go ahead.", voice: "false", voiceSeconds: "0" },
+    { message: "Go ahead.", voice: "false", voiceSeconds: "0" },
   ]);
 });
 
@@ -347,7 +347,7 @@ test("a decision with an empty note goes out one time and hides the row while th
 
   await expect(waiting(page, 1)).toBeHidden();
   expect((await answered).ok()).toBe(true);
-  expect(bodies).toEqual([{ message: "", voice: "false" }]);
+  expect(bodies).toEqual([{ message: "", voice: "false", voiceSeconds: "0" }]);
 });
 
 test("the panel has the microphone button and the attach button", async ({ page }) => {
@@ -1056,7 +1056,11 @@ test("the Owner approves an edit_brief action with an image, and the request car
     await expect(panel(page)).toBeHidden();
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toContain('name="images"; filename="');
-    expect(formFields(bodies[0])).toEqual({ message: "See the plan.", voice: "false" });
+    expect(formFields(bodies[0])).toEqual({
+      message: "See the plan.",
+      voice: "false",
+      voiceSeconds: "0",
+    });
   } finally {
     await restoreBrief(page);
   }
