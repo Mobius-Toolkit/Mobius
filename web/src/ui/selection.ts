@@ -7,7 +7,7 @@ import type * as Update from "foldkit/update";
 import type { ChatSelection } from "@/api/api.gen";
 import { clock } from "@/lib/time";
 import { buttonClass } from "./button";
-import { messageSquareQuoteIcon, xIcon } from "./icons";
+import { messageSquareQuoteIcon } from "./icons";
 
 const blockSelector = "p, li, blockquote, pre, td, h1, h2, h3, h4, h5, h6";
 
@@ -266,46 +266,19 @@ function sourceLine(selection: ChatSelection, time: string | undefined) {
     : `Brief of ${selection.reference}${part}`;
 }
 
-// time is the time of the quoted message, when the message is in the loaded page. onRemove adds the remove button.
-export function renderSelectionCard<Msg>(
+// time is the time of the quoted message, when the message is in the loaded page.
+export function selectionCardFields<Msg>(
   h: HtmlBuilder<Msg>,
   selection: ChatSelection,
-  options: { key?: string; time?: string; onRemove?: Msg },
-): Html {
-  const { key, time, onRemove } = options;
-  return h.div(
-    [
-      ...(key ? [h.Key(key)] : []),
-      h.DataAttribute("selection-card", ""),
-      h.Class(
-        `relative grid min-w-0 max-w-full gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm ${onRemove ? "w-64 pr-9" : ""}`,
-      ),
-    ],
-    [
-      h.span([h.Class("truncate text-xs text-muted-foreground")], [sourceLine(selection, time)]),
-      h.span(
-        [h.Class("line-clamp-3 border-l-2 pl-2 text-xs whitespace-pre-line wrap-anywhere")],
-        [selection.text],
-      ),
-      onRemove
-        ? h.button(
-            [
-              h.Type("button"),
-              h.AriaLabel("Remove the selection"),
-              h.Attribute("title", "Remove the selection"),
-              h.DataAttribute("keep-focus", ""),
-              h.Class(
-                buttonClass({
-                  variant: "secondary",
-                  size: "icon-sm",
-                  className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-                }),
-              ),
-              h.OnClick(onRemove),
-            ],
-            [xIcon(h)],
-          )
-        : h.empty,
-    ],
-  );
+  time: string | undefined,
+) {
+  return {
+    icon: messageSquareQuoteIcon(h),
+    header: sourceLine(selection, time),
+    body: h.span(
+      [h.Class("line-clamp-3 border-l-2 pl-2 text-xs whitespace-pre-line wrap-anywhere")],
+      [selection.text],
+    ),
+    removeLabel: "Remove the selection",
+  };
 }

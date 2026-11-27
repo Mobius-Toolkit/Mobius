@@ -130,6 +130,29 @@ test("Chat on an Inbox item with no Workstream opens the Coordinator chat with t
   ).toHaveCount(1);
 });
 
+test("the card of an Inbox item with a long title and a long reason keeps its text inside the card", async ({
+  page,
+}) => {
+  const long = {
+    ...stopped,
+    title: "Show the selection and the Inbox item in one attachment card for each message",
+    reason: "The agent asked a question about the width of the card in the composer of the chat",
+  };
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: [long] } }));
+  await page.goto("/inbox");
+  await page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: long.title })
+    .getByRole("button", { name: "Chat about #41", exact: true })
+    .click();
+
+  const card = page.getByRole("main").locator("form [data-attachment-card='inbox-item']");
+  await expect(card).toContainText(long.title);
+  await expect(card).toContainText(long.reason);
+  expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
 test("the draft keeps its text and image after a reload, and Chat adds the item to it", async ({
   page,
 }) => {
@@ -221,6 +244,12 @@ test("the bubble of a sent message shows the card of the Inbox item, a button fo
     .filter({ hasText: stopped.title })
     .getByRole("button", { name: "Chat about #41", exact: true })
     .click();
+  const composerCard = main.locator("form [data-attachment-card='inbox-item']");
+  await expect(composerCard).toHaveCount(1);
+  await expect(composerCard).toContainText("#41");
+  await expect(composerCard).toContainText(stopped.title);
+  await expect(composerCard).toContainText(stopped.reason);
+  await expect(composerCard.getByRole("button", { name: "Remove #41" })).toBeVisible();
   await page.getByLabel("Message to the Lead").fill(text);
   await main.getByRole("button", { name: "Send", exact: true }).click();
 
@@ -237,10 +266,17 @@ test("the bubble of a sent message shows the card of the Inbox item, a button fo
   const bubble = main.locator("[data-message]", { hasText: text });
   await expect(bubble).toHaveCount(1);
   await expect(main.locator("[data-queued]")).toHaveCount(0);
-  const card = bubble.getByRole("button", { name: /Add plan model/ });
+  const card = bubble.locator("[data-attachment-card='inbox-item']");
+  await expect(card).toHaveCount(1);
   await expect(card).toContainText("#41");
   await expect(card).toContainText(stopped.reason);
+  await expect(card.getByRole("button", { name: /^Remove / })).toHaveCount(0);
   await expect(main.locator("form").getByRole("button", { name: /^Remove #/ })).toHaveCount(0);
+  const back = page.getByRole("button", { name: "Back to the tasks" }).filter({ visible: true });
+  await expect(back).toHaveCount(0);
+
+  await bubble.getByRole("button", { name: /Add plan model/ }).click();
+  await expect(back).toHaveCount(1);
 });
 
 const phone = { width: 390, height: 844 };
@@ -333,7 +369,7 @@ for (const [device, viewport] of [
       expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
 
       await popover.click();
-      const card = composer.locator("[data-selection-card]");
+      const card = composer.locator("[data-attachment-card='selection']");
       await expect(card).toHaveCount(1);
       await expect(card).toContainText("Lead message · 12:00 PM");
       await expect(card).toContainText("in the morning");
@@ -341,9 +377,9 @@ for (const [device, viewport] of [
       expect(await selectionIsEmpty(page)).toBe(true);
 
       await page.reload();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
       await composer.getByRole("button", { name: "Remove the selection" }).click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(0);
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     });
 
@@ -368,11 +404,11 @@ for (const [device, viewport] of [
       await bubble.scrollIntoViewIfNeeded();
       await selectText(bubble, "works on");
       await popover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
       await bubble.scrollIntoViewIfNeeded();
       await selectText(bubble, "wait for your decision");
       await popover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(2);
 
       await page.getByLabel("Message to the Lead").fill(question);
       const stored = page.waitForResponse(
@@ -400,14 +436,18 @@ for (const [device, viewport] of [
         });
       const sentId = (await storedMessages(page)).find((other) => other.text === question)?.id;
       const sent = main.locator(`[data-message='${sentId}']`);
-      await expect(sent.locator("[data-selection-card]")).toHaveCount(2);
-      await expect(sent.locator("[data-selection-card]").first()).toContainText("Lead message");
-      await expect(sent.locator("[data-selection-card]").first()).toContainText("works on");
-      await expect(sent.locator("[data-selection-card]").last()).toContainText(
+      await expect(sent.locator("[data-attachment-card='selection']")).toHaveCount(2);
+      await expect(sent.locator("[data-attachment-card='selection']").first()).toContainText(
+        "Lead message",
+      );
+      await expect(sent.locator("[data-attachment-card='selection']").first()).toContainText(
+        "works on",
+      );
+      await expect(sent.locator("[data-attachment-card='selection']").last()).toContainText(
         "wait for your decision",
       );
       await expect(sent.getByRole("button", { name: "Remove the selection" })).toHaveCount(0);
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(0);
     });
 
     test("adds a selection of the open body of an event to the draft", async ({ page }) => {
@@ -430,7 +470,7 @@ for (const [device, viewport] of [
       await selectText(event, "finished the");
       await page.getByRole("button", { name: "Add to chat" }).click();
 
-      const card = composer.locator("[data-selection-card]");
+      const card = composer.locator("[data-attachment-card='selection']");
       await expect(card).toHaveCount(1);
       await expect(card).toContainText("Event message");
       await expect(card).toContainText("finished the");
@@ -452,13 +492,17 @@ for (const [device, viewport] of [
       await selectText(bubble, "the roses");
       await page.getByRole("button", { name: "Add to chat" }).click();
 
-      await expect(composer.locator("[data-selection-card]")).toContainText(
+      await expect(composer.locator("[data-attachment-card='selection']")).toContainText(
         "Coordinator message · 12:00 PM",
       );
-      await expect(composer.locator("[data-selection-card]")).toContainText("the roses");
+      await expect(composer.locator("[data-attachment-card='selection']")).toContainText(
+        "the roses",
+      );
       await page.goto(shop);
       await expect(page.getByLabel("Message to the Lead")).toBeEditable();
-      await expect(main.locator("form").locator("[data-selection-card]")).toHaveCount(0);
+      await expect(main.locator("form").locator("[data-attachment-card='selection']")).toHaveCount(
+        0,
+      );
     });
   });
 
@@ -491,7 +535,7 @@ for (const [device, viewport] of [
       expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
 
       await popover.click();
-      const card = composer.locator("[data-selection-card]");
+      const card = composer.locator("[data-attachment-card='selection']");
       await expect(card).toHaveCount(1);
       await expect(card).toContainText("Brief of #12 · Scope");
       await expect(card).toContainText("Points on every order");
@@ -513,7 +557,7 @@ for (const [device, viewport] of [
       const tab = await showBrief(page);
       await selectText(tab, "price of a plan");
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
 
       await page.getByLabel("Message to the Lead").fill(question);
       const stored = page.waitForResponse(
@@ -542,9 +586,11 @@ for (const [device, viewport] of [
         });
       const sentId = (await storedMessages(page)).find((other) => other.text === question)?.id;
       const sent = main.locator(`[data-message='${sentId}']`);
-      await expect(sent.locator("[data-selection-card]")).toHaveCount(1);
-      await expect(sent.locator("[data-selection-card]")).toContainText("Brief of #12 · Limits");
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+      await expect(sent.locator("[data-attachment-card='selection']")).toHaveCount(1);
+      await expect(sent.locator("[data-attachment-card='selection']")).toContainText(
+        "Brief of #12 · Limits",
+      );
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(0);
     });
   });
 }
@@ -599,7 +645,7 @@ for (const [device, viewport] of [
       expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
 
       await popover.click();
-      const card = composer.locator("[data-selection-card]");
+      const card = composer.locator("[data-attachment-card='selection']");
       await expect(card).toHaveCount(1);
       await expect(card).toContainText("#71 · issue body");
       await expect(card).toContainText("Spread 5 cm of bark");
@@ -616,9 +662,9 @@ for (const [device, viewport] of [
 
       await selectText(view, "Spread 5 cm of bark evenly over each bed.");
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
       await expect(
-        page.getByRole("main").locator("form:has(#chat-input) [data-selection-card]"),
+        page.getByRole("main").locator("form:has(#chat-input) [data-attachment-card='selection']"),
       ).toHaveCount(1);
 
       await page.locator("#side-task-input").fill(question);
@@ -652,9 +698,11 @@ for (const [device, viewport] of [
         (other) => other.text === question,
       )?.id;
       const sent = page.getByRole("main").locator(`[data-message='${sentId}']`);
-      await expect(sent.locator("[data-selection-card]")).toHaveCount(1);
-      await expect(sent.locator("[data-selection-card]")).toContainText("#71 · issue body");
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(0);
+      await expect(sent.locator("[data-attachment-card='selection']")).toHaveCount(1);
+      await expect(sent.locator("[data-attachment-card='selection']")).toContainText(
+        "#71 · issue body",
+      );
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(0);
     });
   });
 }

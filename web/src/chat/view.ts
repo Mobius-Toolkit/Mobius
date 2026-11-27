@@ -31,7 +31,8 @@ import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown
 import * as Composer from "@/composer";
 import { fromComposerMount, renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { renderSelectionCard, renderSelectionPopover, Watch } from "@/ui/selection";
+import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
+import { renderSelectionPopover, selectionCardFields, Watch } from "@/ui/selection";
 import {
   Message,
   toGotComposerMessage,
@@ -117,42 +118,19 @@ function renderDaySeparator(h: H, key: string, label: string): Html {
   );
 }
 
-function renderInboxItemCard(
+function renderSentInboxItem(
   h: H,
   item: { reference?: string; title: string; reason?: string; link?: string },
   tasks: readonly TaskRef[],
 ): Html {
-  const lines = [
-    item.reference
-      ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-      : h.empty,
-    h.span([h.Class("truncate font-medium")], [item.title]),
-    h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
-  ];
-  const cardClass = "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm";
-  if (!item.link) {
-    return h.div([h.Class(cardClass)], lines);
-  }
-  const task = taskOfLink(item.link, tasks);
-  if (task) {
-    return h.button(
-      [
-        h.Type("button"),
-        h.Class(`${cardClass} text-left hover:bg-accent`),
-        h.OnClick(Message.ClickedTaskCard({ repository: task.repository, number: task.number })),
-      ],
-      lines,
-    );
-  }
-  return h.a(
-    [
-      h.Attribute("href", item.link),
-      h.Attribute("target", "_blank"),
-      h.Attribute("rel", "noreferrer"),
-      h.Class(`${cardClass} hover:bg-accent`),
-    ],
-    lines,
-  );
+  const task = item.link ? taskOfLink(item.link, tasks) : undefined;
+  return renderAttachmentCard(h, {
+    kind: "inbox-item",
+    ...inboxItemFields(h, item),
+    ...(task
+      ? { onClick: Message.ClickedTaskCard({ repository: task.repository, number: task.number }) }
+      : { href: item.link }),
+  });
 }
 
 const RouterLink = defineRouterLink(Message.NavigateTo);
@@ -475,9 +453,12 @@ function renderMessage(
           isOwner ? renderOwnerStatus(h, message) : h.empty,
         ],
       ),
-      ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item, tasks)),
+      ...(message.inboxItems || []).map((item) => renderSentInboxItem(h, item, tasks)),
       ...message.selections.map((selection) =>
-        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+        renderAttachmentCard(h, {
+          kind: "selection",
+          ...selectionCardFields(h, selection, timeOf(selection.messageId)),
+        }),
       ),
       isEvent && body
         ? renderEventBody(h, message.id, summary, body, open)
@@ -549,9 +530,12 @@ function renderQueuedMessage(
               ),
         ],
       ),
-      ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem, tasks)),
+      ...(item.inboxItems || []).map((inboxItem) => renderSentInboxItem(h, inboxItem, tasks)),
       ...item.selections.map((selection) =>
-        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+        renderAttachmentCard(h, {
+          kind: "selection",
+          ...selectionCardFields(h, selection, timeOf(selection.messageId)),
+        }),
       ),
       item.text ? renderMarkdown(h, item.text) : h.empty,
       item.voice || item.images.length > 0

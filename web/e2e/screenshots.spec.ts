@@ -1133,6 +1133,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
+      composer.locator("[data-attachment-card='inbox-item']"),
       composer.getByText("Add plan model"),
       composer.getByText("The agent asked a question"),
       composer.getByRole("button", { name: "Remove #41" }),
@@ -1238,17 +1239,17 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      composer.locator("[data-selection-card]").first(),
-      composer.locator("[data-selection-card]").last(),
+      composer.locator("[data-attachment-card='selection']").first(),
+      composer.locator("[data-attachment-card='selection']").last(),
     ],
     async () => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
       await selectQuote("in the morning");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
       await selectQuote("Sort the white roses");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(2);
     },
     clearComposer,
   );
@@ -1280,7 +1281,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, drain, {}, "3"),
       main.getByText("#42 and #45 wait for your decision."),
-      composer.locator("[data-selection-card]"),
+      composer.locator("[data-attachment-card='selection']"),
       chatEnd,
     ],
     async () => {
@@ -1288,7 +1289,7 @@ test("screenshots", async ({ page }) => {
       const tab = await showBrief(page);
       await selectText(tab, "Points on every order");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
     },
     clearComposer,
   );
@@ -1300,8 +1301,8 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      main.locator("[data-message='1000101'] [data-selection-card]").first(),
-      main.locator("[data-message='1000101'] [data-selection-card]").last(),
+      main.locator("[data-message='1000101'] [data-attachment-card='selection']").first(),
+      main.locator("[data-message='1000101'] [data-attachment-card='selection']").last(),
     ],
     () => showChatEnd(page),
   );
@@ -2240,7 +2241,7 @@ test("screenshots", async ({ page }) => {
   });
   const taskCard = main
     .locator("[data-message]", { hasText: "Is this task ready?" })
-    .getByRole("button", { name: /Spread the bark/ });
+    .locator("button[data-attachment-card='inbox-item']");
   await screenshot(
     page,
     "chat-task-card-detail",
@@ -2303,11 +2304,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-task-selection-composer",
     "/workstreams/plants/garden/19",
-    (device) => [...taskFrame(device), taskComposer.locator("[data-selection-card]")],
+    (device) => [...taskFrame(device), taskComposer.locator("[data-attachment-card='selection']")],
     async (device) => {
       await openTaskView(device);
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await expect(taskComposer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(taskComposer.locator("[data-attachment-card='selection']")).toHaveCount(1);
     },
     async () => {
       await page.evaluate(clearDrafts);
@@ -5207,6 +5208,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [release, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      withCard.locator("[data-attachment-card='inbox-item']"),
       withCard.getByRole("link", { name: /Integrate loyalty plans/ }),
       withCard.getByText("PR #44 is ready to merge"),
     ],
