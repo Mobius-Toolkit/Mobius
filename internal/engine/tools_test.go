@@ -1015,6 +1015,8 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
 	})
+	// The dispatch loop clears the Start of an issue with a live task, but a hard break of the CI holds it.
+	run := hardBreak(t, server, fake)
 	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
@@ -1028,6 +1030,8 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	if hasStart(t, server, 41) {
 		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
 	}
+	ended := passMain(fake)
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: ended, rerun: true, result: "hard"})
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)
