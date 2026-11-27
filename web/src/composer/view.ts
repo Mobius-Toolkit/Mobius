@@ -7,7 +7,8 @@ import type { DraftInboxItem, DraftSelection, DraftVoice } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
 import { buttonClass } from "@/ui/button";
 import { arrowUpIcon, micIcon, paperclipIcon, spinnerIcon, squareIcon, xIcon } from "@/ui/icons";
-import { renderSelectionCard } from "@/ui/selection";
+import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
+import { selectionCardFields } from "@/ui/selection";
 import { textareaClass } from "@/ui/textarea";
 import { Message } from "./message";
 import { inputId, isEmptyDraft, type Model, pickerId, voiceBusy } from "./model";
@@ -156,46 +157,6 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
       }),
     ),
 });
-
-function attachedInboxItem<Msg>(
-  h: HtmlBuilder<Msg>,
-  item: DraftInboxItem,
-  onRemove?: (id: number | string) => Msg,
-): Html {
-  const name = item.reference || item.title;
-  return h.div(
-    [
-      h.Key(`inbox-${item.id}`),
-      h.Class(
-        "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm relative w-56 max-w-full pr-9",
-      ),
-    ],
-    [
-      item.reference
-        ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-        : h.empty,
-      h.span([h.Class("truncate font-medium")], [item.title]),
-      h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
-      h.button(
-        [
-          h.Type("button"),
-          h.AriaLabel(`Remove ${name}`),
-          h.Attribute("title", `Remove ${name}`),
-          h.DataAttribute("keep-focus", ""),
-          h.Class(
-            buttonClass({
-              variant: "secondary",
-              size: "icon-sm",
-              className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-            }),
-          ),
-          ...(onRemove ? [h.OnClick(onRemove(item.id))] : []),
-        ],
-        [xIcon(h)],
-      ),
-    ],
-  );
-}
 
 function thumbnail<Msg>(
   h: HtmlBuilder<Msg>,
@@ -488,12 +449,22 @@ export function composerBox<Msg>(
                 [
                   voiceCard(h, voiceState, now, box, toParent),
                   ...box.inboxItems.map((item) =>
-                    attachedInboxItem(h, item, box.onInboxItemRemoveClick),
+                    renderAttachmentCard(h, {
+                      kind: "inbox-item",
+                      key: `inbox-${item.id}`,
+                      ...inboxItemFields(h, item),
+                      onRemove: box.onInboxItemRemoveClick?.(item.id),
+                    }),
                   ),
                   ...box.selections.map((selection) =>
-                    renderSelectionCard(h, selection, {
+                    renderAttachmentCard(h, {
+                      kind: "selection",
                       key: `selection-${selection.id}`,
-                      time: box.selectionTime?.(selection.messageId),
+                      ...selectionCardFields(
+                        h,
+                        selection,
+                        box.selectionTime?.(selection.messageId),
+                      ),
                       onRemove: box.onSelectionRemoveClick?.(selection.id),
                     }),
                   ),
