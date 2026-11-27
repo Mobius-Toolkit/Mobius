@@ -40,6 +40,9 @@ jobs:
 
       - run: .mobius/check
 
+      - run: bun run cpd
+        working-directory: web
+
       - run: go list ./... | grep -v '/internal/engine$' | xargs go test -timeout 20m
         shell: bash
 

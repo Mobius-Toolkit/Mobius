@@ -1,0 +1,18 @@
+{
+  "path": ["web/src", "internal", "cmd"],
+  "format": ["go", "typescript"],
+  "ignore": [
+    "**/*_test.go",
+    "**/*.test.ts",
+    "web/e2e/**",
+    "web/src/api/api.gen.ts",
+    "web/src/api/schemas.gen.ts",
+    "internal/store/db.go",
+    "internal/store/models.go",
+    "internal/store/*.sql.go",
+    "api/openapi.json",
+    "internal/store/migrations/**"
+  ],
+  "reporters": ["console"],
+  "threshold": 3
+}
