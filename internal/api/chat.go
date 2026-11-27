@@ -195,8 +195,8 @@ func (r *SendChatRequest) Validate() error {
 // returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
-	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice)
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, unixLines(body.Text), attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice, body.VoiceSeconds)
+	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, unixLines(body.Text), attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice, attachments.VoiceSeconds)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}

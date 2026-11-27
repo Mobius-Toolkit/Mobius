@@ -309,7 +309,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, att
 			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
-		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, 0); err != nil {
+		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, attachments.VoiceSeconds); err != nil {
 			return "", err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
@@ -536,14 +536,14 @@ func cardFirst(item store.InboxItem, inboxItems []ChatInboxItem) []ChatInboxItem
 	return append([]ChatInboxItem{chatInboxItem(item)}, inboxItems...)
 }
 
-// addInboxOwnerMessage adds text with the Inbox items and the selections of attachments as a display-only message of the
+// addInboxOwnerMessage adds text with the Inbox items, the selections and the voice of attachments as a display-only message of the
 // Owner with the card of item to inboxChat(item). No agent gets it through the chat. A failed write only goes to the log,
 // because the action has succeeded.
 func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string, attachments Attachments) {
 	if empty(text) && len(attachments.InboxItems) == 0 && len(attachments.Selections) == 0 {
 		return
 	}
-	if _, err := e.addDisplayOnlyChatMessage(ctx, inboxChat(item), text, cardFirst(item, attachments.InboxItems), attachments.Selections); err != nil {
+	if _, err := e.addDisplayOnlyChatMessage(ctx, inboxChat(item), text, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, attachments.VoiceSeconds); err != nil {
 		log.Printf("add an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
 	}
 }
@@ -552,7 +552,7 @@ func (e *Engine) addInboxOwnerMessage(ctx context.Context, item store.InboxItem,
 // the Owner with the card of item to inboxChat(item). The agent of the chat gets it. A failed write only goes to the
 // log, because the action has succeeded.
 func (e *Engine) postInboxOwnerMessage(ctx context.Context, item store.InboxItem, text string, attachments Attachments) {
-	err := e.postChat(ctx, inboxChat(item), ownerAuthor, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, 0)
+	err := e.postChat(ctx, inboxChat(item), ownerAuthor, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, attachments.VoiceSeconds)
 	if err != nil {
 		log.Printf("post an inbox message to the chat of %s #%d: %v", item.WorkstreamRepository, item.Workstream, err)
 	}

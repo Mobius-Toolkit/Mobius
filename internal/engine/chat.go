@@ -115,12 +115,13 @@ type ChatSelection struct {
 }
 
 // Attachments are the images, Inbox items and selections that the Owner sends with a text. Voice tells that the text came
-// from a voice recording.
+// from a voice recording. VoiceSeconds is the length of that recording in seconds, or 0 when it is unknown.
 type Attachments struct {
-	Images     []Image
-	InboxItems []ChatInboxItem
-	Selections []ChatSelection
-	Voice      bool
+	Images       []Image
+	InboxItems   []ChatInboxItem
+	Selections   []ChatSelection
+	Voice        bool
+	VoiceSeconds int64
 }
 
 // Empty tells that there is no image, no Inbox item and no selection.
@@ -291,8 +292,8 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 
 // addDisplayOnlyChatMessage stores an Owner message that the chat shows without giving it to an agent, and sends it
 // to the listeners.
-func (e *Engine) addDisplayOnlyChatMessage(ctx context.Context, key ChatKey, text string, inboxItems []ChatInboxItem, selections []ChatSelection) (store.ChatMessage, error) {
-	message, err := e.storeChatMessageRow(ctx, e.queries, key, ownerAuthor, text, "", "", inboxItems, selections, false, 0, true)
+func (e *Engine) addDisplayOnlyChatMessage(ctx context.Context, key ChatKey, text string, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool, voiceSeconds int64) (store.ChatMessage, error) {
+	message, err := e.storeChatMessageRow(ctx, e.queries, key, ownerAuthor, text, "", "", inboxItems, selections, voice, voiceSeconds, true)
 	if err != nil {
 		return message, err
 	}
@@ -407,7 +408,7 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 // postApproval adds the message text of the Approval author with the attachments to the chat. While Mobius is sealed, it
 // only stores the message, and the restart gives it to the agent.
 func (e *Engine) postApproval(ctx context.Context, key ChatKey, text string, attachments Attachments) error {
-	return e.storeChat(ctx, key, approvalAuthor, "", text, attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice, 0)
+	return e.storeChat(ctx, key, approvalAuthor, "", text, attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice, attachments.VoiceSeconds)
 }
 
 func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool, voiceSeconds int64) error {

@@ -1117,15 +1117,24 @@ test("a send in an Answer panel input removes the card and sends the voice mark"
   await expect(note).toBeEditable();
   await panel.getByRole("button", { name: "Start voice input" }).click();
   await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
-  await expect(panel.getByRole("group", { name: "Voice recording" })).toContainText("Recording");
+  await expect(panel.getByRole("group", { name: "Voice recording" })).toContainText(
+    "Recording 0:02",
+  );
   await panel.getByRole("button", { name: "Stop voice input" }).click();
   await expect(note).toHaveValue("red roses");
   await expect(panel.getByRole("button", { name: "Remove voice" })).toBeVisible();
+  const card = panel.getByRole("group", { name: "Voice recording" });
+  await expect(card).toContainText(/^Voice 0:\d\d/);
+  const shown = /^Voice 0:(\d\d)/.exec(await card.innerText());
   const response = page.waitForResponse("**/api/inbox/211/answer");
   await panel.getByRole("button", { name: "Send", exact: true }).click();
   await response;
   await expect(panel).toBeHidden();
-  expect(bodies.map(formFields)).toEqual([{ text: "red roses", voice: "true" }]);
+  const [fields] = bodies.map(formFields);
+  expect(bodies).toHaveLength(1);
+  expect(fields).toMatchObject({ text: "red roses", voice: "true" });
+  expect(shown).not.toBeNull();
+  expect(fields.voiceSeconds).toBe(String(Number(shown?.[1])));
   await expect.poll(() => drafts(page)).toEqual([]);
 });
 

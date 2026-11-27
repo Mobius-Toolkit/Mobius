@@ -7959,6 +7959,11 @@
           "voice": {
             "type": "boolean",
             "description": "Voice is true when the answer came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -8011,6 +8016,11 @@
           "voice": {
             "type": "boolean",
             "description": "Voice is true when the message came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -8869,6 +8879,11 @@
           "voice": {
             "type": "boolean",
             "description": "Voice is true when the note came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -11798,6 +11813,11 @@
           "voice": {
             "type": "boolean",
             "description": "Voice is true when the message came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },

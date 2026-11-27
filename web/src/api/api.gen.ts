@@ -244,6 +244,11 @@ export interface AnswerInboxItemBody {
   text?: string;
   /** Voice is true when the answer came from a voice recording */
   voice?: boolean;
+  /**
+     * VoiceSeconds is the length of the voice recording in seconds
+     * @minimum 0
+     */
+  voiceSeconds?: number;
 }
 
 /**
@@ -265,6 +270,11 @@ export interface ApproveActionBody {
   selections?: ChatSelection[];
   /** Voice is true when the message came from a voice recording */
   voice?: boolean;
+  /**
+     * VoiceSeconds is the length of the voice recording in seconds
+     * @minimum 0
+     */
+  voiceSeconds?: number;
 }
 
 /**
@@ -948,6 +958,11 @@ export interface DoneInboxItemBody {
   selections?: ChatSelection[];
   /** Voice is true when the note came from a voice recording */
   voice?: boolean;
+  /**
+     * VoiceSeconds is the length of the voice recording in seconds
+     * @minimum 0
+     */
+  voiceSeconds?: number;
 }
 
 /**
@@ -2757,6 +2772,11 @@ export interface RejectActionBody {
   selections?: ChatSelection[];
   /** Voice is true when the message came from a voice recording */
   voice?: boolean;
+  /**
+     * VoiceSeconds is the length of the voice recording in seconds
+     * @minimum 0
+     */
+  voiceSeconds?: number;
 }
 
 export interface SaveMemoryBody {
@@ -3190,6 +3210,9 @@ if(approveActionBody.selections !== undefined) {
 if(approveActionBody.voice !== undefined) {
  formData.append(`voice`, approveActionBody.voice.toString())
  }
+if(approveActionBody.voiceSeconds !== undefined) {
+ formData.append(`voiceSeconds`, approveActionBody.voiceSeconds.toString())
+ }
 
   const res = await fetch(getApproveActionUrl(id),
   {
@@ -3356,6 +3379,9 @@ if(rejectActionBody.selections !== undefined) {
  }
 if(rejectActionBody.voice !== undefined) {
  formData.append(`voice`, rejectActionBody.voice.toString())
+ }
+if(rejectActionBody.voiceSeconds !== undefined) {
+ formData.append(`voiceSeconds`, rejectActionBody.voiceSeconds.toString())
  }
 
   const res = await fetch(getRejectActionUrl(id),
@@ -5320,6 +5346,9 @@ if(answerInboxItemBody.text !== undefined) {
 if(answerInboxItemBody.voice !== undefined) {
  formData.append(`voice`, answerInboxItemBody.voice.toString())
  }
+if(answerInboxItemBody.voiceSeconds !== undefined) {
+ formData.append(`voiceSeconds`, answerInboxItemBody.voiceSeconds.toString())
+ }
 
   const res = await fetch(getAnswerInboxItemUrl(id),
   {
@@ -5481,6 +5510,9 @@ if(doneInboxItemBody.selections !== undefined) {
  }
 if(doneInboxItemBody.voice !== undefined) {
  formData.append(`voice`, doneInboxItemBody.voice.toString())
+ }
+if(doneInboxItemBody.voiceSeconds !== undefined) {
+ formData.append(`voiceSeconds`, doneInboxItemBody.voiceSeconds.toString())
  }
 
   const res = await fetch(getDoneInboxItemUrl(id),

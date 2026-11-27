@@ -25,12 +25,13 @@ func unixLines(text string) string {
 }
 
 // attachmentsOf gives the parts of a multipart request for the engine.
-func attachmentsOf(images []api.File, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool) engine.Attachments {
+func attachmentsOf(images []api.File, inboxItems []ChatInboxItem, selections []ChatSelection, voice bool, voiceSeconds int64) engine.Attachments {
 	attachments := engine.Attachments{
-		Images:     make([]engine.Image, 0, len(images)),
-		InboxItems: make([]engine.ChatInboxItem, 0, len(inboxItems)),
-		Selections: make([]engine.ChatSelection, 0, len(selections)),
-		Voice:      voice,
+		Images:       make([]engine.Image, 0, len(images)),
+		InboxItems:   make([]engine.ChatInboxItem, 0, len(inboxItems)),
+		Selections:   make([]engine.ChatSelection, 0, len(selections)),
+		Voice:        voice,
+		VoiceSeconds: voiceSeconds,
 	}
 	for _, image := range images {
 		attachments.Images = append(attachments.Images, engine.Image{MIMEType: image.ContentType, Data: image.Data})

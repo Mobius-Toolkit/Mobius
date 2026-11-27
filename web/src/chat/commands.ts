@@ -345,6 +345,7 @@ const partArgs = {
   inboxItems: DraftInboxItems,
   selections: DraftSelections,
   voice: Schema.Boolean,
+  voiceSeconds: Schema.Number,
 };
 
 type Parts = {
@@ -352,17 +353,19 @@ type Parts = {
   inboxItems: DraftInboxItem[];
   selections: DraftSelection[];
   voice: boolean;
+  voiceSeconds: number;
 };
 
-const bodyParts = ({ images, inboxItems, selections, voice }: Parts) => ({
+const bodyParts = ({ images, inboxItems, selections, voice, voiceSeconds }: Parts) => ({
   images,
   inboxItems: sentInboxItems(inboxItems),
   selections: sentSelections(selections),
   voice,
+  voiceSeconds,
 });
 
 const restoreParts = (key: string, text: string, parts: Parts) =>
-  restoreDraft(key, { text, ...parts, voiceSeconds: 0 });
+  restoreDraft(key, { text, ...parts });
 
 export const AnswerInboxItem = Command.define("AnswerInboxItem", {
   args: {

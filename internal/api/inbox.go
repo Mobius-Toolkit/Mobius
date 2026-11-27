@@ -201,6 +201,8 @@ type AnswerInboxItemRequest struct {
 		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the answer came from a voice recording
 		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
 }
 
@@ -231,7 +233,7 @@ type AnsweredComment struct {
 func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, error) {
 	body := req.Body
 	text := unixLines(body.Text)
-	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice)
+	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds)
 	if strings.TrimSpace(text) == "" && attachments.Empty() {
 		return nil, api.NewHTTPError(http.StatusBadRequest, "The text must not be empty.")
 	}
@@ -306,6 +308,8 @@ type DoneInboxItemRequest struct {
 		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the note came from a voice recording
 		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
 }
 
@@ -329,7 +333,7 @@ type DoneInboxItemResponse struct {
 // item in a message of the Owner that the agent gets.
 func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
 	body := req.Body
-	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, unixLines(body.Note), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice))
+	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, unixLines(body.Note), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	if errors.Is(err, engine.ErrNoInboxItem) {
 		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}

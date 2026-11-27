@@ -484,7 +484,7 @@ test("Resume opens a panel with the stop reason, and a send with a note answers 
   await panel.getByRole("button", { name: "Resume" }).click();
   await response;
 
-  expect(answers).toEqual([{ text: "Use the new limits.", voice: "false" }]);
+  expect(answers).toEqual([{ text: "Use the new limits.", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row).toHaveCount(0);
   expect(resumed).toEqual([]);
@@ -597,7 +597,7 @@ test("Done opens a panel with the action, and the note marks the action as done"
   await panel.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "Logged in.", voice: "false" }]);
+  expect(bodies).toEqual([{ note: "Logged in.", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row).toHaveCount(0);
 });
@@ -866,7 +866,7 @@ test("a pull request shows Complete todos, opens its list on tap, and returns af
   await dialog.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "Set in prod.", voice: "false" }]);
+  expect(bodies).toEqual([{ note: "Set in prod.", voice: "false", voiceSeconds: "0" }]);
   await expect(dialog.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
   await expect
     .poll(async () => (await buttonNames(dialog)).filter((name) => name !== "Close"))
@@ -1060,7 +1060,7 @@ test("a todo with an empty note is marked as done and closes the list when no to
   await panel.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "", voice: "false" }]);
+  expect(bodies).toEqual([{ note: "", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row.getByRole("button", { name: /Complete todos/ })).toHaveCount(0);
 });
