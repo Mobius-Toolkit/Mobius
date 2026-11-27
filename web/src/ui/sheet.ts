@@ -3,10 +3,8 @@ import { Effect, type Schema } from "effect";
 import { Mount } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { buttonClass } from "./button";
+import { trapTab } from "./focus";
 import { xIcon } from "./icons";
-
-const focusable =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // The Mount of a sheet or a dialog. done is the Message that the Mount gives when the layer has opened or has no
 // content. The layer stays in its place in the DOM, because the panel can sit inside a dialog of the host, and that
@@ -31,19 +29,7 @@ export function defineInPlaceMount<
               if (event.key !== "Tab") {
                 return;
               }
-              const items = [...dialog.querySelectorAll<HTMLElement>(focusable)];
-              const first = items[0];
-              const last = items[items.length - 1];
-              if (!first || !dialog.contains(document.activeElement)) {
-                event.preventDefault();
-                (first ?? dialog).focus();
-              } else if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-              } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
-              }
+              trapTab(event, dialog);
             };
             dialog.focus();
             document.addEventListener("keydown", trap);
