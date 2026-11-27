@@ -470,15 +470,15 @@ func TestTheFullSyncForgetsTheRowsOfARepositoryThatIsNotPolled(t *testing.T) {
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO workstreams (repository, number, title) VALUES ('owner/gone', 5, 'An old Workstream')`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO workstreams (repository, number, title) VALUES ('owner/gone', 5, 'An old Workstream');
+		INSERT INTO sync_cursors (repository, endpoint) VALUES ('owner/gone', 'copy_repair')`)
 	server.WaitForFirstPoll(t, shop)
 
-	var stale int
-	if err := server.DB.QueryRow("SELECT count(*) FROM workstreams WHERE repository = 'owner/gone'").Scan(&stale); err != nil {
-		t.Fatal(err)
+	if got := countRows(t, server, "SELECT count(*) FROM workstreams WHERE repository = 'owner/gone'"); got != 0 {
+		t.Errorf("rows of owner/gone = %d", got)
 	}
-	if stale != 0 {
-		t.Errorf("rows of owner/gone = %d", stale)
+	if got := countRows(t, server, "SELECT count(*) FROM sync_cursors WHERE repository = 'owner/gone'"); got != 0 {
+		t.Errorf("cursors of owner/gone = %d", got)
 	}
 	if got := workstreamNumbers(t, server); !slices.Equal(got, []int64{12}) {
 		t.Errorf("workstreams = %v", got)

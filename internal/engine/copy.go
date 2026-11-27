@@ -109,7 +109,8 @@ func issueKind(labels []string) string {
 }
 
 // copyRepairEndpoint is the endpoint in the sync_cursors table of the row that tells that an update of the copy of a
-// repository failed. syncCopy removes the row after it refreshes the copy.
+// repository failed. syncCopy removes the row after it copies the trees again, and forgetCopies removes it with the
+// copy.
 const copyRepairEndpoint = "copy_repair"
 
 // breakCopy tells that the copy of repository needs a repair after a failed update. The next poll calls syncCopy, also
@@ -120,6 +121,10 @@ func (e *Engine) breakCopy(ctx context.Context, repository string) {
 	if err != nil {
 		log.Printf("record the failed update of the copy of %s: %v", repository, err)
 	}
+}
+
+func clearCopyRepair(ctx context.Context, q *store.Queries, repository string) error {
+	return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: repository, Endpoint: copyRepairEndpoint})
 }
 
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
@@ -166,7 +171,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 					return err
 				}
 			}
-			return deleteUnusedIssues(ctx, q)
+			if err := deleteUnusedIssues(ctx, q); err != nil {
+				return err
+			}
+			return clearCopyRepair(ctx, q, repository.FullName)
 		})
 		if err != nil {
 			return err
@@ -202,7 +210,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 			if err := refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees); err != nil {
 				return err
 			}
-			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: repository.FullName, Endpoint: copyRepairEndpoint})
+			return clearCopyRepair(ctx, q, repository.FullName)
 		})
 		if err != nil {
 			return err
@@ -219,7 +227,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 				return err
 			}
 		}
-		return deleteUnusedIssues(ctx, q)
+		if err := deleteUnusedIssues(ctx, q); err != nil {
+			return err
+		}
+		return clearCopyRepair(ctx, q, repository.FullName)
 	})
 	if err != nil {
 		return err
@@ -285,7 +296,10 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: issuesEndpoint}); err != nil {
 				return err
 			}
-			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: readyUpgradeEndpoint})
+			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: readyUpgradeEndpoint}); err != nil {
+				return err
+			}
+			return clearCopyRepair(ctx, q, name)
 		})
 		if err != nil {
 			return err
