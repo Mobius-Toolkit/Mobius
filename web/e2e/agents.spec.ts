@@ -720,7 +720,7 @@ test("the Transcript of a session that waits for a low load has a button that st
 }) => {
   const main = page.getByRole("main");
   const requests: string[] = [];
-  let answer: { status: number; body: string } = { status: 204, body: "" };
+  let answer: { status: number; contentType?: string; body: string } = { status: 204, body: "" };
   await page.route(/\/api\/agents\/\d+\/start-check$/, (route) => {
     requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     return route.fulfill(answer);
@@ -732,6 +732,7 @@ test("the Transcript of a session that waits for a low load has a button that st
 
     answer = {
       status: 409,
+      contentType: "application/json",
       body: JSON.stringify({ error: "The check of session 3 does not wait for a low load." }),
     };
     await start.click();

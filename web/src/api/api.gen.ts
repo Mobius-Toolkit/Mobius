@@ -4,6 +4,7 @@
  * Mobius
  * OpenAPI spec version: 0.1.0
  */
+import { customFetch } from './fetch';
 /**
  * ActionLabel is a label name of an action argument.
  */
@@ -3214,21 +3215,14 @@ if(approveActionBody.voiceSeconds !== undefined) {
  formData.append(`voiceSeconds`, approveActionBody.voiceSeconds.toString())
  }
 
-  const res = await fetch(getApproveActionUrl(id),
+  return customFetch<approveActionResponse>(getApproveActionUrl(id),
   {
 
     method: 'POST'
     ,
     body: formData
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: approveActionResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as approveActionResponse
-}
+);}
 
 
 
@@ -3289,21 +3283,14 @@ export const getGetActionBriefUrl = (id: number,) => {
  */
 export const getActionBrief = async (id: number, ): Promise<getActionBriefResponse> => {
 
-  const res = await fetch(getGetActionBriefUrl(id),
+  return customFetch<getActionBriefResponse>(getGetActionBriefUrl(id),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getActionBriefResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getActionBriefResponse
-}
+);}
 
 
 
@@ -3384,21 +3371,14 @@ if(rejectActionBody.voiceSeconds !== undefined) {
  formData.append(`voiceSeconds`, rejectActionBody.voiceSeconds.toString())
  }
 
-  const res = await fetch(getRejectActionUrl(id),
+  return customFetch<rejectActionResponse>(getRejectActionUrl(id),
   {
 
     method: 'POST'
     ,
     body: formData
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: rejectActionResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as rejectActionResponse
-}
+);}
 
 
 
@@ -3449,21 +3429,14 @@ export const getListActiveAgentsUrl = () => {
  */
 export const listActiveAgents = async ( ): Promise<listActiveAgentsResponse> => {
 
-  const res = await fetch(getListActiveAgentsUrl(),
+  return customFetch<listActiveAgentsResponse>(getListActiveAgentsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listActiveAgentsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listActiveAgentsResponse
-}
+);}
 
 
 
@@ -3519,21 +3492,14 @@ export const getStartCheckUrl = (id: number,) => {
  */
 export const startCheck = async (id: number, ): Promise<startCheckResponse> => {
 
-  const res = await fetch(getStartCheckUrl(id),
+  return customFetch<startCheckResponse>(getStartCheckUrl(id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: startCheckResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as startCheckResponse
-}
+);}
 
 
 
@@ -3593,21 +3559,14 @@ export const getGetTranscriptUrl = (id: number,
 export const getTranscript = async (id: number,
     params?: GetTranscriptParams, ): Promise<getTranscriptResponse> => {
 
-  const res = await fetch(getGetTranscriptUrl(id,params),
+  return customFetch<getTranscriptResponse>(getGetTranscriptUrl(id,params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getTranscriptResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getTranscriptResponse
-}
+);}
 
 
 
@@ -3665,21 +3624,14 @@ export const getGetChatUrl = (params?: GetChatParams,) => {
  */
 export const getChat = async (params?: GetChatParams, ): Promise<getChatResponse> => {
 
-  const res = await fetch(getGetChatUrl(params),
+  return customFetch<getChatResponse>(getGetChatUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getChatResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getChatResponse
-}
+);}
 
 
 
@@ -3762,21 +3714,14 @@ if(sendChatBody.workstream !== undefined) {
  formData.append(`workstream`, sendChatBody.workstream.toString())
  }
 
-  const res = await fetch(getSendChatUrl(),
+  return customFetch<sendChatResponse>(getSendChatUrl(),
   {
 
     method: 'POST'
     ,
     body: formData
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: sendChatResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as sendChatResponse
-}
+);}
 
 
 
@@ -3849,20 +3794,14 @@ export const getGetChatImageUrl = (id: number,
 export const getChatImage = async (id: number,
     position: number, ): Promise<getChatImageResponse> => {
 
-  const res = await fetch(getGetChatImageUrl(id,position),
+  return customFetch<getChatImageResponse>(getGetChatImageUrl(id,position),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.blob();
-  const data: getChatImageResponse['data'] = body as getChatImageResponse['data']
-  return { data, status: res.status, headers: res.headers } as getChatImageResponse
-}
+);}
 
 
 
@@ -3913,21 +3852,14 @@ export const getSeeChatUrl = () => {
  */
 export const seeChat = async (seeChatBody: SeeChatBody, ): Promise<seeChatResponse> => {
 
-  const res = await fetch(getSeeChatUrl(),
+  return customFetch<seeChatResponse>(getSeeChatUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(seeChatBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: seeChatResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as seeChatResponse
-}
+);}
 
 
 
@@ -3978,21 +3910,14 @@ export const getStopChatUrl = () => {
  */
 export const stopChat = async (stopChatBody: StopChatBody, ): Promise<stopChatResponse> => {
 
-  const res = await fetch(getStopChatUrl(),
+  return customFetch<stopChatResponse>(getStopChatUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(stopChatBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: stopChatResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as stopChatResponse
-}
+);}
 
 
 
@@ -4050,21 +3975,14 @@ export const getGetCheckupUrl = (params: GetCheckupParams,) => {
  */
 export const getCheckup = async (params: GetCheckupParams, ): Promise<getCheckupResponse> => {
 
-  const res = await fetch(getGetCheckupUrl(params),
+  return customFetch<getCheckupResponse>(getGetCheckupUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getCheckupResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getCheckupResponse
-}
+);}
 
 
 
@@ -4115,21 +4033,14 @@ export const getFixLabelsUrl = () => {
  */
 export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabelsResponse> => {
 
-  const res = await fetch(getFixLabelsUrl(),
+  return customFetch<fixLabelsResponse>(getFixLabelsUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fixLabelsBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as fixLabelsResponse
-}
+);}
 
 
 
@@ -4185,21 +4096,14 @@ export const getSetIssueRepositoryUrl = () => {
  */
 export const setIssueRepository = async (setIssueRepositoryBody: SetIssueRepositoryBody, ): Promise<setIssueRepositoryResponse> => {
 
-  const res = await fetch(getSetIssueRepositoryUrl(),
+  return customFetch<setIssueRepositoryResponse>(getSetIssueRepositoryUrl(),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setIssueRepositoryBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setIssueRepositoryResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setIssueRepositoryResponse
-}
+);}
 
 
 
@@ -4250,21 +4154,14 @@ export const getGetCheckupToolsUrl = () => {
  */
 export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
 
-  const res = await fetch(getGetCheckupToolsUrl(),
+  return customFetch<getCheckupToolsResponse>(getGetCheckupToolsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
-}
+);}
 
 
 
@@ -4320,21 +4217,14 @@ export const getSetToolAutoUpgradeUrl = () => {
  */
 export const setToolAutoUpgrade = async (setToolAutoUpgradeBody: SetToolAutoUpgradeBody, ): Promise<setToolAutoUpgradeResponse> => {
 
-  const res = await fetch(getSetToolAutoUpgradeUrl(),
+  return customFetch<setToolAutoUpgradeResponse>(getSetToolAutoUpgradeUrl(),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setToolAutoUpgradeBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setToolAutoUpgradeResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setToolAutoUpgradeResponse
-}
+);}
 
 
 
@@ -4390,21 +4280,14 @@ export const getUpgradeCheckupToolUrl = () => {
  */
 export const upgradeCheckupTool = async (upgradeCheckupToolBody: UpgradeCheckupToolBody, ): Promise<upgradeCheckupToolResponse> => {
 
-  const res = await fetch(getUpgradeCheckupToolUrl(),
+  return customFetch<upgradeCheckupToolResponse>(getUpgradeCheckupToolUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(upgradeCheckupToolBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: upgradeCheckupToolResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as upgradeCheckupToolResponse
-}
+);}
 
 
 
@@ -4455,21 +4338,14 @@ export const getListCIStopsUrl = () => {
  */
 export const listCIStops = async ( ): Promise<listCIStopsResponse> => {
 
-  const res = await fetch(getListCIStopsUrl(),
+  return customFetch<listCIStopsResponse>(getListCIStopsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listCIStopsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listCIStopsResponse
-}
+);}
 
 
 
@@ -4520,21 +4396,14 @@ export const getListDevicesUrl = () => {
  */
 export const listDevices = async ( ): Promise<listDevicesResponse> => {
 
-  const res = await fetch(getListDevicesUrl(),
+  return customFetch<listDevicesResponse>(getListDevicesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listDevicesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listDevicesResponse
-}
+);}
 
 
 
@@ -4585,21 +4454,14 @@ export const getLogoutUrl = (id: number,) => {
  */
 export const logout = async (id: number, ): Promise<logoutResponse> => {
 
-  const res = await fetch(getLogoutUrl(id),
+  return customFetch<logoutResponse>(getLogoutUrl(id),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: logoutResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as logoutResponse
-}
+);}
 
 
 
@@ -4650,21 +4512,14 @@ export const getGetDrainUrl = () => {
  */
 export const getDrain = async ( ): Promise<getDrainResponse> => {
 
-  const res = await fetch(getGetDrainUrl(),
+  return customFetch<getDrainResponse>(getGetDrainUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getDrainResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getDrainResponse
-}
+);}
 
 
 
@@ -4715,21 +4570,14 @@ export const getStartDrainUrl = () => {
  */
 export const startDrain = async ( ): Promise<startDrainResponse> => {
 
-  const res = await fetch(getStartDrainUrl(),
+  return customFetch<startDrainResponse>(getStartDrainUrl(),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: startDrainResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as startDrainResponse
-}
+);}
 
 
 
@@ -4780,21 +4628,14 @@ export const getCancelDrainUrl = () => {
  */
 export const cancelDrain = async ( ): Promise<cancelDrainResponse> => {
 
-  const res = await fetch(getCancelDrainUrl(),
+  return customFetch<cancelDrainResponse>(getCancelDrainUrl(),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: cancelDrainResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as cancelDrainResponse
-}
+);}
 
 
 
@@ -4845,21 +4686,14 @@ export const getListGitHubAppsUrl = () => {
  */
 export const listGitHubApps = async ( ): Promise<listGitHubAppsResponse> => {
 
-  const res = await fetch(getListGitHubAppsUrl(),
+  return customFetch<listGitHubAppsResponse>(getListGitHubAppsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listGitHubAppsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listGitHubAppsResponse
-}
+);}
 
 
 
@@ -4910,21 +4744,14 @@ export const getCreateManifestFormUrl = () => {
  */
 export const createManifestForm = async (createManifestFormBody: CreateManifestFormBody, ): Promise<createManifestFormResponse> => {
 
-  const res = await fetch(getCreateManifestFormUrl(),
+  return customFetch<createManifestFormResponse>(getCreateManifestFormUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(createManifestFormBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: createManifestFormResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as createManifestFormResponse
-}
+);}
 
 
 
@@ -4985,21 +4812,14 @@ export const getManifestCallbackUrl = (params: ManifestCallbackParams,) => {
  */
 export const manifestCallback = async (params: ManifestCallbackParams, ): Promise<manifestCallbackResponse> => {
 
-  const res = await fetch(getManifestCallbackUrl(params),
+  return customFetch<manifestCallbackResponse>(getManifestCallbackUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: manifestCallbackResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as manifestCallbackResponse
-}
+);}
 
 
 
@@ -5060,21 +4880,14 @@ export const getUserCallbackUrl = (params: UserCallbackParams,) => {
  */
 export const userCallback = async (params: UserCallbackParams, ): Promise<userCallbackResponse> => {
 
-  const res = await fetch(getUserCallbackUrl(params),
+  return customFetch<userCallbackResponse>(getUserCallbackUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: userCallbackResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as userCallbackResponse
-}
+);}
 
 
 
@@ -5125,21 +4938,14 @@ export const getListHarnessesUrl = () => {
  */
 export const listHarnesses = async ( ): Promise<listHarnessesResponse> => {
 
-  const res = await fetch(getListHarnessesUrl(),
+  return customFetch<listHarnessesResponse>(getListHarnessesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listHarnessesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listHarnessesResponse
-}
+);}
 
 
 
@@ -5190,21 +4996,14 @@ export const getGetHealthUrl = () => {
  */
 export const getHealth = async ( ): Promise<getHealthResponse> => {
 
-  const res = await fetch(getGetHealthUrl(),
+  return customFetch<getHealthResponse>(getGetHealthUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getHealthResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getHealthResponse
-}
+);}
 
 
 
@@ -5255,21 +5054,14 @@ export const getListInboxUrl = () => {
  */
 export const listInbox = async ( ): Promise<listInboxResponse> => {
 
-  const res = await fetch(getListInboxUrl(),
+  return customFetch<listInboxResponse>(getListInboxUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listInboxResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listInboxResponse
-}
+);}
 
 
 
@@ -5350,21 +5142,14 @@ if(answerInboxItemBody.voiceSeconds !== undefined) {
  formData.append(`voiceSeconds`, answerInboxItemBody.voiceSeconds.toString())
  }
 
-  const res = await fetch(getAnswerInboxItemUrl(id),
+  return customFetch<answerInboxItemResponse>(getAnswerInboxItemUrl(id),
   {
 
     method: 'POST'
     ,
     body: formData
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: answerInboxItemResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as answerInboxItemResponse
-}
+);}
 
 
 
@@ -5420,21 +5205,14 @@ export const getDismissUrl = (id: number,) => {
  */
 export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
-  const res = await fetch(getDismissUrl(id),
+  return customFetch<dismissResponse>(getDismissUrl(id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: dismissResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as dismissResponse
-}
+);}
 
 
 
@@ -5515,21 +5293,14 @@ if(doneInboxItemBody.voiceSeconds !== undefined) {
  formData.append(`voiceSeconds`, doneInboxItemBody.voiceSeconds.toString())
  }
 
-  const res = await fetch(getDoneInboxItemUrl(id),
+  return customFetch<doneInboxItemResponse>(getDoneInboxItemUrl(id),
   {
 
     method: 'POST'
     ,
     body: formData
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: doneInboxItemResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as doneInboxItemResponse
-}
+);}
 
 
 
@@ -5590,21 +5361,14 @@ export const getMergeInboxItemUrl = (id: number,) => {
  */
 export const mergeInboxItem = async (id: number, ): Promise<mergeInboxItemResponse> => {
 
-  const res = await fetch(getMergeInboxItemUrl(id),
+  return customFetch<mergeInboxItemResponse>(getMergeInboxItemUrl(id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: mergeInboxItemResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as mergeInboxItemResponse
-}
+);}
 
 
 
@@ -5655,21 +5419,14 @@ export const getSendAgainUrl = (id: number,) => {
  */
 export const sendAgain = async (id: number, ): Promise<sendAgainResponse> => {
 
-  const res = await fetch(getSendAgainUrl(id),
+  return customFetch<sendAgainResponse>(getSendAgainUrl(id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: sendAgainResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as sendAgainResponse
-}
+);}
 
 
 
@@ -5720,21 +5477,14 @@ export const getLoginUrl = () => {
  */
 export const login = async (loginBody: LoginBody, ): Promise<loginResponse> => {
 
-  const res = await fetch(getLoginUrl(),
+  return customFetch<loginResponse>(getLoginUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(loginBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: loginResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as loginResponse
-}
+);}
 
 
 
@@ -5795,21 +5545,14 @@ export const getMcpOAuthCallbackUrl = (params?: McpOAuthCallbackParams,) => {
  */
 export const mcpOAuthCallback = async (params?: McpOAuthCallbackParams, ): Promise<mcpOAuthCallbackResponse> => {
 
-  const res = await fetch(getMcpOAuthCallbackUrl(params),
+  return customFetch<mcpOAuthCallbackResponse>(getMcpOAuthCallbackUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: mcpOAuthCallbackResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as mcpOAuthCallbackResponse
-}
+);}
 
 
 
@@ -5860,21 +5603,14 @@ export const getMcpOAuthClientUrl = () => {
  */
 export const mcpOAuthClient = async ( ): Promise<mcpOAuthClientResponse> => {
 
-  const res = await fetch(getMcpOAuthClientUrl(),
+  return customFetch<mcpOAuthClientResponse>(getMcpOAuthClientUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: mcpOAuthClientResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as mcpOAuthClientResponse
-}
+);}
 
 
 
@@ -5925,21 +5661,14 @@ export const getListNeedsHumanUrl = () => {
  */
 export const listNeedsHuman = async ( ): Promise<listNeedsHumanResponse> => {
 
-  const res = await fetch(getListNeedsHumanUrl(),
+  return customFetch<listNeedsHumanResponse>(getListNeedsHumanUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listNeedsHumanResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listNeedsHumanResponse
-}
+);}
 
 
 
@@ -5990,21 +5719,14 @@ export const getGetNetworkUrl = () => {
  */
 export const getNetwork = async ( ): Promise<getNetworkResponse> => {
 
-  const res = await fetch(getGetNetworkUrl(),
+  return customFetch<getNetworkResponse>(getGetNetworkUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getNetworkResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getNetworkResponse
-}
+);}
 
 
 
@@ -6055,21 +5777,14 @@ export const getListOrganizationsUrl = () => {
  */
 export const listOrganizations = async ( ): Promise<listOrganizationsResponse> => {
 
-  const res = await fetch(getListOrganizationsUrl(),
+  return customFetch<listOrganizationsResponse>(getListOrganizationsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
-}
+);}
 
 
 
@@ -6120,21 +5835,14 @@ export const getListMcpServersUrl = (organization: string,) => {
  */
 export const listMcpServers = async (organization: string, ): Promise<listMcpServersResponse> => {
 
-  const res = await fetch(getListMcpServersUrl(organization),
+  return customFetch<listMcpServersResponse>(getListMcpServersUrl(organization),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listMcpServersResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listMcpServersResponse
-}
+);}
 
 
 
@@ -6191,21 +5899,14 @@ export const getAddMcpServerUrl = (organization: string,) => {
 export const addMcpServer = async (organization: string,
     mcpServerBodyBody: McpServerBodyBody, ): Promise<addMcpServerResponse> => {
 
-  const res = await fetch(getAddMcpServerUrl(organization),
+  return customFetch<addMcpServerResponse>(getAddMcpServerUrl(organization),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(mcpServerBodyBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: addMcpServerResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as addMcpServerResponse
-}
+);}
 
 
 
@@ -6269,21 +5970,14 @@ export const changeMcpServer = async (organization: string,
     id: number,
     mcpServerBodyBody: McpServerBodyBody, ): Promise<changeMcpServerResponse> => {
 
-  const res = await fetch(getChangeMcpServerUrl(organization,id),
+  return customFetch<changeMcpServerResponse>(getChangeMcpServerUrl(organization,id),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(mcpServerBodyBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: changeMcpServerResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as changeMcpServerResponse
-}
+);}
 
 
 
@@ -6341,21 +6035,14 @@ export const getDeleteMcpServerUrl = (organization: string,
 export const deleteMcpServer = async (organization: string,
     id: number, ): Promise<deleteMcpServerResponse> => {
 
-  const res = await fetch(getDeleteMcpServerUrl(organization,id),
+  return customFetch<deleteMcpServerResponse>(getDeleteMcpServerUrl(organization,id),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: deleteMcpServerResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as deleteMcpServerResponse
-}
+);}
 
 
 
@@ -6414,21 +6101,14 @@ export const startMcpOAuth = async (organization: string,
     id: number,
     startMcpOAuthBody: StartMcpOAuthBody, ): Promise<startMcpOAuthResponse> => {
 
-  const res = await fetch(getStartMcpOAuthUrl(organization,id),
+  return customFetch<startMcpOAuthResponse>(getStartMcpOAuthUrl(organization,id),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(startMcpOAuthBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: startMcpOAuthResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as startMcpOAuthResponse
-}
+);}
 
 
 
@@ -6486,21 +6166,14 @@ export const getDisconnectMcpOAuthUrl = (organization: string,
 export const disconnectMcpOAuth = async (organization: string,
     id: number, ): Promise<disconnectMcpOAuthResponse> => {
 
-  const res = await fetch(getDisconnectMcpOAuthUrl(organization,id),
+  return customFetch<disconnectMcpOAuthResponse>(getDisconnectMcpOAuthUrl(organization,id),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: disconnectMcpOAuthResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as disconnectMcpOAuthResponse
-}
+);}
 
 
 
@@ -6551,21 +6224,14 @@ export const getListPausesUrl = () => {
  */
 export const listPauses = async ( ): Promise<listPausesResponse> => {
 
-  const res = await fetch(getListPausesUrl(),
+  return customFetch<listPausesResponse>(getListPausesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listPausesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listPausesResponse
-}
+);}
 
 
 
@@ -6616,21 +6282,14 @@ export const getResumeUrl = (harness: string,) => {
  */
 export const resume = async (harness: string, ): Promise<resumeResponse> => {
 
-  const res = await fetch(getResumeUrl(harness),
+  return customFetch<resumeResponse>(getResumeUrl(harness),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: resumeResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as resumeResponse
-}
+);}
 
 
 
@@ -6681,21 +6340,14 @@ export const getGetReleaseUrl = () => {
  */
 export const getRelease = async ( ): Promise<getReleaseResponse> => {
 
-  const res = await fetch(getGetReleaseUrl(),
+  return customFetch<getReleaseResponse>(getGetReleaseUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getReleaseResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getReleaseResponse
-}
+);}
 
 
 
@@ -6751,21 +6403,14 @@ export const getListReleaseChangesUrl = () => {
  */
 export const listReleaseChanges = async ( ): Promise<listReleaseChangesResponse> => {
 
-  const res = await fetch(getListReleaseChangesUrl(),
+  return customFetch<listReleaseChangesResponse>(getListReleaseChangesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listReleaseChangesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listReleaseChangesResponse
-}
+);}
 
 
 
@@ -6821,21 +6466,14 @@ export const setTaskImplementer = async (owner: string,
     number: number,
     issueSettingBody: IssueSettingBody, ): Promise<setTaskImplementerResponse> => {
 
-  const res = await fetch(getSetTaskImplementerUrl(owner,name,number),
+  return customFetch<setTaskImplementerResponse>(getSetTaskImplementerUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(issueSettingBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setTaskImplementerResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setTaskImplementerResponse
-}
+);}
 
 
 
@@ -6890,21 +6528,14 @@ export const clearTaskImplementer = async (owner: string,
     name: string,
     number: number, ): Promise<clearTaskImplementerResponse> => {
 
-  const res = await fetch(getClearTaskImplementerUrl(owner,name,number),
+  return customFetch<clearTaskImplementerResponse>(getClearTaskImplementerUrl(owner,name,number),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: clearTaskImplementerResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as clearTaskImplementerResponse
-}
+);}
 
 
 
@@ -6964,21 +6595,14 @@ export const resumeIssue = async (owner: string,
     name: string,
     number: number, ): Promise<resumeIssueResponse> => {
 
-  const res = await fetch(getResumeIssueUrl(owner,name,number),
+  return customFetch<resumeIssueResponse>(getResumeIssueUrl(owner,name,number),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: resumeIssueResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as resumeIssueResponse
-}
+);}
 
 
 
@@ -7038,21 +6662,14 @@ export const startIssue = async (owner: string,
     name: string,
     number: number, ): Promise<startIssueResponse> => {
 
-  const res = await fetch(getStartIssueUrl(owner,name,number),
+  return customFetch<startIssueResponse>(getStartIssueUrl(owner,name,number),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: startIssueResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as startIssueResponse
-}
+);}
 
 
 
@@ -7112,21 +6729,14 @@ export const stopIssue = async (owner: string,
     name: string,
     number: number, ): Promise<stopIssueResponse> => {
 
-  const res = await fetch(getStopIssueUrl(owner,name,number),
+  return customFetch<stopIssueResponse>(getStopIssueUrl(owner,name,number),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: stopIssueResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as stopIssueResponse
-}
+);}
 
 
 
@@ -7184,21 +6794,14 @@ export const getListMemoryFilesUrl = (owner: string,
 export const listMemoryFiles = async (owner: string,
     name: string, ): Promise<listMemoryFilesResponse> => {
 
-  const res = await fetch(getListMemoryFilesUrl(owner,name),
+  return customFetch<listMemoryFilesResponse>(getListMemoryFilesUrl(owner,name),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listMemoryFilesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listMemoryFilesResponse
-}
+);}
 
 
 
@@ -7267,21 +6870,14 @@ export const listMemoryVersions = async (owner: string,
     file: string,
     params?: ListMemoryVersionsParams, ): Promise<listMemoryVersionsResponse> => {
 
-  const res = await fetch(getListMemoryVersionsUrl(owner,name,file,params),
+  return customFetch<listMemoryVersionsResponse>(getListMemoryVersionsUrl(owner,name,file,params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listMemoryVersionsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listMemoryVersionsResponse
-}
+);}
 
 
 
@@ -7347,21 +6943,14 @@ export const saveMemory = async (owner: string,
     file: string,
     saveMemoryBody: SaveMemoryBody, ): Promise<saveMemoryResponse> => {
 
-  const res = await fetch(getSaveMemoryUrl(owner,name,file),
+  return customFetch<saveMemoryResponse>(getSaveMemoryUrl(owner,name,file),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(saveMemoryBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: saveMemoryResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as saveMemoryResponse
-}
+);}
 
 
 
@@ -7428,21 +7017,14 @@ export const revertMemory = async (owner: string,
     file: string,
     id: number, ): Promise<revertMemoryResponse> => {
 
-  const res = await fetch(getRevertMemoryUrl(owner,name,file,id),
+  return customFetch<revertMemoryResponse>(getRevertMemoryUrl(owner,name,file,id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: revertMemoryResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as revertMemoryResponse
-}
+);}
 
 
 
@@ -7493,21 +7075,14 @@ export const getListRolesUrl = () => {
  */
 export const listRoles = async ( ): Promise<listRolesResponse> => {
 
-  const res = await fetch(getListRolesUrl(),
+  return customFetch<listRolesResponse>(getListRolesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listRolesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listRolesResponse
-}
+);}
 
 
 
@@ -7558,21 +7133,14 @@ export const getAddImplementerBindingUrl = () => {
  */
 export const addImplementerBinding = async (bindingBodyBody: BindingBodyBody, ): Promise<addImplementerBindingResponse> => {
 
-  const res = await fetch(getAddImplementerBindingUrl(),
+  return customFetch<addImplementerBindingResponse>(getAddImplementerBindingUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(bindingBodyBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: addImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as addImplementerBindingResponse
-}
+);}
 
 
 
@@ -7629,21 +7197,14 @@ export const getSetImplementerBindingUrl = (id: number,) => {
 export const setImplementerBinding = async (id: number,
     bindingBodyBody: BindingBodyBody, ): Promise<setImplementerBindingResponse> => {
 
-  const res = await fetch(getSetImplementerBindingUrl(id),
+  return customFetch<setImplementerBindingResponse>(getSetImplementerBindingUrl(id),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(bindingBodyBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setImplementerBindingResponse
-}
+);}
 
 
 
@@ -7699,21 +7260,14 @@ export const getRemoveImplementerBindingUrl = (id: number,) => {
  */
 export const removeImplementerBinding = async (id: number, ): Promise<removeImplementerBindingResponse> => {
 
-  const res = await fetch(getRemoveImplementerBindingUrl(id),
+  return customFetch<removeImplementerBindingResponse>(getRemoveImplementerBindingUrl(id),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: removeImplementerBindingResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as removeImplementerBindingResponse
-}
+);}
 
 
 
@@ -7765,21 +7319,14 @@ export const getSetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'implem
 export const setRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator',
     setRoleBody: SetRoleBody, ): Promise<setRoleResponse> => {
 
-  const res = await fetch(getSetRoleUrl(role),
+  return customFetch<setRoleResponse>(getSetRoleUrl(role),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setRoleBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setRoleResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setRoleResponse
-}
+);}
 
 
 
@@ -7830,21 +7377,14 @@ export const getResetRoleUrl = (role: 'lead' | 'coordinator' | 'triager' | 'impl
  */
 export const resetRole = async (role: 'lead' | 'coordinator' | 'triager' | 'implementer' | 'researcher' | 'reviewer' | 'judge' | 'curator' | 'diagnoser' | 'operator', ): Promise<resetRoleResponse> => {
 
-  const res = await fetch(getResetRoleUrl(role),
+  return customFetch<resetRoleResponse>(getResetRoleUrl(role),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: resetRoleResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as resetRoleResponse
-}
+);}
 
 
 
@@ -7895,21 +7435,14 @@ export const getGetSwitchesUrl = () => {
  */
 export const getSwitches = async ( ): Promise<getSwitchesResponse> => {
 
-  const res = await fetch(getGetSwitchesUrl(),
+  return customFetch<getSwitchesResponse>(getGetSwitchesUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getSwitchesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getSwitchesResponse
-}
+);}
 
 
 
@@ -7961,21 +7494,14 @@ export const getSetSwitchUrl = (kind: 'start' | 'merge' | 'repairs',) => {
 export const setSwitch = async (kind: 'start' | 'merge' | 'repairs',
     setSwitchBody: SetSwitchBody, ): Promise<setSwitchResponse> => {
 
-  const res = await fetch(getSetSwitchUrl(kind),
+  return customFetch<setSwitchResponse>(getSetSwitchUrl(kind),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setSwitchBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setSwitchResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setSwitchResponse
-}
+);}
 
 
 
@@ -8026,21 +7552,14 @@ export const getListBoardTasksUrl = () => {
  */
 export const listBoardTasks = async ( ): Promise<listBoardTasksResponse> => {
 
-  const res = await fetch(getListBoardTasksUrl(),
+  return customFetch<listBoardTasksResponse>(getListBoardTasksUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listBoardTasksResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listBoardTasksResponse
-}
+);}
 
 
 
@@ -8091,21 +7610,14 @@ export const getListUnreadUrl = () => {
  */
 export const listUnread = async ( ): Promise<listUnreadResponse> => {
 
-  const res = await fetch(getListUnreadUrl(),
+  return customFetch<listUnreadResponse>(getListUnreadUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listUnreadResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listUnreadResponse
-}
+);}
 
 
 
@@ -8156,21 +7668,14 @@ export const getGetUpgradeUrl = () => {
  */
 export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
 
-  const res = await fetch(getGetUpgradeUrl(),
+  return customFetch<getUpgradeResponse>(getGetUpgradeUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getUpgradeResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getUpgradeResponse
-}
+);}
 
 
 
@@ -8226,21 +7731,14 @@ export const getStartUpgradeUrl = () => {
  */
 export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
-  const res = await fetch(getStartUpgradeUrl(),
+  return customFetch<startUpgradeResponse>(getStartUpgradeUrl(),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: startUpgradeResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as startUpgradeResponse
-}
+);}
 
 
 
@@ -8291,21 +7789,14 @@ export const getCancelUpgradeUrl = () => {
  */
 export const cancelUpgrade = async ( ): Promise<cancelUpgradeResponse> => {
 
-  const res = await fetch(getCancelUpgradeUrl(),
+  return customFetch<cancelUpgradeResponse>(getCancelUpgradeUrl(),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: cancelUpgradeResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as cancelUpgradeResponse
-}
+);}
 
 
 
@@ -8371,21 +7862,14 @@ export const getGetUsageUrl = (params: GetUsageParams,) => {
  */
 export const getUsage = async (params: GetUsageParams, ): Promise<getUsageResponse> => {
 
-  const res = await fetch(getGetUsageUrl(params),
+  return customFetch<getUsageResponse>(getGetUsageUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getUsageResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getUsageResponse
-}
+);}
 
 
 
@@ -8451,21 +7935,14 @@ export const getGetUsageQualityUrl = (params: GetUsageQualityParams,) => {
  */
 export const getUsageQuality = async (params: GetUsageQualityParams, ): Promise<getUsageQualityResponse> => {
 
-  const res = await fetch(getGetUsageQualityUrl(params),
+  return customFetch<getUsageQualityResponse>(getGetUsageQualityUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getUsageQualityResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getUsageQualityResponse
-}
+);}
 
 
 
@@ -8531,21 +8008,14 @@ export const getGetUsageSkillsUrl = (params: GetUsageSkillsParams,) => {
  */
 export const getUsageSkills = async (params: GetUsageSkillsParams, ): Promise<getUsageSkillsResponse> => {
 
-  const res = await fetch(getGetUsageSkillsUrl(params),
+  return customFetch<getUsageSkillsResponse>(getGetUsageSkillsUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getUsageSkillsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getUsageSkillsResponse
-}
+);}
 
 
 
@@ -8611,21 +8081,14 @@ export const getGetUsageTimesUrl = (params: GetUsageTimesParams,) => {
  */
 export const getUsageTimes = async (params: GetUsageTimesParams, ): Promise<getUsageTimesResponse> => {
 
-  const res = await fetch(getGetUsageTimesUrl(params),
+  return customFetch<getUsageTimesResponse>(getGetUsageTimesUrl(params),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getUsageTimesResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getUsageTimesResponse
-}
+);}
 
 
 
@@ -8676,21 +8139,14 @@ export const getGetVersionUrl = () => {
  */
 export const getVersion = async ( ): Promise<getVersionResponse> => {
 
-  const res = await fetch(getGetVersionUrl(),
+  return customFetch<getVersionResponse>(getGetVersionUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getVersionResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getVersionResponse
-}
+);}
 
 
 
@@ -8746,21 +8202,14 @@ export const getGetConversionUrl = (id: string,) => {
  */
 export const getConversion = async (id: string, ): Promise<getConversionResponse> => {
 
-  const res = await fetch(getGetConversionUrl(id),
+  return customFetch<getConversionResponse>(getGetConversionUrl(id),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getConversionResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getConversionResponse
-}
+);}
 
 
 
@@ -8811,21 +8260,14 @@ export const getGetVoiceLanguageUrl = () => {
  */
 export const getVoiceLanguage = async ( ): Promise<getVoiceLanguageResponse> => {
 
-  const res = await fetch(getGetVoiceLanguageUrl(),
+  return customFetch<getVoiceLanguageResponse>(getGetVoiceLanguageUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getVoiceLanguageResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getVoiceLanguageResponse
-}
+);}
 
 
 
@@ -8876,21 +8318,14 @@ export const getSetVoiceLanguageUrl = () => {
  */
 export const setVoiceLanguage = async (setVoiceLanguageBody: SetVoiceLanguageBody, ): Promise<setVoiceLanguageResponse> => {
 
-  const res = await fetch(getSetVoiceLanguageUrl(),
+  return customFetch<setVoiceLanguageResponse>(getSetVoiceLanguageUrl(),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setVoiceLanguageBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setVoiceLanguageResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setVoiceLanguageResponse
-}
+);}
 
 
 
@@ -8941,21 +8376,14 @@ export const getCreateRecordingUrl = () => {
  */
 export const createRecording = async ( ): Promise<createRecordingResponse> => {
 
-  const res = await fetch(getCreateRecordingUrl(),
+  return customFetch<createRecordingResponse>(getCreateRecordingUrl(),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: createRecordingResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as createRecordingResponse
-}
+);}
 
 
 
@@ -9036,21 +8464,14 @@ export const sendChunk = async (id: string,
     sendChunkBody: Blob,
     params?: SendChunkParams, ): Promise<sendChunkResponse> => {
 
-  const res = await fetch(getSendChunkUrl(id,params),
+  return customFetch<sendChunkResponse>(getSendChunkUrl(id,params),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: sendChunkBody
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: sendChunkResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as sendChunkResponse
-}
+);}
 
 
 
@@ -9106,21 +8527,14 @@ export const getFinishRecordingUrl = (id: string,) => {
  */
 export const finishRecording = async (id: string, ): Promise<finishRecordingResponse> => {
 
-  const res = await fetch(getFinishRecordingUrl(id),
+  return customFetch<finishRecordingResponse>(getFinishRecordingUrl(id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: finishRecordingResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as finishRecordingResponse
-}
+);}
 
 
 
@@ -9171,21 +8585,14 @@ export const getTranscribeUrl = () => {
  */
 export const transcribe = async (transcribeBody: Blob, ): Promise<transcribeResponse> => {
 
-  const res = await fetch(getTranscribeUrl(),
+  return customFetch<transcribeResponse>(getTranscribeUrl(),
   {
 
     method: 'POST',
     headers: { 'Content-Type': 'audio/wav' },
     body: transcribeBody
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: transcribeResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as transcribeResponse
-}
+);}
 
 
 
@@ -9236,21 +8643,14 @@ export const getListWorkstreamsUrl = () => {
  */
 export const listWorkstreams = async ( ): Promise<listWorkstreamsResponse> => {
 
-  const res = await fetch(getListWorkstreamsUrl(),
+  return customFetch<listWorkstreamsResponse>(getListWorkstreamsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listWorkstreamsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listWorkstreamsResponse
-}
+);}
 
 
 
@@ -9301,21 +8701,14 @@ export const getListWaitingWorkstreamsUrl = () => {
  */
 export const listWaitingWorkstreams = async ( ): Promise<listWaitingWorkstreamsResponse> => {
 
-  const res = await fetch(getListWaitingWorkstreamsUrl(),
+  return customFetch<listWaitingWorkstreamsResponse>(getListWaitingWorkstreamsUrl(),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listWaitingWorkstreamsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listWaitingWorkstreamsResponse
-}
+);}
 
 
 
@@ -9370,21 +8763,14 @@ export const listAgents = async (owner: string,
     name: string,
     number: number, ): Promise<listAgentsResponse> => {
 
-  const res = await fetch(getListAgentsUrl(owner,name,number),
+  return customFetch<listAgentsResponse>(getListAgentsUrl(owner,name,number),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listAgentsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listAgentsResponse
-}
+);}
 
 
 
@@ -9445,21 +8831,14 @@ export const setAutopilot = async (owner: string,
     number: number,
     setAutopilotBody: SetAutopilotBody, ): Promise<setAutopilotResponse> => {
 
-  const res = await fetch(getSetAutopilotUrl(owner,name,number),
+  return customFetch<setAutopilotResponse>(getSetAutopilotUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setAutopilotBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setAutopilotResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setAutopilotResponse
-}
+);}
 
 
 
@@ -9519,21 +8898,14 @@ export const closeWorkstream = async (owner: string,
     name: string,
     number: number, ): Promise<closeWorkstreamResponse> => {
 
-  const res = await fetch(getCloseWorkstreamUrl(owner,name,number),
+  return customFetch<closeWorkstreamResponse>(getCloseWorkstreamUrl(owner,name,number),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: closeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as closeWorkstreamResponse
-}
+);}
 
 
 
@@ -9593,21 +8965,14 @@ export const workstreamClosure = async (owner: string,
     name: string,
     number: number, ): Promise<workstreamClosureResponse> => {
 
-  const res = await fetch(getWorkstreamClosureUrl(owner,name,number),
+  return customFetch<workstreamClosureResponse>(getWorkstreamClosureUrl(owner,name,number),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: workstreamClosureResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as workstreamClosureResponse
-}
+);}
 
 
 
@@ -9667,21 +9032,14 @@ export const completeWorkstream = async (owner: string,
     name: string,
     number: number, ): Promise<completeWorkstreamResponse> => {
 
-  const res = await fetch(getCompleteWorkstreamUrl(owner,name,number),
+  return customFetch<completeWorkstreamResponse>(getCompleteWorkstreamUrl(owner,name,number),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: completeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as completeWorkstreamResponse
-}
+);}
 
 
 
@@ -9741,21 +9099,14 @@ export const getWorkstreamDetails = async (owner: string,
     name: string,
     number: number, ): Promise<getWorkstreamDetailsResponse> => {
 
-  const res = await fetch(getGetWorkstreamDetailsUrl(owner,name,number),
+  return customFetch<getWorkstreamDetailsResponse>(getGetWorkstreamDetailsUrl(owner,name,number),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getWorkstreamDetailsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getWorkstreamDetailsResponse
-}
+);}
 
 
 
@@ -9816,21 +9167,14 @@ export const setEvergreen = async (owner: string,
     number: number,
     setEvergreenBody: SetEvergreenBody, ): Promise<setEvergreenResponse> => {
 
-  const res = await fetch(getSetEvergreenUrl(owner,name,number),
+  return customFetch<setEvergreenResponse>(getSetEvergreenUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setEvergreenBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setEvergreenResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setEvergreenResponse
-}
+);}
 
 
 
@@ -9891,21 +9235,14 @@ export const setWorkstreamImplementer = async (owner: string,
     number: number,
     issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamImplementerResponse> => {
 
-  const res = await fetch(getSetWorkstreamImplementerUrl(owner,name,number),
+  return customFetch<setWorkstreamImplementerResponse>(getSetWorkstreamImplementerUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(issueSettingBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setWorkstreamImplementerResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setWorkstreamImplementerResponse
-}
+);}
 
 
 
@@ -9965,21 +9302,14 @@ export const clearWorkstreamImplementer = async (owner: string,
     name: string,
     number: number, ): Promise<clearWorkstreamImplementerResponse> => {
 
-  const res = await fetch(getClearWorkstreamImplementerUrl(owner,name,number),
+  return customFetch<clearWorkstreamImplementerResponse>(getClearWorkstreamImplementerUrl(owner,name,number),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: clearWorkstreamImplementerResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as clearWorkstreamImplementerResponse
-}
+);}
 
 
 
@@ -10040,21 +9370,14 @@ export const setWorkstreamLead = async (owner: string,
     number: number,
     issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamLeadResponse> => {
 
-  const res = await fetch(getSetWorkstreamLeadUrl(owner,name,number),
+  return customFetch<setWorkstreamLeadResponse>(getSetWorkstreamLeadUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(issueSettingBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setWorkstreamLeadResponse
-}
+);}
 
 
 
@@ -10114,21 +9437,14 @@ export const clearWorkstreamLead = async (owner: string,
     name: string,
     number: number, ): Promise<clearWorkstreamLeadResponse> => {
 
-  const res = await fetch(getClearWorkstreamLeadUrl(owner,name,number),
+  return customFetch<clearWorkstreamLeadResponse>(getClearWorkstreamLeadUrl(owner,name,number),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: clearWorkstreamLeadResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as clearWorkstreamLeadResponse
-}
+);}
 
 
 
@@ -10189,21 +9505,14 @@ export const setWorkstreamMcpServers = async (owner: string,
     number: number,
     setWorkstreamMcpServersBody: SetWorkstreamMcpServersBody, ): Promise<setWorkstreamMcpServersResponse> => {
 
-  const res = await fetch(getSetWorkstreamMcpServersUrl(owner,name,number),
+  return customFetch<setWorkstreamMcpServersResponse>(getSetWorkstreamMcpServersUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setWorkstreamMcpServersBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setWorkstreamMcpServersResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setWorkstreamMcpServersResponse
-}
+);}
 
 
 
@@ -10264,21 +9573,14 @@ export const setWorkstreamOperator = async (owner: string,
     number: number,
     issueSettingBody: IssueSettingBody, ): Promise<setWorkstreamOperatorResponse> => {
 
-  const res = await fetch(getSetWorkstreamOperatorUrl(owner,name,number),
+  return customFetch<setWorkstreamOperatorResponse>(getSetWorkstreamOperatorUrl(owner,name,number),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(issueSettingBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as setWorkstreamOperatorResponse
-}
+);}
 
 
 
@@ -10338,21 +9640,14 @@ export const clearWorkstreamOperator = async (owner: string,
     name: string,
     number: number, ): Promise<clearWorkstreamOperatorResponse> => {
 
-  const res = await fetch(getClearWorkstreamOperatorUrl(owner,name,number),
+  return customFetch<clearWorkstreamOperatorResponse>(getClearWorkstreamOperatorUrl(owner,name,number),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: clearWorkstreamOperatorResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as clearWorkstreamOperatorResponse
-}
+);}
 
 
 
@@ -10407,21 +9702,14 @@ export const listRecurringTasks = async (owner: string,
     name: string,
     number: number, ): Promise<listRecurringTasksResponse> => {
 
-  const res = await fetch(getListRecurringTasksUrl(owner,name,number),
+  return customFetch<listRecurringTasksResponse>(getListRecurringTasksUrl(owner,name,number),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listRecurringTasksResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listRecurringTasksResponse
-}
+);}
 
 
 
@@ -10483,21 +9771,14 @@ export const deleteRecurringTask = async (owner: string,
     number: number,
     id: number, ): Promise<deleteRecurringTaskResponse> => {
 
-  const res = await fetch(getDeleteRecurringTaskUrl(owner,name,number,id),
+  return customFetch<deleteRecurringTaskResponse>(getDeleteRecurringTaskUrl(owner,name,number,id),
   {
 
     method: 'DELETE'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: deleteRecurringTaskResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as deleteRecurringTaskResponse
-}
+);}
 
 
 
@@ -10560,21 +9841,14 @@ export const setRecurringTaskPaused = async (owner: string,
     id: number,
     setRecurringTaskPausedBody: SetRecurringTaskPausedBody, ): Promise<setRecurringTaskPausedResponse> => {
 
-  const res = await fetch(getSetRecurringTaskPausedUrl(owner,name,number,id),
+  return customFetch<setRecurringTaskPausedResponse>(getSetRecurringTaskPausedUrl(owner,name,number,id),
   {
 
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(setRecurringTaskPausedBody)
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: setRecurringTaskPausedResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as setRecurringTaskPausedResponse
-}
+);}
 
 
 
@@ -10641,21 +9915,14 @@ export const runRecurringTask = async (owner: string,
     number: number,
     id: number, ): Promise<runRecurringTaskResponse> => {
 
-  const res = await fetch(getRunRecurringTaskUrl(owner,name,number,id),
+  return customFetch<runRecurringTaskResponse>(getRunRecurringTaskUrl(owner,name,number,id),
   {
 
     method: 'POST'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: runRecurringTaskResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as runRecurringTaskResponse
-}
+);}
 
 
 
@@ -10715,21 +9982,14 @@ export const listTasks = async (owner: string,
     name: string,
     number: number, ): Promise<listTasksResponse> => {
 
-  const res = await fetch(getListTasksUrl(owner,name,number),
+  return customFetch<listTasksResponse>(getListTasksUrl(owner,name,number),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: listTasksResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listTasksResponse
-}
+);}
 
 
 
@@ -10795,18 +10055,11 @@ export const getTask = async (owner: string,
     taskName: string,
     issue: number, ): Promise<getTaskResponse> => {
 
-  const res = await fetch(getGetTaskUrl(owner,name,number,taskOwner,taskName,issue),
+  return customFetch<getTaskResponse>(getGetTaskUrl(owner,name,number,taskOwner,taskName,issue),
   {
 
     method: 'GET'
 
 
   }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: getTaskResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getTaskResponse
-}
+);}

@@ -101,6 +101,7 @@ const projectsC = [
   groupC({ name: "mcp-servers", testMatch: "mcp-servers.spec.ts" }),
   groupC({ name: "pauses", testMatch: "pauses.spec.ts" }),
   groupC({ name: "missing-workstreams", testMatch: "missing-workstreams.spec.ts" }),
+  groupC({ name: "request-error", testMatch: "request-error.spec.ts" }),
 ];
 
 const screenshotsServer = {
