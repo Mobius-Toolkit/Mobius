@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -932,7 +933,8 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCopiesTheBlocker(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
+	server, _ := connectWith(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"), func(cfg *config.Config) { cfg.PollInterval = time.Hour })
+	testkit.WaitFor(t, server.Engine.PollEnded)
 	fake.AddIssue(shop, 49, "Add the invoice table")
 	fake.AddIssue(shop, 50, "Add invoices")
 	fake.AddBlockedBy(shop, 50, 49)
@@ -943,10 +945,11 @@ func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCop
 	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12 Integrate loyalty plans." {
 		t.Errorf("reply = %q", got)
 	}
-	testkit.WaitFor(t, func() bool {
-		return countRows(t, server, "SELECT count(*) FROM blockers b JOIN issues i ON i.id = b.issue WHERE i.number = 50") == 1
-	})
-	waitForPolls(t, fake)
+	// The next poll is one hour away, so it has not copied the blocker of #50. A wake of the dispatch loop by the move
+	// dispatches the issue at once.
+	for deadline := time.Now().Add(2 * time.Second); countRows(t, server, "SELECT count(*) FROM tasks WHERE issue = 50") == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 50"); got != 0 {
 		t.Errorf("tasks of #50 = %d", got)
 	}
