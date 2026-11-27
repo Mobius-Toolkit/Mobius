@@ -457,8 +457,8 @@ WHERE pending_actions.role = ? AND pending_actions.organization = ? AND pending_
 ORDER BY inbox_items.id;
 
 -- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, selections, display_only)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items, voice, voice_seconds, selections, display_only)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 RETURNING *;
 

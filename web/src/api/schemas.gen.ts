@@ -357,6 +357,7 @@ export const GetChatResponse = S.Struct({
   "text": S.String.annotate({ description: 'Text is the text of the message' }),
   "time": S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/)).annotate({ description: 'Time is the time of the message' }),
   "voice": S.Boolean.annotate({ description: 'Voice is true when the message came from a voice recording' }),
+  "voiceSeconds": S.Number.annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds, or 0 when it is unknown' }),
   "workstream": S.Number.annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' })
 }).annotate({ description: 'ChatMessage is a message of a Lead chat or of the Coordinator chat.' })).annotate({ description: 'Messages are the messages of the page, the oldest first' }),
   "older": S.Boolean.annotate({ description: 'Older is true when the chat has an older message than the first message of the page' }),
@@ -370,6 +371,10 @@ export const GetChatResponse = S.Struct({
 /**
  * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Coordinator. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
  */
+export const sendChatBodyVoiceSecondsMin = 0;
+
+
+
 export const SendChatBody = S.Struct({
   "id": S.String.annotate({ description: 'ID is the id that the browser gives to the message. A message with an id that another message has is not stored again, and the response is the same' }),
   "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
@@ -393,6 +398,7 @@ export const SendChatBody = S.Struct({
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
   "text": S.String.annotate({ description: 'Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection' }),
   "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' }),
+  "voiceSeconds": S.optional(S.Number.check(S.isGreaterThanOrEqualTo(sendChatBodyVoiceSecondsMin))).annotate({ description: 'VoiceSeconds is the length of the voice recording in seconds' }),
   "workstream": S.optional(S.Number).annotate({ description: 'Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat' })
 })
 

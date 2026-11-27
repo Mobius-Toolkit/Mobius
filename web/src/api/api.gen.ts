@@ -687,6 +687,8 @@ export interface ChatMessage {
   time: string;
   /** Voice is true when the message came from a voice recording */
   voice: boolean;
+  /** VoiceSeconds is the length of the voice recording in seconds, or 0 when it is unknown */
+  voiceSeconds: number;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
 }
@@ -2792,6 +2794,11 @@ export interface SendChatBody {
   text: string;
   /** Voice is true when the message came from a voice recording */
   voice?: boolean;
+  /**
+     * VoiceSeconds is the length of the voice recording in seconds
+     * @minimum 0
+     */
+  voiceSeconds?: number;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
 }
@@ -3721,6 +3728,9 @@ if(sendChatBody.selections !== undefined) {
 formData.append(`text`, sendChatBody.text);
 if(sendChatBody.voice !== undefined) {
  formData.append(`voice`, sendChatBody.voice.toString())
+ }
+if(sendChatBody.voiceSeconds !== undefined) {
+ formData.append(`voiceSeconds`, sendChatBody.voiceSeconds.toString())
  }
 if(sendChatBody.workstream !== undefined) {
  formData.append(`workstream`, sendChatBody.workstream.toString())

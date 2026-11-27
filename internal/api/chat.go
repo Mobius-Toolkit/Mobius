@@ -43,6 +43,8 @@ type ChatMessage struct {
 	Selections []ChatSelection `gork:"selections"`
 	// Voice is true when the message came from a voice recording
 	Voice bool `gork:"voice"`
+	// VoiceSeconds is the length of the voice recording in seconds, or 0 when it is unknown
+	VoiceSeconds int64 `gork:"voiceSeconds"`
 	// DisplayOnly is true when the chat shows an Owner message from an Inbox action and no agent gets it through the chat
 	DisplayOnly bool `gork:"displayOnly"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
@@ -177,6 +179,8 @@ type SendChatRequest struct {
 		Selections []ChatSelection `gork:"selections" validate:"dive"`
 		// Voice is true when the message came from a voice recording
 		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
 }
 
@@ -192,7 +196,7 @@ func (r *SendChatRequest) Validate() error {
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
 	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice)
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, unixLines(body.Text), attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, unixLines(body.Text), attachments.Images, attachments.InboxItems, attachments.Selections, attachments.Voice, body.VoiceSeconds)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
@@ -331,6 +335,7 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		InboxItems:   inboxItems,
 		Selections:   selections,
 		Voice:        message.Voice != 0,
+		VoiceSeconds: message.VoiceSeconds,
 		DisplayOnly:  message.DisplayOnly != 0,
 		BrowserID:    message.BrowserID.String,
 	}
