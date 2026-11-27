@@ -1010,13 +1010,17 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n" + leadStarts
-	server, _ := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	server := connectDiagnoserFixing(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", "[[prompts]]\nwhen = \"You are a Diagnoser\"\nreply = [\"Waiting.\"]\nhang = true\n")
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
 	})
-	// The dispatch loop clears the Start of an issue with a live task, but a hard break of the CI holds it.
-	run := hardBreak(t, server, fake)
+	// The dispatch loop clears the Start of an issue with a live task. A hard break of the CI with no issue holds the
+	// dispatch while its Diagnoser runs, and this Diagnoser does not end.
+	hardMainRun(fake, head(t, fake, "main"))
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ci_break != 0 AND ended_at = ''") == 1
+	})
 	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
@@ -1030,8 +1034,8 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	if hasStart(t, server, 41) {
 		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
 	}
-	ended := passMain(fake)
-	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: ended, rerun: true, result: "hard"})
+	passedMainRun(fake)
+	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_breaks WHERE ended_at = ''") == 0 })
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)
