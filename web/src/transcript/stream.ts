@@ -1,6 +1,6 @@
 import { Effect, Queue, Stream } from "effect";
 import { retryDelay } from "@/lib/events";
-import { listen, liveListener } from "@/live/events";
+import { listen, liveListener, reconnectOnWake } from "@/live/events";
 import { Message } from "./message";
 import { Line } from "./schemas";
 
@@ -41,30 +41,14 @@ export function transcriptStream(id: number) {
         connect();
       };
 
-      const wake = () => {
-        if (!document.hidden) {
-          reconnect();
-        }
-      };
-
-      const restore = (event: PageTransitionEvent) => {
-        if (event.persisted) {
-          reconnect();
-        }
-      };
-
-      window.addEventListener("online", wake);
-      window.addEventListener("pageshow", restore);
-      document.addEventListener("visibilitychange", wake);
+      const stopWaking = reconnectOnWake(reconnect);
 
       connect();
 
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           clearTimeout(timer);
-          window.removeEventListener("online", wake);
-          window.removeEventListener("pageshow", restore);
-          document.removeEventListener("visibilitychange", wake);
+          stopWaking();
           source?.close();
         }),
       );

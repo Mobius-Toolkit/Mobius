@@ -47,6 +47,32 @@ export function listen<Message>(
   });
 }
 
+// Calls reconnect when the browser is online again, when the page comes back from the back-forward cache and when the
+// page is visible again. The result stops the calls.
+export function reconnectOnWake(reconnect: () => void) {
+  const wake = () => {
+    if (!document.hidden) {
+      reconnect();
+    }
+  };
+
+  const restore = (event: PageTransitionEvent) => {
+    if (event.persisted) {
+      reconnect();
+    }
+  };
+
+  window.addEventListener("online", wake);
+  window.addEventListener("pageshow", restore);
+  document.addEventListener("visibilitychange", wake);
+
+  return () => {
+    window.removeEventListener("online", wake);
+    window.removeEventListener("pageshow", restore);
+    document.removeEventListener("visibilitychange", wake);
+  };
+}
+
 // The connection to /api/events, with the reconnect rules of the shell:
 // - The server sends a ping each 15 s. A connection that is dead gives no error, so the stream connects again when no
 //   ping comes.
@@ -138,21 +164,7 @@ export function liveEvents<Message>(options: {
           options.listeners.forEach((listener) => listen(queue, next, listener));
         };
 
-        const wake = () => {
-          if (!document.hidden) {
-            reconnect();
-          }
-        };
-
-        const restore = (event: PageTransitionEvent) => {
-          if (event.persisted) {
-            reconnect();
-          }
-        };
-
-        window.addEventListener("online", wake);
-        window.addEventListener("pageshow", restore);
-        document.addEventListener("visibilitychange", wake);
+        const stopWaking = reconnectOnWake(reconnect);
 
         connect();
 
@@ -160,9 +172,7 @@ export function liveEvents<Message>(options: {
           Effect.sync(() => {
             stopped = true;
             clearTimeout(timer);
-            window.removeEventListener("online", wake);
-            window.removeEventListener("pageshow", restore);
-            document.removeEventListener("visibilitychange", wake);
+            stopWaking();
             cleanupSource?.();
             source?.close();
           }),
