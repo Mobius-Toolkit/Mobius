@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { buttonNames } from "./buttons.js";
+import { formFields } from "./forms.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -402,7 +403,7 @@ test("Resume opens a panel with the stop reason, and a send with a note answers 
     return route.fulfill({ status: 204 });
   });
   await page.route("**/api/inbox/2/answer", (route) => {
-    answers.push(route.request().postDataJSON());
+    answers.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { url: `${link}/issues/42#issuecomment-1` } } });
   });
   await page.goto("/inbox");
@@ -509,7 +510,7 @@ test("Done opens a panel with the action, and the note marks the action as done"
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/8/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({
       json: { data: { ...ownerAction, dismissedAt: "2026-09-28T09:40:00Z" } },
     });
@@ -745,7 +746,7 @@ test("a pull request shows Complete todos, opens its list on tap, and returns af
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/7/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
   });
   await routeInbox(page, [afterMergeTodo, blockedReadyItem, optionalTodo, todo]);
@@ -985,7 +986,7 @@ test("a todo with an empty note is marked as done and closes the list when no to
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/7/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
   });
   const { row, panel } = await openTodo(page);

@@ -9,14 +9,32 @@ import {
 } from 'effect';
 
 /**
- * ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ * ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
  */
 export const ApproveActionParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the action' })
 })
 
 export const ApproveActionBody = S.Struct({
-  "message": S.optional(S.String).annotate({ description: 'Message is the message of the Owner for the agent. It can be empty' })
+  "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
+  "inboxItems": S.optional(S.Array(S.Struct({
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue or the pull request, or empty' }),
+  "reason": S.String.annotate({ description: 'Reason is the reason of the Inbox item' }),
+  "reference": S.String.annotate({ description: 'Reference is #N or PR #N, or empty for an item with no issue' }),
+  "title": S.String.annotate({ description: 'Title is the title of the Inbox item' })
+}).annotate({ description: 'ChatInboxItem is an Inbox item that the Owner sends with a chat message.' }))).annotate({ description: 'InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object' }),
+  "message": S.optional(S.String).annotate({ description: 'Message is the message of the Owner for the agent. It can be empty' }),
+  "selections": S.optional(S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' })
 })
 
 export const ApproveActionResponse = S.Struct({
@@ -63,14 +81,32 @@ export const GetActionBriefResponse = S.Struct({
 
 
 /**
- * RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ * RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
  */
 export const RejectActionParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the action' })
 })
 
 export const RejectActionBody = S.Struct({
-  "message": S.optional(S.String).annotate({ description: 'Message is the message of the Owner for the agent. It can be empty' })
+  "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
+  "inboxItems": S.optional(S.Array(S.Struct({
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue or the pull request, or empty' }),
+  "reason": S.String.annotate({ description: 'Reason is the reason of the Inbox item' }),
+  "reference": S.String.annotate({ description: 'Reference is #N or PR #N, or empty for an item with no issue' }),
+  "title": S.String.annotate({ description: 'Title is the title of the Inbox item' })
+}).annotate({ description: 'ChatInboxItem is an Inbox item that the Owner sends with a chat message.' }))).annotate({ description: 'InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object' }),
+  "message": S.optional(S.String).annotate({ description: 'Message is the message of the Owner for the agent. It can be empty' }),
+  "selections": S.optional(S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the message came from a voice recording' })
 })
 
 export const RejectActionResponse = S.Struct({
@@ -309,12 +345,12 @@ export const GetChatResponse = S.Struct({
   "repository": S.String.annotate({ description: 'Repository is the repository of the Workstream as \"owner\/name\". It is empty for the Coordinator chat' }),
   "selections": S.Array(S.Struct({
   "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
-  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
   "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
   "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
-  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message' }),
-  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message' }),
-  "source": S.Literals(['task', 'message', 'brief']).annotate({ description: 'Source is the place of the selection' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' })).annotate({ description: 'Selections are the text selections that the Owner sent with the message, in the order of the request' }),
   "stoppedAt": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message' }),
@@ -347,12 +383,12 @@ export const SendChatBody = S.Struct({
   "repository": S.optional(S.String).annotate({ description: 'Repository is the repository of the Workstream as \"owner\/name\". It is empty for the Coordinator chat' }),
   "selections": S.optional(S.Array(S.Struct({
   "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
-  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
   "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
   "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
-  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message' }),
-  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message' }),
-  "source": S.Literals(['task', 'message', 'brief']).annotate({ description: 'Source is the place of the selection' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
   "text": S.String.annotate({ description: 'Text is the selected text' })
 }).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object' }),
   "text": S.String.annotate({ description: 'Text is the message of the Owner. It is required when the message has no image, no Inbox item and no selection' }),
@@ -726,14 +762,32 @@ export const ListInboxResponse = S.Struct({
 
 
 /**
- * AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. For a question of the Coordinator, it instead adds the text to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the steps when the Owner did not authorize the App.
+ * AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. The comment has the Inbox items and the selections of the request as Markdown before the text. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. GitHub has no image in a comment, so the images go to the chat of the item in a message of the Owner with the URL of the comment. For a question of the Coordinator, it instead adds the text with all parts to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue, for an empty text with no image, no Inbox item and no selection, and for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 with the steps when the Owner did not authorize the App.
  */
 export const AnswerInboxItemParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
 })
 
 export const AnswerInboxItemBody = S.Struct({
-  "text": S.optional(S.String).annotate({ description: 'Text is the answer of the Owner' })
+  "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the answer, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
+  "inboxItems": S.optional(S.Array(S.Struct({
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue or the pull request, or empty' }),
+  "reason": S.String.annotate({ description: 'Reason is the reason of the Inbox item' }),
+  "reference": S.String.annotate({ description: 'Reference is #N or PR #N, or empty for an item with no issue' }),
+  "title": S.String.annotate({ description: 'Title is the title of the Inbox item' })
+}).annotate({ description: 'ChatInboxItem is an Inbox item that the Owner sends with a chat message.' }))).annotate({ description: 'InboxItems are the Inbox items of the answer. The request has one part inboxItems for each item, in order, and each part is one JSON object' }),
+  "selections": S.optional(S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the answer. The request has one part selections for each selection, in order, and each part is one JSON object' }),
+  "text": S.optional(S.String).annotate({ description: 'Text is the answer of the Owner. It can be empty when the answer has an image, an Inbox item or a selection' }),
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the answer came from a voice recording' })
 })
 
 export const AnswerInboxItemResponse = S.Struct({
@@ -752,14 +806,32 @@ export const DismissParams = S.Struct({
 
 
 /**
- * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action.
+ * DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action, and 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP. A note with an image, an Inbox item or a selection goes to the chat of the item in a message of the Owner that the agent gets.
  */
 export const DoneInboxItemParams = S.Struct({
   "id": S.Number.annotate({ description: 'ID is the id of the Inbox item' })
 })
 
 export const DoneInboxItemBody = S.Struct({
-  "note": S.optional(S.String).annotate({ description: 'Note is the note of the Owner, or empty' })
+  "images": S.optional(S.Array(S.instanceOf(File))).annotate({ description: 'Images are the images of the note, PNG, JPEG, GIF or WebP, each at most 5 MB' }),
+  "inboxItems": S.optional(S.Array(S.Struct({
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the issue or the pull request, or empty' }),
+  "reason": S.String.annotate({ description: 'Reason is the reason of the Inbox item' }),
+  "reference": S.String.annotate({ description: 'Reference is #N or PR #N, or empty for an item with no issue' }),
+  "title": S.String.annotate({ description: 'Title is the title of the Inbox item' })
+}).annotate({ description: 'ChatInboxItem is an Inbox item that the Owner sends with a chat message.' }))).annotate({ description: 'InboxItems are the Inbox items of the note. The request has one part inboxItems for each item, in order, and each part is one JSON object' }),
+  "note": S.optional(S.String).annotate({ description: 'Note is the note of the Owner, or empty' }),
+  "selections": S.optional(S.Array(S.Struct({
+  "context": S.String.annotate({ description: 'Context is the full paragraph or list item of the selection, or the full blocks when the selection spans more than one block' }),
+  "link": S.String.annotate({ description: 'Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message' }),
+  "messageAuthor": S.String.annotate({ description: 'MessageAuthor is the author of the quoted chat message for message, or empty for the other sources' }),
+  "messageId": S.Number.annotate({ description: 'MessageID is the id of the quoted chat message for message, or 0 for the other sources' }),
+  "part": S.String.annotate({ description: 'Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message' }),
+  "reference": S.String.annotate({ description: 'Reference is the reference of the task (#N, or owner\/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message' }),
+  "source": S.Literals(['task', 'message', 'brief', 'inbox']).annotate({ description: 'Source is the place of the selection' }),
+  "text": S.String.annotate({ description: 'Text is the selected text' })
+}).annotate({ description: 'ChatSelection is a text selection that the Owner sends with a chat message.' }))).annotate({ description: 'Selections are the text selections of the note. The request has one part selections for each selection, in order, and each part is one JSON object' }),
+  "voice": S.optional(S.Boolean).annotate({ description: 'Voice is true when the note came from a voice recording' })
 })
 
 export const DoneInboxItemResponse = S.Struct({

@@ -33,8 +33,7 @@ func TestTheCoordinatorWithdrawsItsQuestionAndTheOwnerCanNoLongerAnswerIt(t *tes
 	if items := coordinatorItems(t, server); len(items) != 0 {
 		t.Errorf("inbox = %+v", items)
 	}
-	body := `{"text":"Cents."}`
-	if status, _ := send(t, server, http.MethodPost, "/api/inbox/1/answer", body); status != http.StatusConflict {
+	if status, _ := postForm(t, server, "/api/inbox/1/answer", textPart("text", "Cents.")); status != http.StatusConflict {
 		t.Errorf("status = %d", status)
 	}
 	for _, line := range chatLines(t, server, coordinatorChat) {

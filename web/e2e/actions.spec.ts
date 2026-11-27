@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { formFields } from "./forms.js";
 import {
   addHistory,
   addHistoryTable,
@@ -312,10 +313,7 @@ test("a failed action keeps the panel with its error and its note, and a second 
   await reject(page).click();
   await expect(panel(page)).toBeHidden();
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-  expect(approvals).toEqual([
-    JSON.stringify({ message: "Go ahead." }),
-    JSON.stringify({ message: "Go ahead." }),
-  ]);
+  expect(approvals.map(formFields)).toEqual([{ message: "Go ahead." }, { message: "Go ahead." }]);
 });
 
 test("a decision with an empty note goes out one time and hides the row while the request runs", async ({
@@ -328,7 +326,7 @@ test("a decision with an empty note goes out one time and hides the row while th
     gate.open = resolve;
   });
   await page.route("**/api/actions/*/approve", async (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     await held;
     await route.continue();
   });

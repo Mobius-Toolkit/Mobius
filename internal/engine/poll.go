@@ -10,7 +10,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -40,7 +39,12 @@ func (e *Engine) poll(ctx context.Context) {
 	}
 	e.expireKeptSessions()
 	known := repositoryKeys(e.github.Repositories())
-	complete, err := e.github.Refresh(ctx)
+	var complete bool
+	err = e.timeStep("refresh", true, func() error {
+		var refreshErr error
+		complete, refreshErr = e.github.Refresh(ctx)
+		return refreshErr
+	})
 	if err != nil {
 		log.Printf("read the repositories of the GitHub Apps: %v", err)
 		return
@@ -67,12 +71,12 @@ func (e *Engine) poll(ctx context.Context) {
 	for _, repository := range repositories {
 		if !e.labelsFixed[repository.FullName] {
 			e.labelsFixed[repository.FullName] = true
-			if err := FixLabels(ctx, repository); err != nil {
+			if err := e.timeStep(repository.FullName+" FixLabels", true, func() error { return FixLabels(ctx, repository) }); err != nil {
 				log.Printf("fix the labels of %s: %v", repository.FullName, err)
 			}
 		}
 		if !e.copied[repository.FullName] {
-			if err := e.syncCopy(ctx, repository); err != nil {
+			if err := e.timeStep(repository.FullName+" syncCopy", true, func() error { return e.syncCopy(ctx, repository) }); err != nil {
 				log.Printf("copy the Workstreams of %s: %v", repository.FullName, err)
 			} else {
 				e.copied[repository.FullName] = true
@@ -154,34 +158,88 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 // pollRepository recovers the work of the earlier run until that works one time, and then acts on the changes of the
 // repository. It adds the pull requests with work for an agent to work.
 func (e *Engine) pollRepository(ctx context.Context, repository github.Repository, work map[int64]Work) error {
-	if err := e.addTriageRows(ctx, repository); err != nil {
-		return err
+	steps := []pollStep{
+		{"addTriageRows", func() error { return e.addTriageRows(ctx, repository) }},
+		{"recover", func() error {
+			if e.recovered[repository.FullName] {
+				return nil
+			}
+			return e.recover(ctx, repository)
+		}},
+		{"upgradeReadyStarts", func() error { return e.upgradeReadyStarts(ctx, repository) }},
+		{"changedIssues", func() error { return e.changedIssues(ctx, repository) }},
+		{"copySteps", func() error {
+			e.copyStepsMu.Lock()
+			defer e.copyStepsMu.Unlock()
+			copySteps := []pollStep{
+				{"applyIncomingChanges", func() error { return e.applyIncomingChanges(ctx, repository) }},
+				{"retryWorkstreamCloses", func() error { return e.retryWorkstreamCloses(ctx, repository) }},
+				{"checkCopiedTrees", func() error { return e.checkCopiedTreesLoop(ctx, repository) }},
+			}
+			for _, step := range copySteps {
+				if err := e.timeStep(repository.FullName+" "+step.name, false, step.run); err != nil {
+					return err
+				}
+			}
+			return nil
+		}},
+		{"startHeldTriagers", func() error { return e.startHeldTriagers(ctx, repository) }},
+		{"readDefaultBranchCI", func() error { return e.readDefaultBranchCI(ctx, repository) }},
+		{"createCheckTimeoutIssue", func() error { return e.createCheckTimeoutIssue(ctx, repository) }},
+		{"createInitFailureIssue", func() error { return e.createInitFailureIssue(ctx, repository) }},
+		{"createCIFailureIssues", func() error { return e.createCIFailureIssues(ctx, repository) }},
+		{"endCIFailures", func() error { return e.endCIFailures(ctx, repository) }},
+		{"dispatchSteps", func() error { return e.dispatchSteps(ctx, repository) }},
+		{"closeInboxItems", func() error { return e.closeInboxItems(ctx, repository) }},
+		{"continuePausedMerges", func() error { return e.continuePausedMerges(ctx, repository) }},
+		{"freeClosedQuestionHolds", func() error { return e.freeClosedQuestionHolds(ctx, repository.FullName) }},
+		{"retryFailedChats", func() error { return e.retryFailedChats(ctx, repository.FullName, repository.Owner()) }},
+		{"startIdleLeads", func() error { return e.startIdleLeads(ctx, repository.FullName) }},
+		{"sendOutgoingChanges", func() error { return e.sendOutgoingChanges(ctx, repository) }},
+		{"checkTasks", func() error {
+			start := time.Now()
+			err := e.checkTasks(ctx, repository, work)
+			log.Printf("check the tasks of %s: %s", repository.FullName, time.Since(start).Round(time.Millisecond))
+			return err
+		}},
+		{"sendStopNotices", func() error { return e.sendStopNotices(ctx, repository.FullName, 0) }},
+		{"restartLost", func() error { return e.restartLost(ctx, repository, false) }},
 	}
-	if !e.recovered[repository.FullName] {
-		if err := e.recover(ctx, repository); err != nil {
+	for _, step := range steps {
+		if err := e.timeStep(repository.FullName+" "+step.name, false, step.run); err != nil {
 			return err
 		}
 	}
-	if err := e.upgradeReadyStarts(ctx, repository); err != nil {
-		return err
+	return nil
+}
+
+// pollStep is a step of pollRepository. Its name is the name of its function.
+type pollStep struct {
+	name string
+	run  func() error
+}
+
+// slowStep is the time from which timeStep logs a step that is not always logged.
+const slowStep = time.Second
+
+// timeStep runs step and logs its time under name when always is true or the step takes slowStep or more.
+func (e *Engine) timeStep(name string, always bool, step func() error) error {
+	start := e.timeNow()
+	err := step()
+	if elapsed := e.timeNow().Sub(start); always || elapsed >= slowStep {
+		log.Printf("poll step %s: %s", name, elapsed.Round(time.Millisecond))
 	}
-	if err := e.changedIssues(ctx, repository); err != nil {
-		return err
-	}
-	e.copyStepsMu.Lock()
-	unlock := sync.OnceFunc(e.copyStepsMu.Unlock)
-	defer unlock()
-	if err := e.applyIncomingChanges(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.retryWorkstreamCloses(ctx, repository); err != nil {
-		return err
-	}
+	return err
+}
+
+// checkCopiedTreesLoop checks the copied trees of repository and acts on the incoming changes of the Workstreams that
+// they touch, until a check touches none or no change enters a Workstream. It stops after ten rounds.
+func (e *Engine) checkCopiedTreesLoop(ctx context.Context, repository github.Repository) error {
 	forceWalk := map[issueRef]bool{}
 	for range 10 {
 		touched := e.checkCopiedTrees(ctx, repository, forceWalk)
 		if len(touched) == 0 {
-			break
+			return nil
 		}
 		anyEntered := false
 		for _, name := range touched {
@@ -195,59 +253,10 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 			}
 		}
 		if !anyEntered {
-			break
+			return nil
 		}
 	}
-	unlock()
-	if err := e.startHeldTriagers(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.readDefaultBranchCI(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.createCheckTimeoutIssue(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.createInitFailureIssue(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.createCIFailureIssues(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.endCIFailures(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.dispatchSteps(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.closeInboxItems(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.continuePausedMerges(ctx, repository); err != nil {
-		return err
-	}
-	if err := e.freeClosedQuestionHolds(ctx, repository.FullName); err != nil {
-		return err
-	}
-	if err := e.retryFailedChats(ctx, repository.FullName, repository.Owner()); err != nil {
-		return err
-	}
-	if err := e.startIdleLeads(ctx, repository.FullName); err != nil {
-		return err
-	}
-	if err := e.sendOutgoingChanges(ctx, repository); err != nil {
-		return err
-	}
-	start := time.Now()
-	err := e.checkTasks(ctx, repository, work)
-	log.Printf("check the tasks of %s: %s", repository.FullName, time.Since(start).Round(time.Millisecond))
-	if err != nil {
-		return err
-	}
-	if err := e.sendStopNotices(ctx, repository.FullName, 0); err != nil {
-		return err
-	}
-	return e.restartLost(ctx, repository, false)
+	return nil
 }
 
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
@@ -415,7 +424,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			copyChanged, err := e.updateCopy(ctx, repository, issue, labelChanges)
 			if err != nil {
 				log.Printf("update the copy of %s: %v", repository.FullName, err)
-				delete(e.copied, repository.FullName)
+				e.breakCopy(ctx, repository.FullName)
 			}
 			listChanged = listChanged || copyChanged
 		}
