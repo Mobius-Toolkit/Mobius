@@ -47,8 +47,6 @@ export function listen<Message>(
   });
 }
 
-// Calls reconnect when the browser is online again, when the page comes back from the back-forward cache and when the
-// page is visible again. The result stops the calls.
 export function reconnectOnWake(reconnect: () => void) {
   const wake = () => {
     if (!document.hidden) {
