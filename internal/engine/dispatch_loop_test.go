@@ -114,8 +114,17 @@ func TestTheDispatchLoopWaitsForTheBlockerCopyOfThePollAfterAReadyLabelOfThePoll
 	})
 	release := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", "/repos/owner/shop/issues/41/dependencies/blocked_by")
 	t.Cleanup(release)
+	// One poll must read the label and the blocker together.
+	releaseList := fake.HoldNext("GET /repos/{owner}/{repo}/issues")
+	t.Cleanup(releaseList)
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
+			return request.Status == 0 && strings.HasSuffix(request.Path, "/issues")
+		})
+	})
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	fake.AddBlockedBy(shop, 41, 88)
+	releaseList()
 	testkit.WaitFor(t, func() bool {
 		return startByOf(t, server, shop, 41) == "owner" && slices.ContainsFunc(fake.Requests(), func(request testkit.Request) bool {
 			return request.Status == 0 && strings.HasSuffix(request.Path, "/issues/41/dependencies/blocked_by")
