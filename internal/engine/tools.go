@@ -2396,7 +2396,6 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err := e.requestStart(ctx, repository, input.N, "coordinator"); err != nil {
 		return "", err
 	}
-	e.wakeDispatch()
 	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil
 }
 

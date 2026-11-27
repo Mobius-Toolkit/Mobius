@@ -929,6 +929,32 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 	}
 }
 
+func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCopiesTheBlocker(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
+	fake.AddIssue(shop, 49, "Add the invoice table")
+	fake.AddIssue(shop, 50, "Add invoices")
+	fake.AddBlockedBy(shop, 50, 49)
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	session := run(t, server, spec, "Move it.")
+
+	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12 Integrate loyalty plans." {
+		t.Errorf("reply = %q", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM blockers b JOIN issues i ON i.id = b.issue WHERE i.number = 50") == 1
+	})
+	waitForPolls(t, fake)
+	if hasLiveTask(t, server, 50) {
+		t.Error("the moved issue started while its blocker is open")
+	}
+	if got := startByOf(t, server, shop, 50); got != "coordinator" {
+		t.Errorf("start_requested_by = %q", got)
+	}
+}
+
 func TestMoveIssueNamesTheTitleOfTheCopiedWorkstreamInItsResult(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
