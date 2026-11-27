@@ -92,7 +92,8 @@ reply = ["Seen"]
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(apiData[[]needsHuman](t, server, "/api/needs-human"), func(row needsHuman) bool { return row.Number == 41 && row.Question })
 	})
-	fake.RefuseNextCommentList(shop, 41, http.StatusInternalServerError)
+	// A poll that reads the new App comment of #41 also lists its comments, so one refused read can go to the poll.
+	fake.RefuseCommentLists(shop, 41, http.StatusInternalServerError)
 
 	sendChat(t, server, leadChat, "Dollars were chosen")
 
@@ -100,6 +101,7 @@ reply = ["Seen"]
 		calls := leadCalls(t, server)
 		return len(calls) == 2 && calls[1]["error"] != nil
 	})
+	fake.RefuseCommentLists(shop, 41, 0)
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
