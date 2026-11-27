@@ -11,7 +11,7 @@ import {
   reload as reloadAgents,
   update as updateAgents,
 } from "./agents/update";
-import { AddSelection, Navigate, RequestLogin, ReportTab } from "./commands";
+import { Navigate, RequestLogin, ReportTab } from "./commands";
 import { OutMessage as DetailsOutMessage } from "./details/message";
 import * as DetailsModel from "./details/model";
 import {
@@ -66,19 +66,22 @@ const foldSelection = Update.foldChild({
         (model) => ({
           model,
           commands: [
-            AddSelection({
-              key: chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number),
-              selection: {
-                source: "brief",
-                text,
-                context,
-                reference: `#${model.number}`,
-                link: `https://github.com/${model.owner}/${model.name}/issues/${model.number}`,
-                part,
-                messageId: 0,
-                messageAuthor: "",
-              },
-            }),
+            Command.mapMessage(
+              Selection.AddSelection({
+                key: chatDraftKey(model.owner, `${model.owner}/${model.name}`, model.number),
+                selection: {
+                  source: "brief",
+                  text,
+                  context,
+                  reference: `#${model.number}`,
+                  link: `https://github.com/${model.owner}/${model.name}/issues/${model.number}`,
+                  part,
+                  messageId: 0,
+                  messageAuthor: "",
+                },
+              }),
+              toGotSelectionMessage,
+            ),
           ],
         }),
     }),
@@ -291,7 +294,6 @@ function handle(model: Model, message: Message): UpdateReturn {
         : { model },
     ReceivedBrief: ({ brief }) => ({ model: { ...model, brief } }),
     GotSelectionMessage: ({ message: child }) => foldSelection(model, child),
-    AddedSelection: () => ({ model }),
     SelectedTab: ({ tab }) => select(model, tab),
     ReceivedTab: ({ tab }) => enter(model, tab),
     RequestedTask: ({ repository, number }) =>

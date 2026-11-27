@@ -16,7 +16,6 @@ import {
 } from "@/api/api.gen";
 import {
   addDraftInboxItem,
-  addDraftSelection,
   answerDraftKey,
   chatDraftKey,
   type DraftInboxItem,
@@ -27,11 +26,10 @@ import { StoreFailed, request, store } from "@/lib/effects";
 import { restoreInboxItem, hideInboxItem } from "@/lib/inbox";
 import { pushUrl } from "@/lib/navigation";
 import { issueRef, showNotice } from "@/lib/notice";
-import { listQueued, newMessageId, postQueued, removeQueued } from "@/lib/outbox";
+import { listQueued, postQueued, removeQueued } from "@/lib/outbox";
 import { Message } from "./message";
 import { draftInboxItem } from "./model";
 import {
-  ChatSelection,
   DraftInboxItems,
   DraftSelections,
   Images,
@@ -286,17 +284,6 @@ export const Navigate = Command.define("Navigate", {
   },
   messages: [Message.CompletedNavigate],
   execute: ({ path }) => pushUrl(path).pipe(Effect.as(Message.CompletedNavigate())),
-});
-
-export const AddSelection = Command.define("AddSelection", {
-  args: { key: Schema.String, selection: ChatSelection },
-  messages: [Message.CompletedAddSelection],
-  execute: ({ key, selection }) =>
-    // A draft that the store refused leaves the draft as it was.
-    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
-      Effect.ignore,
-      Effect.as(Message.CompletedAddSelection()),
-    ),
 });
 
 // The Chat button of an Inbox row puts the item in the draft of the chat of its Workstream, or of the Coordinator chat of

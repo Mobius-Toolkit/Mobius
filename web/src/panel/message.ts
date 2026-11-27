@@ -16,7 +16,6 @@ export const Message = defineMessageUnion({
   AgentChanged: { agent: Agent },
   ReceivedBrief: { brief: Schema.String },
   GotSelectionMessage: { message: Selection.Message },
-  AddedSelection: {},
   SelectedTab: { tab: Tab },
   ReceivedTab: { tab: Tab },
   RequestedTask: { repository: Schema.String, number: Schema.Number },

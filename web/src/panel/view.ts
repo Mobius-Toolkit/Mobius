@@ -101,7 +101,7 @@ export function briefView(model: Model, h: H): Html {
         ],
         [renderMarkdown(h, model.brief)],
       ),
-      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage, "Add to chat"),
     ],
   );
 }

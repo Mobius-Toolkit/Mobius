@@ -4,7 +4,11 @@ import * as Command from "foldkit/command";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import type * as Update from "foldkit/update";
-import type { ChatSelection } from "@/api/api.gen";
+import type { ChatSelection as ChatSelectionType } from "@/api/api.gen";
+import { ChatSelection } from "@/chat/schemas";
+import { addDraftSelection } from "@/lib/draft";
+import { store } from "@/lib/effects";
+import { newMessageId } from "@/lib/outbox";
 import { clock } from "@/lib/time";
 import { buttonClass } from "./button";
 import { messageSquareQuoteIcon } from "./icons";
@@ -95,6 +99,7 @@ export const Message = defineMessageUnion({
   Cleared: { owner: Schema.String },
   AddClicked: {},
   CompletedClearSelection: {},
+  CompletedAddSelection: {},
 });
 
 export type Message = typeof Message.Type;
@@ -184,6 +189,17 @@ export const ClearSelection = Command.define("ClearSelection", {
   }),
 });
 
+export const AddSelection = Command.define("AddSelection", {
+  args: { key: Schema.String, selection: ChatSelection },
+  messages: [Message.CompletedAddSelection],
+  execute: ({ key, selection }) =>
+    // A draft that the store refused leaves the draft as it was.
+    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedAddSelection()),
+    ),
+});
+
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
 export function update(model: Model, message: Message): UpdateReturn {
@@ -206,17 +222,19 @@ export function update(model: Model, message: Message): UpdateReturn {
           }
         : { model },
     CompletedClearSelection: () => ({ model }),
+    CompletedAddSelection: () => ({ model }),
   });
 }
 
 const popoverGap = 8;
 
 // The popover is below the last line of the selection, because iOS and Android show their menu above it. The CSS
-// functions keep it inside the viewport.
+// functions keep it inside the viewport. It is above a dialog, which is z-50. label tells the field that gets the quote.
 export function renderSelectionPopover<Msg>(
   h: HtmlBuilder<Msg>,
   model: Model,
   toParent: (message: Message) => Msg,
+  label: string,
 ): Html {
   if (!model) {
     return h.empty;
@@ -226,7 +244,7 @@ export function renderSelectionPopover<Msg>(
     [
       h.Key("selection-popover"),
       h.DataAttribute("selection-popover", ""),
-      h.Class("fixed z-50 rounded-full border bg-popover p-0.5 shadow-md"),
+      h.Class("fixed z-60 rounded-full border bg-popover p-0.5 shadow-md"),
       h.Style({
         top: `clamp(0.5rem, ${rect.bottom + popoverGap}px, calc(100dvh - 3.25rem))`,
         left: `clamp(0.5rem, calc(${(rect.left + rect.right) / 2}px - 1.25rem), calc(100vw - 3.25rem))`,
@@ -236,8 +254,8 @@ export function renderSelectionPopover<Msg>(
       h.button(
         [
           h.Type("button"),
-          h.AriaLabel("Add to chat"),
-          h.Attribute("title", "Add to chat"),
+          h.AriaLabel(label),
+          h.Attribute("title", label),
           h.Class(
             buttonClass({
               variant: "ghost",
@@ -253,7 +271,7 @@ export function renderSelectionPopover<Msg>(
   );
 }
 
-function sourceLine(selection: ChatSelection, time: string | undefined) {
+export function sourceLine(selection: ChatSelectionType, time: string | undefined) {
   if (selection.source === "message") {
     return `${selection.messageAuthor} message${time ? ` · ${clock(time)}` : ""}`;
   }
@@ -269,7 +287,7 @@ function sourceLine(selection: ChatSelection, time: string | undefined) {
 // time is the time of the quoted message, when the message is in the loaded page.
 export function selectionCardFields<Msg>(
   h: HtmlBuilder<Msg>,
-  selection: ChatSelection,
+  selection: ChatSelectionType,
   time: string | undefined,
 ) {
   return {

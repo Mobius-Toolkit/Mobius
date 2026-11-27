@@ -1,6 +1,6 @@
 import type { Html } from "foldkit/html";
-import { Message } from "@/chat/message";
-import type { Model } from "@/chat/model";
+import { Message, toGotSelectionMessage } from "@/chat/message";
+import { type Model, quoteLabel } from "@/chat/model";
 import {
   type H,
   renderAnswerDialog,
@@ -10,6 +10,7 @@ import {
 } from "@/chat/view";
 import { badgeClass } from "@/ui/badge";
 import { beginMarkdownRender } from "@/ui/markdown";
+import { renderSelectionPopover } from "@/ui/selection";
 
 export function view(model: Model, h: H): Html {
   beginMarkdownRender();
@@ -43,6 +44,7 @@ export function view(model: Model, h: H): Html {
       ),
       renderTodoListDialog(h, model),
       renderAnswerDialog(h, model),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage, quoteLabel(model)),
     ],
   );
 }

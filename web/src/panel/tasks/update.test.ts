@@ -20,7 +20,6 @@ import * as SettingFixture from "@/setting/fixtures";
 import * as Selection from "@/ui/selection";
 import * as SelectionFixture from "@/ui/selection-fixtures";
 import {
-  AddSelection,
   ChangeIssue,
   FetchFallback,
   FetchTaskDetail,
@@ -737,7 +736,7 @@ describe("the selection in the issue body of the detail view", () => {
         expect(m.selection).toBeNull();
       }),
       StoryCommand.expectExact(
-        AddSelection({
+        Selection.AddSelection({
           key: "chatDraft:owner/owner/shop/12",
           selection: {
             source: "task",
@@ -753,7 +752,7 @@ describe("the selection in the issue body of the detail view", () => {
         Selection.ClearSelection(),
       ),
       StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
-      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
     );
   });
 
@@ -774,7 +773,7 @@ describe("the selection in the issue body of the detail view", () => {
       message(selected),
       message(Message.GotSelectionMessage({ message: SelectionFixture.addClicked })),
       StoryCommand.expectExact(
-        AddSelection({
+        Selection.AddSelection({
           key: "chatDraft:owner/owner/shop/12",
           selection: {
             source: "task",
@@ -790,7 +789,7 @@ describe("the selection in the issue body of the detail view", () => {
         Selection.ClearSelection(),
       ),
       StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
-      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
     );
   });
 
