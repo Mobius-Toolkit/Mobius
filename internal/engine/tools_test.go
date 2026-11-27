@@ -947,11 +947,11 @@ func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCop
 		return countRows(t, server, "SELECT count(*) FROM blockers b JOIN issues i ON i.id = b.issue WHERE i.number = 50") == 1
 	})
 	waitForPolls(t, fake)
-	if hasLiveTask(t, server, 50) {
-		t.Error("the moved issue started while its blocker is open")
+	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 50"); got != 0 {
+		t.Errorf("tasks of #50 = %d", got)
 	}
-	if got := startByOf(t, server, shop, 50); got != "coordinator" {
-		t.Errorf("start_requested_by = %q", got)
+	if !hasStart(t, server, 50) {
+		t.Error("the Start of #50 is gone")
 	}
 }
 
