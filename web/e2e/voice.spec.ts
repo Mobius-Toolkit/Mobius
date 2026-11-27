@@ -921,10 +921,12 @@ test("Send during a recording stops it and sends nothing, and the second Send se
   expect(bodies[0]).not.toContain("roses");
   expect(bodies[0]).toMatch(/name="voice"\r\n\r\ntrue/);
   await expect(input).toHaveValue("");
-  await expect(voiceCard(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("main").locator("form").getByRole("group", { name: "Voice recording" }),
+  ).toHaveCount(0);
   const bubble = page.getByRole("main").locator("[data-queued]");
-  await expect(bubble.getByText("Add a red plan")).toBeVisible();
-  await expect(bubble.getByRole("img", { name: "Voice" })).toBeVisible();
+  await expect(bubble.getByRole("paragraph")).toHaveText("Add a red plan");
+  await expect(bubble.getByRole("group", { name: "Voice recording" })).toBeVisible();
   await expect.poll(() => drafts(page)).toEqual([]);
   expect(bodies.length).toBe(1);
 });
@@ -1469,4 +1471,79 @@ test("the text of a conversion goes into the Lead chat field when the panel show
       transaction.oncomplete = () => resolve(undefined);
     };
   })`);
+});
+
+test("the converting card keeps the last live text until the conversion ends", async ({ page }) => {
+  await page.clock.install();
+  await liveServer(page, [{ committed: "red", draft: "roses" }], { text: "Red roses, please." });
+  const release = await holdConversions(page);
+  await page.goto("/chat");
+  await begin(page);
+  await tick(page);
+  await expect(live(page, "red roses")).toBeVisible();
+  await stop(page).click();
+  await expect(voiceCard(page).getByText(/^Converting/)).toBeVisible();
+  await expect(live(page, "red roses")).toBeVisible();
+  release();
+  await settled(page);
+  await expect(live(page, "red roses")).toHaveCount(0);
+  await expect(voiceCard(page)).toContainText("Red roses, please.");
+});
+
+const cardHeight = async (page: Page) => (await voiceCard(page).boundingBox())?.height;
+
+test("the voice card keeps its height in the recording, converting, failed and ready states", async ({
+  page,
+}) => {
+  const results: Result[] = [
+    { error: "The speech model is still starting" },
+    { text: "red roses" },
+  ];
+  await page.route("**/api/voice/transcriptions", (route) =>
+    route.fulfill(upload(results.shift() ?? {})),
+  );
+  const release = await holdConversions(page);
+  await page.goto(shop);
+  await begin(page);
+  await expect(voiceCard(page)).toContainText("Recording");
+  const recording = await cardHeight(page);
+  expect(recording).toBeGreaterThan(0);
+
+  await stop(page).click();
+  await expect(voiceCard(page).getByText(/^Converting/)).toBeVisible();
+  expect(await cardHeight(page)).toBe(recording);
+
+  release();
+  await expect(page.getByRole("alert")).toHaveText("The speech model is still starting");
+  expect(await cardHeight(page)).toBe(recording);
+
+  await again(page).click();
+  await expect(removeVoice(page)).toBeVisible();
+  await expect(voiceCard(page)).toContainText("red roses");
+  expect(await cardHeight(page)).toBe(recording);
+});
+
+test("a recording keeps its duration in the card, in the queue and in the request", async ({
+  page,
+}) => {
+  await answer(page, "red roses");
+  const bodies: string[] = [];
+  await page.route("**/api/chat/messages", (route) => {
+    bodies.push(route.request().postData() ?? "");
+  });
+  await page.goto(shop);
+  await begin(page);
+  await expect(voiceCard(page)).toContainText("Recording 0:02");
+  await stop(page).click();
+  await expect(removeVoice(page)).toBeVisible();
+  await expect(voiceCard(page)).toContainText(/^Voice 0:0[12]/);
+  await expect(voiceCard(page)).toContainText("red roses");
+  await send(page).click();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toMatch(/name="voiceSeconds"\r\n\r\n[12]\r\n/);
+  const bubble = page.getByRole("main").locator("[data-queued]");
+  await expect(bubble.getByRole("group", { name: "Voice recording" })).toContainText(
+    /Voice 0:0[12]/,
+  );
+  await expect(removeVoice(page)).toHaveCount(0);
 });

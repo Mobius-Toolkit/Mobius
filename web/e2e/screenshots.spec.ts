@@ -249,6 +249,65 @@ const clearDrafts = `new Promise((resolve) => {
   };
 })`;
 
+// The audio of a recording has no fixed length, so the screens of a voice card with a duration start from a stored
+// card or a stored message.
+const spokenText =
+  "Show the prices of the roses first. Then the tulips and the lilies, and then the Lead creates the task issues for the plan.";
+
+const voiceDraft = (state: "ready" | "converting") => `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("drafts", "readwrite");
+    transaction.objectStore("drafts").put({
+      key: "chatDraft:owner/owner/shop/12",
+      text: ${JSON.stringify(state === "ready" ? spokenText : "")},
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: {
+        state: "${state}",
+        audio: ${state === "ready" ? "null" : 'new Blob(["audio"])'},
+        conversion: ${state === "ready" ? '""' : '"c2"'},
+        error: "",
+        seconds: 12,
+        text: ${JSON.stringify(state === "ready" ? spokenText : "")},
+      },
+    });
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
+const queuedVoiceMessage = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("outbox", "readwrite");
+    transaction.objectStore("outbox").put({
+      id: "voice-queued",
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+      text: ${JSON.stringify(spokenText)},
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: true,
+      voiceSeconds: 12,
+      time: "2026-10-15T12:00:00.000Z",
+      chat: ["owner", "owner/shop", 12],
+    });
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
+const removeQueuedVoiceMessage = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("outbox", "readwrite");
+    transaction.objectStore("outbox").delete("voice-queued");
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
 const removedText = (scope: Locator) => scope.locator("del");
 const removedSwitch = (scope: Locator) => scope.getByRole("switch", { name: "Show removed text" });
 const addedText = (scope: Locator) => scope.locator("ins");
@@ -846,14 +905,16 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-voice-ready",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Remove voice" }), chatEnd],
+    (device) => [
+      ...chatReady(device),
+      voiceCard.getByText("Voice 0:12", { exact: true }),
+      main.getByRole("button", { name: "Remove voice" }),
+      chatEnd,
+    ],
     async () => {
-      await main.getByRole("button", { name: "Start voice input" }).click();
-      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
-      await main.getByRole("button", { name: "Stop voice input" }).click();
-      await expect(main.getByLabel("Message to the Lead")).toHaveValue(
-        "Show the prices of the roses first.",
-      );
+      await page.evaluate(voiceDraft("ready"));
+      await page.reload();
+      await expect(main.getByLabel("Message to the Lead")).toHaveValue(spokenText);
     },
     async () => {
       await main.getByRole("button", { name: "Remove voice" }).click();
@@ -861,26 +922,47 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
+  // The message waits in the queue, because its request has no answer.
+  await page.route("**/api/chat/messages", () => {});
+  await screenshot(
+    page,
+    "chat-voice-queued",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.locator("[data-queued]").getByRole("group", { name: "Voice recording" }),
+      main.getByLabel("Not sent yet"),
+    ],
+    async () => {
+      await page.evaluate(queuedVoiceMessage);
+      await page.reload();
+      await expect(main.locator("[data-queued]")).toContainText("Voice 0:12");
+      await showChatEnd(page);
+    },
+    () => page.evaluate(removeQueuedVoiceMessage),
+  );
+  await page.unroute("**/api/chat/messages");
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/recordings/r1/chunks?*");
   await page.unroute("**/api/voice/recordings/r1/finish");
   await page.unroute("**/api/voice/conversions/c1");
-  await page.route("**/api/voice/transcriptions", (route) => route.fulfill(pending("c2")));
   await page.route("**/api/voice/conversions/c2", () => {});
   await screenshot(
     page,
     "chat-converting",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), voiceCard.getByText("Converting", { exact: true }), chatEnd],
+    (device) => [
+      ...chatReady(device),
+      voiceCard.getByText("Converting 0:12", { exact: true }),
+      chatEnd,
+    ],
     async () => {
-      await main.getByRole("button", { name: "Start voice input" }).click();
-      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
-      await main.getByRole("button", { name: "Stop voice input" }).click();
+      await page.evaluate(voiceDraft("converting"));
+      await page.reload();
     },
     // A card that converts has no button to remove it. The next page load would convert it again.
     () => page.evaluate(clearDrafts),
   );
-  await page.unroute("**/api/voice/transcriptions");
   await page.unroute("**/api/voice/conversions/c2");
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
@@ -1028,6 +1110,7 @@ test("screenshots", async ({ page }) => {
       repository: "owner/shop",
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       workstream: 12,
     };
     body.data.messages.push(
@@ -1195,6 +1278,7 @@ test("screenshots", async ({ page }) => {
       repository: "owner/shop",
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       workstream: 12,
       time: "2026-10-15T12:00:00Z",
     };
@@ -2232,6 +2316,7 @@ test("screenshots", async ({ page }) => {
         repository: "plants/garden",
         stoppedAt: null,
         voice: false,
+        voiceSeconds: 0,
         text: "Is this task ready?",
         time: "2026-10-15T12:00:00Z",
         workstream: 19,
@@ -5274,6 +5359,7 @@ test("screenshots", async ({ page }) => {
         images: 0,
         inboxItems: [],
         voice: true,
+        voiceSeconds: 75,
         deliveredAt: last.time,
         failedAt: null,
         cancelledAt: null,
@@ -5289,10 +5375,13 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-history-voice",
     "/workstreams/plants/garden/25",
-    (device) => [...plantsFrame(device, 25), voiceMessage.getByRole("img", { name: "Voice" })],
+    (device) => [
+      ...plantsFrame(device, 25),
+      voiceMessage.getByRole("group", { name: "Voice recording" }).getByText("Voice 1:15"),
+    ],
     async () => {
       await showChatEnd(page);
-      await expect(voiceMessage.getByRole("img", { name: "Voice" })).toBeInViewport();
+      await expect(voiceMessage.getByRole("group", { name: "Voice recording" })).toBeInViewport();
     },
   );
   await page.unroute("**/api/chat?*");
