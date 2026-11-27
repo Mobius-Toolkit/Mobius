@@ -42,12 +42,15 @@ import {
 import * as WorkstreamSetup from "@/workstreamSetup/view";
 import {
   authorLabel,
+  cardOwner,
   countsAsUnread,
+  dialogOwner,
   draftInboxItem,
   type Failure,
   isMissingWorkstream,
   itemReference,
   type Model,
+  quoteLabel,
   taskOfLink,
   type TaskRef,
   todoRowOf,
@@ -168,6 +171,17 @@ function renderActionSender(h: H, action: PendingAction): Html {
   );
 }
 
+const watchOf = (h: H, owner: string) =>
+  h.OnMount(Mount.mapMessage(Watch({ owner }), toGotSelectionMessage));
+
+// The text of a part of the dialog. Its selection is a quote of that part.
+function renderQuotable(h: H, part: string, content: Html): Html {
+  return h.div(
+    [h.Key(`quote-${part}`), h.Class("min-w-0"), watchOf(h, dialogOwner(part))],
+    [content],
+  );
+}
+
 function renderActionCard(
   h: H,
   message: ChatMessage,
@@ -189,7 +203,10 @@ function renderActionCard(
     ],
     [
       h.div([h.Class("text-xs")], [renderActionSender(h, action)]),
-      h.p([h.Class("line-clamp-2 wrap-anywhere")], [message.text]),
+      h.p(
+        [h.Class("line-clamp-2 wrap-anywhere"), watchOf(h, cardOwner("action", message.id))],
+        [message.text],
+      ),
       h.div(
         [h.Class("flex items-center gap-2")],
         [
@@ -294,7 +311,7 @@ function renderQuestionCard(
         [h.Class("text-xs text-muted-foreground")],
         [question.repository === "" ? "Coordinator" : "Lead", " · ", clock(message.time)],
       ),
-      h.p([h.Class("truncate")], [message.text]),
+      h.p([h.Class("truncate"), watchOf(h, cardOwner("question", message.id))], [message.text]),
       h.div(
         [h.Class("flex items-center gap-2")],
         [
@@ -1203,7 +1220,7 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
       [h.Class("grid min-w-0 gap-0.5")],
       [
         h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-        renderMarkdown(h, marked, true),
+        renderQuotable(h, arg.name, renderMarkdown(h, marked, true)),
         renderRemovedSwitch(h, model.showRemovedText),
       ],
     );
@@ -1213,7 +1230,11 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
     [h.Class("grid min-w-0 gap-0.5")],
     [
       h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-      isShort ? h.span([h.Class("wrap-anywhere")], [arg.value]) : renderMarkdown(h, arg.value),
+      renderQuotable(
+        h,
+        arg.name,
+        isShort ? h.span([h.Class("wrap-anywhere")], [arg.value]) : renderMarkdown(h, arg.value),
+      ),
     ],
   );
 }
@@ -1227,7 +1248,11 @@ function renderOutcome(h: H, label: string, text: string): Html {
     [h.Class("grid min-w-0 gap-0.5")],
     [
       h.span([h.Class("text-xs text-muted-foreground")], [label]),
-      h.span([h.Class("wrap-anywhere whitespace-pre-line")], [text]),
+      renderQuotable(
+        h,
+        label.toLowerCase(),
+        h.span([h.Class("wrap-anywhere whitespace-pre-line")], [text]),
+      ),
     ],
   );
 }
@@ -1396,8 +1421,17 @@ export function renderAnswerDialog(h: H, model: Model): Html {
                 [h.Class("text-muted-foreground")],
                 [`${todo.mandatory ? "Mandatory" : "Optional"} ${todo.kind.replace("_", " ")}`],
               ),
-              h.p([], [`Reason: ${todo.reason}`]),
-              h.p([], [`File: ${todo.path}:${todo.line}`]),
+              renderQuotable(
+                h,
+                "todo",
+                h.div(
+                  [h.Class("grid gap-2")],
+                  [
+                    h.p([], [`Reason: ${todo.reason}`]),
+                    h.p([], [`File: ${todo.path}:${todo.line}`]),
+                  ],
+                ),
+              ),
               renderPullRequestLine(h, item),
               h.p(
                 [],
@@ -1424,7 +1458,7 @@ export function renderAnswerDialog(h: H, model: Model): Html {
                 [h.Class("text-muted-foreground")],
                 [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
               ),
-              renderMarkdown(h, item.text),
+              renderQuotable(h, "question", renderMarkdown(h, item.text)),
               ...item.questions.map((question, index) =>
                 renderOptions(h, model, question, index, input),
               ),
@@ -1659,7 +1693,7 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
       }),
       renderTodoListDialog(h, model),
       renderAnswerDialog(h, model),
-      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage, quoteLabel(model)),
     ],
   );
 }

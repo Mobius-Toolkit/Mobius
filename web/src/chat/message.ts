@@ -53,7 +53,6 @@ export const Message = defineMessageUnion({
   CompletedSaveDraft: {},
 
   GotSelectionMessage: { message: Selection.Message },
-  CompletedAddSelection: {},
 
   GotWorkstreamSetupMessage: { message: WorkstreamSetup.Message },
 

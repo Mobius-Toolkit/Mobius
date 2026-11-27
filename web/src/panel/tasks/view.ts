@@ -327,7 +327,7 @@ function renderDetail(h: H, model: Model, line: TaskLine): Html {
     [h.Class("flex min-h-full flex-col")],
     [
       body,
-      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage, "Add to chat"),
       h.div(
         [h.Class("sticky bottom-0 -mx-2 -mb-2 bg-background pt-2")],
         [

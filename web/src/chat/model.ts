@@ -47,6 +47,12 @@ export function itemReference(item: InboxItem) {
   };
 }
 
+// The owner of the selection Watch of a part of the dialog of an item, and of the text of a question card or an action
+// card. A message gives its id as the owner.
+export const dialogOwner = (part: string) => `dialog:${part}`;
+
+export const cardOwner = (kind: "question" | "action", messageId: number) => `${kind}:${messageId}`;
+
 export const isMissingWorkstream = (item: InboxItem) =>
   item.kind === InboxItemKind.missing_maintenance || item.kind === InboxItemKind.missing_skills;
 
@@ -59,6 +65,15 @@ export const hasNote = (item: InboxItem) =>
 export function draftInboxItem(item: InboxItem): DraftInboxItem {
   const { reference, link } = itemReference(item);
   return { id: item.id, reference, title: item.title, reason: item.reason, link };
+}
+
+// The label of the popover of a selection. A quote from the dialog of an item with a field goes into that field.
+export function quoteLabel(model: Model) {
+  const panel = model.activePanel;
+  if (!model.selection?.owner.startsWith("dialog:") || panel?.type !== "answer") {
+    return "Add to chat";
+  }
+  return panel.item.action || hasNote(panel.item) ? "Add to the note" : "Add to the answer";
 }
 
 export type { Failure, Waiting } from "./schemas";

@@ -5056,6 +5056,40 @@ test("screenshots", async ({ page }) => {
       await page.reload();
     },
   );
+  const quoteInBrief = async () => {
+    await openBrief();
+    await addedText(panel).first().scrollIntoViewIfNeeded();
+    await selectText(addedText(panel).first(), "two months");
+  };
+  const briefQuotePopover = page.getByRole("button", { name: "Add to the note" });
+  await screenshot(
+    page,
+    "action-brief-quote-popover",
+    "/workstreams/owner/shop/14",
+    () => [addedText(panel).first(), briefQuotePopover],
+    quoteInBrief,
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-quote",
+    "/workstreams/owner/shop/14",
+    () => [
+      addedText(panel).first(),
+      panel.locator("[data-attachment-card='selection']").filter({ hasText: "two months" }),
+    ],
+    async () => {
+      await quoteInBrief();
+      await expect(briefQuotePopover).toBeVisible();
+      await briefQuotePopover.click();
+    },
+    // The page keeps the draft in memory, so it loads again. Else the approval below sends the quote.
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+      await page.reload();
+    },
+  );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
   await decide(page, panel, "approve");
   await expect(panel).toBeHidden();

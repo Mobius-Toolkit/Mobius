@@ -333,7 +333,13 @@ describe("organization switch update logic", () => {
     story(
       update,
       given(createModel("/workstreams/owner/repo/1", { mobileTasksOpen: true })),
-      message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
+      message(
+        Message.GotPanelMessage({
+          message: PanelMessage.GotSelectionMessage({
+            message: SelectionMessage.CompletedAddSelection(),
+          }),
+        }),
+      ),
       model((m) => {
         expect(m.mobileTasksOpen).toBe(false);
       }),
@@ -344,7 +350,13 @@ describe("organization switch update logic", () => {
     story(
       update,
       given(createModel("/workstreams/owner/repo/1", { briefOpen: true })),
-      message(Message.GotPanelMessage({ message: PanelMessage.AddedSelection() })),
+      message(
+        Message.GotPanelMessage({
+          message: PanelMessage.GotSelectionMessage({
+            message: SelectionMessage.CompletedAddSelection(),
+          }),
+        }),
+      ),
       model((m) => {
         expect(m.briefOpen).toBe(false);
       }),

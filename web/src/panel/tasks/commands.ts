@@ -8,11 +8,8 @@ import {
   startIssue,
   stopIssue,
 } from "@/api/api.gen";
-import { ChatSelection } from "@/chat/schemas";
-import { addDraftSelection } from "@/lib/draft";
-import { answer, request, store } from "@/lib/effects";
+import { answer, request } from "@/lib/effects";
 import { showNotice } from "@/lib/notice";
-import { newMessageId } from "@/lib/outbox";
 import { Message } from "./message";
 import { TaskLine } from "./model";
 
@@ -149,15 +146,4 @@ export const ChangeIssue = Command.define("ChangeIssue", {
       },
       failed: (error) => Message.ChangeFailed({ key, error }),
     }),
-});
-
-export const AddSelection = Command.define("AddSelection", {
-  args: { key: Schema.String, selection: ChatSelection },
-  messages: [Message.AddedSelection],
-  execute: ({ key, selection }) =>
-    // A draft that the store refused leaves the draft as it was.
-    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
-      Effect.ignore,
-      Effect.as(Message.AddedSelection()),
-    ),
 });

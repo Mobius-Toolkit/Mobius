@@ -1781,7 +1781,8 @@ export function update(model: Model, message: Message): UpdateReturn {
     case "GotPanelMessage": {
       const panelMessage = message.message;
       if (
-        panelMessage._tag === "AddedSelection" ||
+        (panelMessage._tag === "GotSelectionMessage" &&
+          panelMessage.message._tag === "CompletedAddSelection") ||
         (panelMessage._tag === "GotTasksMessage" && panelMessage.message._tag === "AttachedItem") ||
         (panelMessage._tag === "GotRecurringMessage" &&
           panelMessage.message._tag === "AttachedItem")

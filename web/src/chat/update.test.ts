@@ -24,11 +24,21 @@ import {
   WaitToRetry,
 } from "./commands";
 import { StopVoice } from "@/composer/commands";
+import * as Selection from "@/ui/selection";
+import * as SelectionFixture from "@/ui/selection-fixtures";
 import type * as Composer from "@/composer";
 import * as ComposerFixture from "@/composer/fixtures";
 import { newAnswerComposer } from "./composer";
-import { Message, OutMessage, toGotAnswerComposerMessage } from "./message";
-import { initialModel, retryDelays, type Model, type Waiting } from "./model";
+import { Message, OutMessage, toGotAnswerComposerMessage, toGotSelectionMessage } from "./message";
+import {
+  cardOwner,
+  dialogOwner,
+  initialModel,
+  quoteLabel,
+  retryDelays,
+  type Model,
+  type Waiting,
+} from "./model";
 import type { ChatMessage, Draft, InboxItem, PendingAction, Queued } from "./schemas";
 import { enqueue, stopChat, update } from "./update";
 
@@ -1968,6 +1978,163 @@ describe("chat update story tests", () => {
         expectOutMessage(OutMessage.TaskOpened({ repository: "owner/shop", number: 71 })),
       );
     });
+  });
+});
+
+const quoted = (owner: string, overrides: Partial<Model> = {}) =>
+  createTestModel({
+    selection: {
+      owner,
+      text: "free plan",
+      context: "One free plan for staff",
+      part: "Scope",
+      rect: SelectionFixture.rect,
+    },
+    ...overrides,
+  });
+
+const selectionOf = (part: string) => ({
+  source: "inbox" as const,
+  text: "free plan",
+  context: "One free plan for staff",
+  reference: "#4",
+  link: "https://github.com/test-org/test-repo/issues/4",
+  part,
+  messageId: 0,
+  messageAuthor: "",
+});
+
+describe("a quote of an Inbox item", () => {
+  const addClicked = message(toGotSelectionMessage(SelectionFixture.addClicked));
+  const question = createInboxItem({
+    id: 7,
+    issue: 4,
+    link: "https://github.com/test-org/test-repo/issues/4",
+  });
+  it("goes from the dialog body into the draft of the field of the dialog", () => {
+    const base = createTestModel();
+    story(
+      update,
+      given(
+        quoted(dialogOwner("brief"), {
+          activePanel: { type: "answer", item: question },
+          answerComposer: { ...newAnswerComposer(base, question), draftLoaded: true },
+        }),
+      ),
+      addClicked,
+      StoryCommand.expectExact(
+        Selection.AddSelection({ key: "answerDraft:7", selection: selectionOf("brief") }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
+    );
+  });
+
+  it("goes from the dialog body of an item with no field into the chat draft", () => {
+    story(
+      update,
+      given(quoted(dialogOwner("question"), { activePanel: { type: "details", item: question } })),
+      addClicked,
+      StoryCommand.expectExact(
+        Selection.AddSelection({
+          key: "chatDraft:test-org/test-repo/1428",
+          selection: selectionOf("question"),
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
+    );
+  });
+
+  it("goes from a question card into the chat draft", () => {
+    story(
+      update,
+      given(
+        quoted(cardOwner("question", 31), {
+          messages: [{ ...createChatMessage(31, "How many seats?"), question }],
+        }),
+      ),
+      addClicked,
+      StoryCommand.expectExact(
+        Selection.AddSelection({
+          key: "chatDraft:test-org/test-repo/1428",
+          selection: selectionOf("question"),
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
+    );
+  });
+
+  it("goes from an action card into the chat draft with the reference of its pending item", () => {
+    const action = createPendingAction();
+    const item = createInboxItem({ ...question, id: 8, kind: "approval", action });
+    story(
+      update,
+      given(
+        quoted(cardOwner("action", 32), {
+          messages: [{ ...createChatMessage(32, "Edit the Brief"), action }],
+          trayItems: [item],
+        }),
+      ),
+      addClicked,
+      StoryCommand.expectExact(
+        Selection.AddSelection({
+          key: "chatDraft:test-org/test-repo/1428",
+          selection: selectionOf("action"),
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
+    );
+  });
+
+  it("goes from a chat message into the chat draft as before", () => {
+    story(
+      update,
+      given(quoted("31", { messages: [createChatMessage(31, "How many seats?")] })),
+      addClicked,
+      StoryCommand.expectExact(
+        Selection.AddSelection({
+          key: "chatDraft:test-org/test-repo/1428",
+          selection: {
+            source: "message",
+            text: "free plan",
+            context: "One free plan for staff",
+            reference: "",
+            link: "",
+            part: "",
+            messageId: 31,
+            messageAuthor: "Lead",
+          },
+        }),
+        Selection.ClearSelection(),
+      ),
+      StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
+    );
+  });
+
+  it("names the field in the label of the popover", () => {
+    const approval = createInboxItem({ id: 8, kind: "approval", action: createPendingAction() });
+    const owner = dialogOwner("brief");
+    expect(quoteLabel(quoted(owner))).toBe("Add to chat");
+    expect(quoteLabel(quoted("31", { activePanel: { type: "answer", item: question } }))).toBe(
+      "Add to chat",
+    );
+    expect(quoteLabel(quoted(owner, { activePanel: { type: "details", item: question } }))).toBe(
+      "Add to chat",
+    );
+    expect(quoteLabel(quoted(owner, { activePanel: { type: "answer", item: question } }))).toBe(
+      "Add to the answer",
+    );
+    expect(quoteLabel(quoted(owner, { activePanel: { type: "answer", item: approval } }))).toBe(
+      "Add to the note",
+    );
   });
 });
 
