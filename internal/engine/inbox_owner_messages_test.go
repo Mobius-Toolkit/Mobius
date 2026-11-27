@@ -122,6 +122,14 @@ reply = ["Asked"]
 
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Got the answer")
 	testkit.WaitFor(t, func() bool { return !chatView(t, server, coordinatorChat).Writing })
+	testkit.WaitFor(t, func() bool {
+		for _, message := range ownerChatMessages(t, server, coordinatorChat) {
+			if message.Author == "Owner" && message.Text == "Cents and Pro, please." && message.DeliveredAt != nil {
+				return true
+			}
+		}
+		return false
+	})
 
 	var found []ownerChatMessage
 	for _, message := range ownerChatMessages(t, server, coordinatorChat) {
