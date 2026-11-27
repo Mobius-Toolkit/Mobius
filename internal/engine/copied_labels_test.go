@@ -86,7 +86,18 @@ func needsHumanRows(t *testing.T, server *testserver.Server) int {
 
 func checkTasks(t *testing.T, server *testserver.Server, state string) {
 	t.Helper()
-	want := []taskLine{line(41, "Add plan model", state, 0)}
+	checkLines(t, server, []taskLine{line(41, "Add plan model", state, 0)})
+}
+
+// checkStartWaits checks that #41 has a Start that waits for the Start switch. A Start from outside the poll wakes the
+// dispatch loop, so only a Start with the switch off stays waiting until the check.
+func checkStartWaits(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	checkLines(t, server, []taskLine{startWaiting(line(41, "Add plan model", "start waits", 0), "waits for the Start switch")})
+}
+
+func checkLines(t *testing.T, server *testserver.Server, want []taskLine) {
+	t.Helper()
 	if got := apiData[[]taskLine](t, server, "/api/workstreams/owner/shop/12/tasks"); !reflect.DeepEqual(got, want) {
 		t.Errorf("tasks = %+v, want %+v", got, want)
 	}
@@ -120,6 +131,7 @@ func TestResumeOfAnIssueWithNoTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) 
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, changes := startLabeled(t, fake, true, "")
+	turnStartOff(t, server)
 
 	if status, body := postIssue(t, server, "resume"); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -128,7 +140,7 @@ func TestResumeOfAnIssueWithNoTaskChangesTheCopyBeforeTheNextPoll(t *testing.T) 
 	if rows := needsHumanRows(t, server); rows != 0 {
 		t.Errorf("rows = %d", rows)
 	}
-	checkTasks(t, server, "start waits")
+	checkStartWaits(t, server)
 	waitForWorkstreams(t, changes)
 }
 
@@ -137,12 +149,13 @@ func TestStartChangesTheCopyBeforeTheNextPoll(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, changes := startLabeled(t, fake, false, "")
 	checkTasks(t, server, "open")
+	turnStartOff(t, server)
 
 	if status, body := postIssue(t, server, "start"); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	checkTasks(t, server, "start waits")
+	checkStartWaits(t, server)
 	waitForWorkstreams(t, changes)
 }
 

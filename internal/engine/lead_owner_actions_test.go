@@ -266,17 +266,18 @@ func TestMarkOwnerActionOnAStoppedTaskInNeedsHumanDismissesTheStoppedItemAndRemo
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	waitForItem(t, server, "stopped")
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") })
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") && slices.Contains(fake.Labels(shop, 42), "mobius:needs-human")
+	})
 
 	sendChat(t, server, leadChat, "Mark fix round on #41")
 
 	waitForItem(t, server, "owner action")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "stopped")) == 0 })
-	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") })
-	if labels := fake.Labels(shop, 42); slices.Contains(labels, "mobius:needs-human") {
-		t.Errorf("labels of the pull request = %q", labels)
-	}
+	testkit.WaitFor(t, func() bool {
+		return !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") && !slices.Contains(fake.Labels(shop, 42), "mobius:needs-human")
+	})
 }
 
 const (

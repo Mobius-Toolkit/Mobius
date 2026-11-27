@@ -641,6 +641,13 @@ func (g *FakeGitHub) RefuseNextCommentList(repository string, number int64, stat
 	g.refusedNextCommentLists[issueKey{repository, number}] = status
 }
 
+// RefuseCommentLists makes each read of the comments of the issue give the status. The status 0 makes the reads work.
+func (g *FakeGitHub) RefuseCommentLists(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedCommentLists[issueKey{repository, number}] = status
+}
+
 // RefuseAddComment makes each new comment that Mobius writes on the issue give the status. The status 0 makes the
 // comment work.
 func (g *FakeGitHub) RefuseAddComment(repository string, number int64, status int) {
@@ -1610,6 +1617,10 @@ func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	g.singleCommentReads++
 	if key, ok := g.issue(w, r); ok {
+		if status := g.refusedCommentLists[key]; status != 0 {
+			message(w, status, "Internal Server Error")
+			return
+		}
 		if status := g.refusedNextCommentLists[key]; status != 0 {
 			delete(g.refusedNextCommentLists, key)
 			message(w, status, "Not Found")
