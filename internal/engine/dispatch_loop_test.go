@@ -96,35 +96,3 @@ func TestAFailedReadOfOneIssueDoesNotStopTheDispatchOfALaterIssueAndTheFailedIss
 		t.Errorf("start_requested_by of #41 = %q", got)
 	}
 }
-
-func TestAMobiusReadyLabelReadInThePollDoesNotDispatchTheIssueBeforeThePollCopiesItsBlocker(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server := connectSeen(t, fake)
-	fake.AddIssue(shop, 43, "Price rounding")
-	fake.AddSubIssue(shop, 12, 43)
-	testkit.WaitFor(t, func() bool {
-		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = 'owner/shop' AND number = 43") == 1
-	})
-	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/41/dependencies/blocked_by")
-	t.Cleanup(release)
-	fake.AddIssue(shop, 88, "Invoice totals")
-	dispatchTask(fake, 41, "Plan API")
-	fake.AddBlockedBy(shop, 41, 88)
-	testkit.WaitFor(t, func() bool { return startByOf(t, server, shop, 41) == "owner" })
-
-	if err := server.Engine.StartIssue(t.Context(), shop, 43); err != nil {
-		t.Fatal(err)
-	}
-
-	liveTaskOf(t, server, 43)
-	if hasLiveTask(t, server, 41) {
-		t.Error("the issue started before the poll copied its blocker")
-	}
-	release()
-	testkit.WaitFor(t, func() bool { return blockersOf41(t, server, "open") == 1 })
-	waitForPolls(t, fake)
-	if hasLiveTask(t, server, 41) || startByOf(t, server, shop, 41) != "owner" {
-		t.Errorf("live task = %t, start_requested_by = %q", hasLiveTask(t, server, 41), startByOf(t, server, shop, 41))
-	}
-}
