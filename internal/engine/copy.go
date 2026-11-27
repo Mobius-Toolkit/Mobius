@@ -108,17 +108,29 @@ func issueKind(labels []string) string {
 	return "task"
 }
 
+// copyRepairEndpoint is the endpoint in the sync_cursors table of the row that tells that an update of the copy of a
+// repository failed. syncCopy removes the row after it refreshes the copy.
+const copyRepairEndpoint = "copy_repair"
+
+// breakCopy tells that the copy of repository needs a repair after a failed update. The next poll calls syncCopy, also
+// after a restart.
+func (e *Engine) breakCopy(ctx context.Context, repository string) {
+	delete(e.copied, repository)
+	err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository, Endpoint: copyRepairEndpoint})
+	if err != nil {
+		log.Printf("record the failed update of the copy of %s: %v", repository, err)
+	}
+}
+
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
-// When the database already holds tree issues for repository, the first call after the start reads and writes nothing,
-// because the incoming changes keep the copy current. A later call repairs a failed update of the copy: it refreshes
-// only the author and GitHub metadata of the tree issues, and keeps the title, body, state, kind, parent, Workstream
-// and blockers of each existing row unchanged.
+// When the database already holds tree issues for repository and breakCopy recorded no failed update, it reads and
+// writes nothing, because the incoming changes keep the copy current. After a failed update, it refreshes only the
+// author and GitHub metadata of the tree issues, and keeps the title, body, state, kind, parent, Workstream and
+// blockers of each existing row unchanged.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
-	restarted := !e.syncedCopies[repository.FullName]
-	e.syncedCopies[repository.FullName] = true
 	_, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	firstPoll := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !firstPoll {
@@ -166,7 +178,12 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	if err != nil {
 		return err
 	}
-	if hasTree && restarted {
+	_, err = e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: copyRepairEndpoint})
+	broken := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if hasTree && !broken {
 		return nil
 	}
 	numbers, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
@@ -182,7 +199,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	}
 	if hasTree {
 		err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
-			return refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees)
+			if err := refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees); err != nil {
+				return err
+			}
+			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: repository.FullName, Endpoint: copyRepairEndpoint})
 		})
 		if err != nil {
 			return err
