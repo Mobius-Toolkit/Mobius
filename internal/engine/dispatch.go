@@ -69,6 +69,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 				continue
 			}
 			if err := e.resume(ctx, repository, issue, task, row.StartRequestedBy); err != nil {
+				if skipFailedRead(err, repository.FullName, row.Number) {
+					continue
+				}
 				return err
 			}
 			continue
@@ -99,6 +102,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		if !live {
 			earlier, found, err := e.endedTaskToContinue(ctx, repository, row.Number)
+			if skipFailedRead(err, repository.FullName, row.Number) {
+				continue
+			}
 			if err != nil {
 				return err
 			}
@@ -111,6 +117,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 					continue
 				}
 				if err := e.continueEndedTask(ctx, repository, issue, earlier, row.StartRequestedBy); err != nil {
+					if skipFailedRead(err, repository.FullName, row.Number) {
+						continue
+					}
 					return err
 				}
 				continue
@@ -152,6 +161,21 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 	}
 	return nil
+}
+
+// readFailure marks the error of a GitHub read of one issue, so that dispatchReady skips only that issue.
+type readFailure struct{ error }
+
+func (f readFailure) Unwrap() error { return f.error }
+
+// skipFailedRead logs err and tells true when err is a readFailure.
+func skipFailedRead(err error, repository string, number int64) bool {
+	var failure readFailure
+	if !errors.As(err, &failure) {
+		return false
+	}
+	log.Printf("read GitHub for the dispatch of %s#%d: %v", repository, number, err)
+	return true
 }
 
 // dispatchSteps runs dispatchReady and then startAutopilot. It holds dispatchMu, so the dispatch loop does not dispatch
@@ -1209,7 +1233,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if task.PullRequest.Valid {
 		var pullRequest *gh.PullRequest
 		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
-			return err
+			return readFailure{err}
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {

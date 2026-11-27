@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -180,5 +181,47 @@ func TestTheDispatchLoopAndAutopilotDispatchOneIssueOneTime(t *testing.T) {
 	waitForPolls(t, fake)
 	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 41"); got != 1 {
 		t.Errorf("tasks of #41 = %d", got)
+	}
+}
+
+// startWithBrokenPullRequest starts a server whose task of #41 has the pull request #42 and the state taskState, adds the
+// ready issue #43, and makes each read of a single pull request fail. It requests the Start of #41 and then of #43.
+func startWithBrokenPullRequest(t *testing.T, taskState string) *testserver.Server {
+	t.Helper()
+	fake := testkit.NewFakeGitHub(t)
+	server := seedEnded(t, fake, nil, 0, nil, fmt.Sprintf("UPDATE tasks SET state = '%s' WHERE id = 1", taskState))
+	fake.AddIssue(shop, 43, "Price rounding")
+	fake.AddSubIssue(shop, 12, 43)
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = 'owner/shop' AND number = 43 AND workstream IS NOT NULL") == 1
+	})
+	fake.FailPullRequestReads(true)
+	for _, number := range []int64{41, 43} {
+		if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return server
+}
+
+func TestAFailedPullRequestReadOfAnEndedTaskDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
+	t.Parallel()
+	server := startWithBrokenPullRequest(t, "ended")
+
+	liveTaskOf(t, server, 43)
+
+	if hasLiveTask(t, server, 41) || !hasStart(t, server, 41) {
+		t.Errorf("live task of #41 = %t, start of #41 = %t", hasLiveTask(t, server, 41), hasStart(t, server, 41))
+	}
+}
+
+func TestAFailedPullRequestReadOfAStoppedTaskDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
+	t.Parallel()
+	server := startWithBrokenPullRequest(t, "stopped")
+
+	liveTaskOf(t, server, 43)
+
+	if taskStateOf(t, server, 41) != "stopped" || !hasStart(t, server, 41) {
+		t.Errorf("task state of #41 = %s, start of #41 = %t", taskStateOf(t, server, 41), hasStart(t, server, 41))
 	}
 }
