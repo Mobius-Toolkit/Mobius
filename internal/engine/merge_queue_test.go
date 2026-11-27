@@ -656,12 +656,15 @@ shell = "branch=$(git branch --show-current); echo $branch > ${branch##*/}.txt &
 		// A new Lead session gets the chat history in its first prompt, and the script matches "Approve #43" first.
 		cfg.LeadIdleTimeout = 30 * time.Second
 	})
+	logLeadStateOnFailure(t, server)
+	logHeadStateOnFailure(t, server, fake, "mobius/41", "mobius/43")
 	authorize(t, server)
 	setWorkstreamAutopilot(t, server, "merge")
 	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	// approveAgain expects the lower pull request number for task 41, so task 43 starts after task 41 has its pull request.
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 41) == "approval" })
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, 43) == "approval" })
 
 	oldHead41 := head(t, fake, "mobius/41")
@@ -900,6 +903,44 @@ func logLeadStateOnFailure(t *testing.T, server *testserver.Server) {
 		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
 			for _, line := range transcript(t, server, session.ID) {
 				t.Logf("session %d line %d: %s %.200q", session.ID, line.ID, line.Kind, line.Raw)
+			}
+		}
+	})
+}
+
+// logHeadStateOnFailure writes the heads of the branches, the approval and review state of each task, the check runs
+// and the submitted reviews of the pull requests to the test log when the test fails, so that the log tells why a task
+// stays in approval.
+func logHeadStateOnFailure(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, branches ...string) {
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, branch := range branches {
+			t.Logf("head of %s: %s", branch, head(t, fake, branch))
+		}
+		logRows(t, server, "task heads", "SELECT issue, pull_request, check_head, reviewed_head, approved_head, approved_again_head, review_rounds, fix_rounds, merge_queued_at FROM tasks WHERE repository = ? ORDER BY issue", shop)
+		for _, run := range fake.CheckRuns(shop) {
+			var title string
+			if run.Output != nil {
+				title = run.Output.Title
+			}
+			t.Logf("check run: %s head=%.8s status=%s conclusion=%q title=%q", run.Name, run.HeadSHA, run.Status, run.Conclusion, title)
+		}
+		rows, err := server.DB.Query("SELECT pull_request FROM tasks WHERE repository = ? AND pull_request IS NOT NULL ORDER BY issue", shop)
+		if err != nil {
+			t.Logf("pull requests: %v", err)
+			return
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var number int64
+			if err := rows.Scan(&number); err != nil {
+				t.Logf("pull request: %v", err)
+				return
+			}
+			for _, review := range fake.SubmittedReviews(shop, number) {
+				t.Logf("review of pull request %d: head=%.8s event=%s", number, review.CommitID, review.Event)
 			}
 		}
 	})
