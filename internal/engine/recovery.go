@@ -125,7 +125,7 @@ func (e *Engine) endedTaskToContinue(ctx context.Context, repository github.Repo
 	}
 	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
 	if err != nil {
-		return store.Task{}, false, err
+		return store.Task{}, false, readFailure{err}
 	}
 	if pullRequest.GetState() != "open" || pullRequest.GetHead().GetRef() != task.Branch.String {
 		return store.Task{}, false, nil
@@ -139,7 +139,10 @@ func (e *Engine) endedTaskToContinue(ctx context.Context, repository github.Repo
 		return store.Task{}, false, err
 	}
 	issue, err := source.Issue(ctx, workstream)
-	return task, issue.GetState() == "open", err
+	if err != nil {
+		return store.Task{}, false, readFailure{err}
+	}
+	return task, issue.GetState() == "open", nil
 }
 
 // recoverTask opens the earlier task of the issue again, in the state that the label of the issue and the state before

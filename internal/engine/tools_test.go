@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -926,6 +927,43 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 	}
 	if got := startByOf(t, server, shop, 50); got != "coordinator" && !hasLiveTask(t, server, 50) {
 		t.Errorf("start_requested_by = %q and has no live task", got)
+	}
+}
+
+func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCopiesTheBlocker(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
+	first := startServer(t, fake, dataDir, "")
+	first.WaitForFirstPoll(t, shop)
+	first.Stop()
+	cfg := testserver.Config(t, dataDir)
+	cfg.PollInterval = time.Hour
+	server := testserver.StartWith(t, cfg, fake.URL)
+	testkit.WaitFor(t, server.Engine.PollEnded)
+	fake.AddIssue(shop, 49, "Add the invoice table")
+	fake.AddIssue(shop, 50, "Add invoices")
+	fake.AddBlockedBy(shop, 50, 49)
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	session := run(t, server, spec, "Move it.")
+
+	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12 Integrate loyalty plans." {
+		t.Errorf("reply = %q", got)
+	}
+	// The next poll is one hour away, so it has not copied the blocker of #50. A wake of the dispatch loop by the move
+	// dispatches the issue at once.
+	for deadline := time.Now().Add(2 * time.Second); countRows(t, server, "SELECT count(*) FROM tasks WHERE issue = 50") == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 50"); got != 0 {
+		t.Errorf("tasks of #50 = %d", got)
+	}
+	if !hasStart(t, server, 50) {
+		t.Error("the Start of #50 is gone")
 	}
 }
 

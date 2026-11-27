@@ -2105,6 +2105,7 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	if err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
 		return "", err
 	}
+	e.wakeDispatch()
 	return fmt.Sprintf("Requested a Start of %s#%d.", repository.FullName, input.N), nil
 }
 

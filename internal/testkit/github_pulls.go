@@ -144,6 +144,14 @@ func (g *FakeGitHub) FailPullRequestReads(fail bool) {
 	g.failPullReads = fail
 }
 
+// FailReviewCommentReads makes each read of the review comments of a single pull request fail, or work again when fail
+// is false.
+func (g *FakeGitHub) FailReviewCommentReads(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failReviewReads = fail
+}
+
 // FailBodyWrites makes each body write of an issue or a pull request through the API fail, or work again when fail is
 // false.
 func (g *FakeGitHub) FailBodyWrites(fail bool) {
@@ -258,6 +266,10 @@ func (g *FakeGitHub) reviewComments(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.singleCommentReads++
+	if g.failReviewReads {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	if key, ok := g.issue(w, r); ok {
 		writeJSON(w, http.StatusOK, page(w, r, append([]reviewCommentJSON{}, g.issues[key].reviewComments...)))
 	}

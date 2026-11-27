@@ -50,6 +50,7 @@ func (e *Engine) poll(ctx context.Context) {
 		return
 	}
 	repositories := e.github.Repositories()
+	e.wakeDispatch()
 	if !slices.Equal(known, repositoryKeys(repositories)) {
 		e.publish(Change{Repositories: true})
 	}
@@ -167,17 +168,28 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 		}},
 		{"upgradeReadyStarts", func() error { return e.upgradeReadyStarts(ctx, repository) }},
 		{"changedIssues", func() error { return e.changedIssues(ctx, repository) }},
-		{"applyIncomingChanges", func() error { return e.applyIncomingChanges(ctx, repository) }},
-		{"retryWorkstreamCloses", func() error { return e.retryWorkstreamCloses(ctx, repository) }},
-		{"checkCopiedTrees", func() error { return e.checkCopiedTreesLoop(ctx, repository) }},
+		{"copySteps", func() error {
+			e.copyStepsMu.Lock()
+			defer e.copyStepsMu.Unlock()
+			copySteps := []pollStep{
+				{"applyIncomingChanges", func() error { return e.applyIncomingChanges(ctx, repository) }},
+				{"retryWorkstreamCloses", func() error { return e.retryWorkstreamCloses(ctx, repository) }},
+				{"checkCopiedTrees", func() error { return e.checkCopiedTreesLoop(ctx, repository) }},
+			}
+			for _, step := range copySteps {
+				if err := e.timeStep(repository.FullName+" "+step.name, false, step.run); err != nil {
+					return err
+				}
+			}
+			return nil
+		}},
 		{"startHeldTriagers", func() error { return e.startHeldTriagers(ctx, repository) }},
 		{"readDefaultBranchCI", func() error { return e.readDefaultBranchCI(ctx, repository) }},
 		{"createCheckTimeoutIssue", func() error { return e.createCheckTimeoutIssue(ctx, repository) }},
 		{"createInitFailureIssue", func() error { return e.createInitFailureIssue(ctx, repository) }},
 		{"createCIFailureIssues", func() error { return e.createCIFailureIssues(ctx, repository) }},
 		{"endCIFailures", func() error { return e.endCIFailures(ctx, repository) }},
-		{"dispatchReady", func() error { return e.dispatchReady(ctx, repository) }},
-		{"startAutopilot", func() error { return e.startAutopilot(ctx, repository) }},
+		{"dispatchSteps", func() error { return e.dispatchSteps(ctx, repository) }},
 		{"closeInboxItems", func() error { return e.closeInboxItems(ctx, repository) }},
 		{"continuePausedMerges", func() error { return e.continuePausedMerges(ctx, repository) }},
 		{"freeClosedQuestionHolds", func() error { return e.freeClosedQuestionHolds(ctx, repository.FullName) }},

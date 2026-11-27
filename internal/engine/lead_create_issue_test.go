@@ -166,6 +166,38 @@ func TestACreateIssueCallAfterAFailedSubIssueAddGivesTheIssueThatTheFirstCallCre
 	}
 }
 
+func TestAFailedParentReadOfACreatedIssueDoesNotStopTheDispatchOfALaterIssueAndTheFailedIssueKeepsItsStart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 43, "Price rounding")
+	fake.AddSubIssue(shop, 12, 43)
+	server, _ := connect(t, fake, call("create_issue", createPlanModel))
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM issues WHERE repository = 'owner/shop' AND number = 43 AND workstream IS NOT NULL") == 1
+	})
+	fake.FailAddSubIssue(shop, 12, true)
+	session := run(t, server, leadSpec(t), "Create it.")
+	if got := reply(t, server, session); got != "Created owner/shop#44." {
+		t.Fatalf("reply = %q", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		return countRows(t, server, "SELECT count(*) FROM outgoing_changes WHERE field = 'parent' AND status = 'pending'") == 1
+	})
+	fake.FailParents(shop, 44, true)
+	for _, number := range []int64{44, 43} {
+		if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	liveTaskOf(t, server, 43)
+	if hasLiveTask(t, server, 44) || !hasStart(t, server, 44) {
+		t.Errorf("live task of #44 = %t, start of #44 = %t", hasLiveTask(t, server, 44), hasStart(t, server, 44))
+	}
+}
+
 // Serial: the test sets the hook beforeLeadIssueWait.
 func TestACreateIssueCallWaitsForTheCallWithTheSameParentAndTitleThatRuns(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)

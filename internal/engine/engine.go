@@ -124,6 +124,16 @@ type Engine struct {
 	stopMu sync.Mutex
 	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
 	pollWake chan struct{}
+	// dispatchWake makes the dispatch loop run before the end of poll_interval. It holds at most one value.
+	dispatchWake chan struct{}
+	// copyStepsMu makes the steps of pollRepository from applyIncomingChanges to the end of the tree copy, and
+	// dispatchAll, take turns. Else the loop can dispatch an issue after its Start and before the copy of its blocker.
+	// It is taken before stopMu.
+	copyStepsMu sync.Mutex
+	// dispatchMu makes dispatchSteps of the poll and dispatchAll take turns. Else both can dispatch one issue, because
+	// startAutopilot reads the tasks before it reads the issue from GitHub. It is taken after copyStepsMu and before
+	// stopMu.
+	dispatchMu sync.Mutex
 	// closingMu guards closing.
 	closingMu sync.Mutex
 	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.
@@ -295,6 +305,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		pulls:              map[pullKey]*pullState{},
 		pushed:             map[pullKey]bool{},
 		pollWake:           make(chan struct{}, 1),
+		dispatchWake:       make(chan struct{}, 1),
 		closing:            map[pullKey]bool{},
 		ciWait:             map[int64]ciWait{},
 		refusedRuns:        map[int64]refusedRun{},
@@ -452,8 +463,8 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return e.queries.FailRunningPendingActions(ctx, interruptedActionError)
 }
 
-// Run tells each Lead and the Coordinator the calls that the drain before the start refused. Then it polls each
-// poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each Worker, each chat
+// Run tells each Lead and the Coordinator the calls that the drain before the start refused. Then it polls and
+// dispatches the ready issues each poll_interval, and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each Worker, each chat
 // and each Triager, and waits for their ends.
 func (e *Engine) Run(ctx context.Context) {
 	if err := e.giveDrainRefusals(ctx, true); err != nil {
@@ -466,6 +477,7 @@ func (e *Engine) Run(ctx context.Context) {
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.endDuePauses) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.checkNetwork) })
 	wg.Go(func() { every(ctx, e.config.PollInterval, nil, e.runRecurringTasks) })
+	wg.Go(func() { every(ctx, e.config.PollInterval, e.dispatchWake, e.dispatchAll) })
 	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()

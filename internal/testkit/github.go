@@ -164,6 +164,7 @@ type FakeGitHub struct {
 	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
 	limitedResolves   bool
 	failPullReads     bool
+	failReviewReads   bool
 	failMarkReady     bool
 	failCheckUpdates  bool
 	failBodyWrites    bool
