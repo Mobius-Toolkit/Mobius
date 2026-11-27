@@ -253,6 +253,50 @@ func TestTheFullSyncCopiesTheOpenWorkstreams(t *testing.T) {
 	}
 }
 
+type copiedIssueRow struct {
+	Number   int64
+	Author   string
+	Metadata string
+}
+
+func copiedIssueRows(t *testing.T, server *testserver.Server) []copiedIssueRow {
+	t.Helper()
+	return query(t, server, func(rows *sql.Rows, r *copiedIssueRow) error {
+		return rows.Scan(&r.Number, &r.Author, &r.Metadata)
+	}, "SELECT number, author, metadata FROM issues ORDER BY id")
+}
+
+func TestTheFirstPollAfterARestartDoesNotReadTheTreesOfTheCopiedWorkstreams(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	server := startServer(t, fake, dataDir, "")
+	server.WaitForFirstPoll(t, shop)
+	server.Stop()
+	want := copiedIssueRows(t, server)
+	reads := make(chan int, 1)
+	fake.AfterNextIssueListRead(shop, func() { reads <- fake.SubIssueReads(shop, 12) })
+	before := fake.SubIssueReads(shop, 12)
+
+	restarted := testserver.Start(t, dataDir, fake.URL)
+
+	select {
+	case got := <-reads:
+		if got != before {
+			t.Errorf("reads of the sub-issues of #12 before the first issue list read = %d, want 0", got-before)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("no issue list read")
+	}
+	if got := copiedIssueRows(t, restarted); !reflect.DeepEqual(got, want) {
+		t.Errorf("issues = %+v, want %+v", got, want)
+	}
+}
+
 func TestANewWorkstreamGetsTheLevelOffAndTheOtherSettingsFromItsLabels(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

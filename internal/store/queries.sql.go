@@ -12205,33 +12205,6 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 	return result.RowsAffected()
 }
 
-const refreshCopiedTreeIssue = `-- name: RefreshCopiedTreeIssue :exec
-UPDATE issues
-SET author = ?1,
-    metadata = json_set(issues.metadata, '$.github', json(json_set(coalesce(json_extract(issues.metadata, '$.github'), json_object()),
-        '$.id', CAST(?2 AS INTEGER), '$.labels', json(CAST(?3 AS TEXT)))))
-WHERE issues.repository = ?4 AND issues.number = CAST(?5 AS INTEGER)
-`
-
-type RefreshCopiedTreeIssueParams struct {
-	Author     string
-	GithubID   int64
-	Labels     string
-	Repository string
-	Number     int64
-}
-
-func (q *Queries) RefreshCopiedTreeIssue(ctx context.Context, arg RefreshCopiedTreeIssueParams) error {
-	_, err := q.db.ExecContext(ctx, refreshCopiedTreeIssue,
-		arg.Author,
-		arg.GithubID,
-		arg.Labels,
-		arg.Repository,
-		arg.Number,
-	)
-	return err
-}
-
 const refuseDetachedIssueChanges = `-- name: RefuseDetachedIssueChanges :exec
 UPDATE outgoing_changes SET status = 'refused'
 WHERE status = 'pending' AND issue IN (SELECT id FROM issues WHERE workstream IS NULL)
