@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -184,24 +186,30 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 }
 
 // triageWrittenLater tells if the Mobius App wrote the label mobius:triage of the issue of the incoming change after
-// the event of the change: the poll read a later event of the App, or an own write of the label waits for its event.
-// The poll reads the events of an issue in order, so it reads a stored event of a person before the event of such a
-// write, and the write happened later.
+// the event of the change. The poll can store the event of a person before it reads the event of a write of the App, so
+// when it has no later event of the App, the function reads the events of the issue from GitHub.
 func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
 	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
 	if err != nil {
 		return false, err
 	}
+	app := appLogin(repository.AppSlug)
 	later, err := e.queries.HasLaterTriageChangeOfActor(ctx, store.HasLaterTriageChangeOfActorParams{
 		Repository: change.Repository,
 		Number:     change.Number,
-		Actor:      appLogin(repository.AppSlug),
+		Actor:      app,
 		After:      id,
 	})
 	if later || err != nil {
 		return later, err
 	}
-	return e.queries.HasFieldOwnWrite(ctx, store.HasFieldOwnWriteParams{Repository: change.Repository, Number: change.Number, Field: triageField})
+	events, err := repository.IssueEvents(ctx, change.Number)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
+		return event.GetID() > id && isTriageEvent(event) && strings.EqualFold(event.GetActor().GetLogin(), app)
+	}), nil
 }
 
 // issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before

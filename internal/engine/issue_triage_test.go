@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -214,6 +215,8 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheAcceptComesAfterThePollReadTheLabelE
 	server, _ := connect(t, fake, call("accept_issue", `{ repository = "owner/shop", n = 30 }`))
 	read := make(chan struct{})
 	accepted := make(chan struct{})
+	closeAccepted := sync.OnceFunc(func() { close(accepted) })
+	t.Cleanup(closeAccepted)
 	var release func()
 	// The copy of the tree gives #30 the triage state from the label. The next poll then reads the label event, and the
 	// answer of that read waits for the accept.
@@ -241,7 +244,7 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheAcceptComesAfterThePollReadTheLabelE
 	if got := reply(t, server, session); got != "Accepted owner/shop#30." {
 		t.Errorf("reply = %q", got)
 	}
-	close(accepted)
+	closeAccepted()
 	waitForPolls(t, fake)
 
 	row, _ := triageRowOf(t, server, 30)
