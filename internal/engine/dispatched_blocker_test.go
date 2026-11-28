@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -144,24 +145,26 @@ func TestADispatchedTaskWithABranchAndNoPullRequestStaysDispatchedWhenItsIssueGe
 func TestADispatchedTaskWithAnOpenQuestionStaysDispatchedWhenItsIssueGetsABlocker(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	ask := "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
+	gate, open := gateFile(t)
+	ask := fmt.Sprintf("[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"until [ -e %s ]; do sleep 0.05; done\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n", gate)
 	server, _ := connectWith(t, fake, ask+leadWaits, keepSessionOpen)
 	// The hold keeps the task in dispatched: ask moves it to asked after the write of its comment.
-	reached, release := fake.HoldComment(shop, 41)
+	reached, _ := fake.HoldComment(shop, 41)
 	dispatchTask(fake, 41, "Add plan model")
-	waitForItem(t, server, "question")
-	testkit.WaitFor(t, func() bool {
+	waitForLeadPrompt(t, server, "dispatch of #41")
+	fake.AddIssue(shop, 88, "Invoice totals")
+	// A poll that sends the held comment stays at the hold, and reads no blocker. The poll waits at its issue list read
+	// until ask is at the hold, so the poll skips the comment that ask sends.
+	fake.AfterNextIssueListRead(shop, func() {
+		open()
 		select {
 		case <-reached:
-			return true
-		default:
-			return false
+		case <-t.Context().Done():
 		}
+		fake.AddBlockedBy(shop, 41, 88)
 	})
-
-	fake.AddIssue(shop, 88, "Invoice totals")
-	fake.AddBlockedBy(shop, 41, 88)
 	testkit.WaitFor(t, func() bool { return issueBlocked(t, server) })
+	waitForItem(t, server, "question")
 	waitForPolls(t, fake)
 
 	if state := taskState(t, server); state != "dispatched" {
@@ -170,7 +173,6 @@ func TestADispatchedTaskWithAnOpenQuestionStaysDispatchedWhenItsIssueGetsABlocke
 	if _, ok := issueStart(t, server); ok {
 		t.Error("the issue has a Start")
 	}
-	release()
 }
 
 func TestATaskThatLeavesDispatchedBetweenTheReadAndTheEndStepKeepsItsImplementerAndGetsNoStart(t *testing.T) {
