@@ -134,6 +134,8 @@ export const leadActionItem = {
     error: "",
     message: "",
     oldBrief: "",
+    oldRecurringText: "",
+    oldRecurringCron: "",
     result: "",
     sender: null,
     decidedAt: null,

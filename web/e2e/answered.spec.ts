@@ -87,6 +87,8 @@ const approval = {
     error: "",
     message: "",
     oldBrief: "",
+    oldRecurringText: "",
+    oldRecurringCron: "",
     result: "",
     sender: null,
     decidedAt: null,

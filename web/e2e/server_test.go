@@ -188,6 +188,8 @@ var briefCalls = []struct{ message, tool, arguments string }{
 	{"Tell the Lead of #12 to wait for the migration.", "message_lead", `{ workstream = 12, text = "Wait for the migration of #14 before you start the price table." }`},
 	{"Close the question about the renewals.", "close_question", `{ repository = "owner/shop", n = 14, answer = "Two months." }`},
 	{"Ask the Owner about the renewals.", "ask", `{ repository = "owner/shop", n = 14, text = "How many months early can a customer renew?" }`},
+	{"Change the recurring task of the Lead of #14.", "update_recurring_task", `{ id = 3, cron = "0 10 * * 1-5", text = "Check the open pull requests and the failed checks, and tell me which ones wait for a review." }`},
+	{"Delete the recurring task of the Lead of #14.", "delete_recurring_task", `{ id = 3 }`},
 	{"Restore the Brief of the Lead of #14.", "edit_brief", `{ brief = "**Goal**\nLet customers renew a plan one month early.\n\n**Scope**\n- Add a button to the renewal page.\n- Send a mail after the renewal.\n\n**Limits**\n- Do not change the price of a plan.", reason = "The Owner wants the old Brief." }`},
 }
 
@@ -622,8 +624,13 @@ func TestServer(t *testing.T) {
 			return
 		}
 		query := r.URL.Query()
-		if _, err := server.Engine.AddRecurringTask(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), number, query.Get("cron"), query.Get("text"), 0); err != nil {
+		task, err := server.Engine.AddRecurringTask(r.Context(), r.PathValue("owner")+"/"+r.PathValue("name"), number, query.Get("cron"), query.Get("text"), 0)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, err := fmt.Fprint(w, task.ID); err != nil {
+			t.Error(err)
 		}
 	})
 	server.Mux.HandleFunc("DELETE /e2e/dispatches/{owner}/{name}/{issue}", func(w http.ResponseWriter, r *http.Request) {

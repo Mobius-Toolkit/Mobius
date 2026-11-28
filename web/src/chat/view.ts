@@ -1201,16 +1201,52 @@ function renderRemovedSwitch(h: H, checked: boolean): Html {
   );
 }
 
+// The value that the action replaces, or undefined when the sheet shows the argument with no diff.
+function oldValueOf(model: Model, action: PendingAction, arg: ActionArgument): string | undefined {
+  const pending = action.state === "pending";
+  switch (`${action.tool}.${arg.name}`) {
+    case "edit_brief.brief":
+      return (pending ? model.briefActionBrief : action.oldBrief) || undefined;
+    case "update_recurring_task.text":
+      return (pending ? model.recurringActionText : action.oldRecurringText) || undefined;
+    case "update_recurring_task.cron":
+      return (pending ? model.recurringActionCron : action.oldRecurringCron) || undefined;
+    default:
+      return undefined;
+  }
+}
+
+function isHiddenArgument(action: PendingAction, arg: ActionArgument): boolean {
+  switch (action.tool) {
+    case "message_lead":
+      return arg.name === "workstream";
+    // The title of the action names the recurring task.
+    case "update_recurring_task":
+    case "delete_recurring_task":
+      return arg.name === "id";
+    default:
+      return false;
+  }
+}
+
+function deletedRecurringArguments(model: Model, action: PendingAction): ActionArgument[] {
+  if (action.tool !== "delete_recurring_task") {
+    return [];
+  }
+  const pending = action.state === "pending";
+  return [
+    { name: "text", value: pending ? model.recurringActionText : action.oldRecurringText },
+    { name: "cron", value: pending ? model.recurringActionCron : action.oldRecurringCron },
+  ]
+    .filter((arg) => arg.value !== "")
+    .map((arg) => ({ ...arg, labels: [] }));
+}
+
 function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: PendingAction): Html {
   if (arg.name === "labels") {
     return (arg.labels || []).length > 0 ? renderLabelChips(h, arg.labels) : h.empty;
   }
-  const before =
-    action?.tool === "edit_brief" && arg.name === "brief"
-      ? action.state === "pending"
-        ? model.briefActionBrief || undefined
-        : action.oldBrief || undefined
-      : undefined;
+  const before = action ? oldValueOf(model, action, arg) : undefined;
   if (before !== undefined) {
     const marked = briefMarkdown(
       diffLines(shieldEquals(before), shieldEquals(arg.value)),
@@ -1221,7 +1257,8 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
       [
         h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
         renderQuotable(h, arg.name, renderMarkdown(h, marked, true)),
-        renderRemovedSwitch(h, model.showRemovedText),
+        // One switch for the sheet, below the last diff: the cron of a recurring task follows its text.
+        arg.name === "text" ? h.empty : renderRemovedSwitch(h, model.showRemovedText),
       ],
     );
   }
@@ -1239,7 +1276,7 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
   );
 }
 
-const PanelOpened = defineDialogMount(Message.CompletedFocusPanel);
+export const PanelOpened = defineDialogMount(Message.CompletedFocusPanel);
 
 const link = "text-primary underline-offset-4 hover:underline";
 
@@ -1387,9 +1424,10 @@ export function renderAnswerDialog(h: H, model: Model): Html {
         [h.Class("grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4")],
         [
           renderActionSender(h, action),
-          ...(action.arguments || [])
-            .filter((arg) => !(action.tool === "message_lead" && arg.name === "workstream"))
-            .map((arg) => renderFullArgument(h, arg, model, action)),
+          ...[
+            ...(action.arguments || []).filter((arg) => !isHiddenArgument(action, arg)),
+            ...deletedRecurringArguments(model, action),
+          ].map((arg) => renderFullArgument(h, arg, model, action)),
           ...(action.state !== "pending"
             ? [
                 h.span(

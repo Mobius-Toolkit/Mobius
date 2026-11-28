@@ -990,7 +990,7 @@ func (q *Queries) AddOwnerAction(ctx context.Context, arg AddOwnerActionParams) 
 const addPendingAction = `-- name: AddPendingAction :one
 INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type AddPendingActionParams struct {
@@ -1037,6 +1037,8 @@ func (q *Queries) AddPendingAction(ctx context.Context, arg AddPendingActionPara
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -1832,7 +1834,7 @@ func (q *Queries) CancelChatMessage(ctx context.Context, arg CancelChatMessagePa
 
 const claimPendingAction = `-- name: ClaimPendingAction :one
 UPDATE pending_actions SET running = 1 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingAction, error) {
@@ -1859,6 +1861,8 @@ func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingActi
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -3239,7 +3243,7 @@ func (q *Queries) FailMcpServerOAuthToken(ctx context.Context, arg FailMcpServer
 
 const failPendingAction = `-- name: FailPendingAction :one
 UPDATE pending_actions SET running = 0, error = ? WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type FailPendingActionParams struct {
@@ -3271,6 +3275,8 @@ func (q *Queries) FailPendingAction(ctx context.Context, arg FailPendingActionPa
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -3380,7 +3386,7 @@ func (q *Queries) FindOpenCIFailure(ctx context.Context, arg FindOpenCIFailurePa
 const finishPendingAction = `-- name: FinishPendingAction :one
 UPDATE pending_actions SET state = 'done', running = 0, error = '', result = ?, message = ?, decided_at = ?
 WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type FinishPendingActionParams struct {
@@ -3419,6 +3425,8 @@ func (q *Queries) FinishPendingAction(ctx context.Context, arg FinishPendingActi
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -5145,7 +5153,7 @@ func (q *Queries) GetOwnerActionOfItem(ctx context.Context, inboxItem int64) (Ow
 }
 
 const getPendingAction = `-- name: GetPendingAction :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number FROM pending_actions WHERE id = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron FROM pending_actions WHERE id = ?
 `
 
 func (q *Queries) GetPendingAction(ctx context.Context, id int64) (PendingAction, error) {
@@ -5172,12 +5180,14 @@ func (q *Queries) GetPendingAction(ctx context.Context, id int64) (PendingAction
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
 
 const getPendingActionByChatMessage = `-- name: GetPendingActionByChatMessage :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number FROM pending_actions WHERE chat_message = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron FROM pending_actions WHERE chat_message = ?
 `
 
 func (q *Queries) GetPendingActionByChatMessage(ctx context.Context, chatMessage sql.NullInt64) (PendingAction, error) {
@@ -5204,12 +5214,14 @@ func (q *Queries) GetPendingActionByChatMessage(ctx context.Context, chatMessage
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
 
 const getPendingActionByCreatedWorkstream = `-- name: GetPendingActionByCreatedWorkstream :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number FROM pending_actions WHERE created_workstream = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron FROM pending_actions WHERE created_workstream = ?
 `
 
 func (q *Queries) GetPendingActionByCreatedWorkstream(ctx context.Context, createdWorkstream sql.NullInt64) (PendingAction, error) {
@@ -5236,12 +5248,14 @@ func (q *Queries) GetPendingActionByCreatedWorkstream(ctx context.Context, creat
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
 
 const getPendingActionByInboxItem = `-- name: GetPendingActionByInboxItem :one
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number FROM pending_actions WHERE inbox_item = ?
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron FROM pending_actions WHERE inbox_item = ?
 `
 
 func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql.NullInt64) (PendingAction, error) {
@@ -5268,6 +5282,8 @@ func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -6355,7 +6371,7 @@ func (q *Queries) KeepWorkstreamOfBlockers(ctx context.Context, workstream sql.N
 
 const linkPendingAction = `-- name: LinkPendingAction :one
 UPDATE pending_actions SET chat_message = ?, inbox_item = ? WHERE id = ?
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type LinkPendingActionParams struct {
@@ -6388,6 +6404,8 @@ func (q *Queries) LinkPendingAction(ctx context.Context, arg LinkPendingActionPa
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -10473,7 +10491,7 @@ func (q *Queries) ListRecurringTasks(ctx context.Context, arg ListRecurringTasks
 }
 
 const listReplaceablePendingActions = `-- name: ListReplaceablePendingActions :many
-SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number FROM pending_actions
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron FROM pending_actions
 WHERE organization = ? AND repository = ? AND workstream = ? AND issue = ? AND role = ? AND tool = ?
   AND state = 'pending' AND running = 0 AND id <> ?
 ORDER BY id
@@ -10527,6 +10545,8 @@ func (q *Queries) ListReplaceablePendingActions(ctx context.Context, arg ListRep
 			&i.OldBrief,
 			&i.CreatedWorkstream,
 			&i.AwaitsNumber,
+			&i.OldRecurringText,
+			&i.OldRecurringCron,
 		); err != nil {
 			return nil, err
 		}
@@ -12298,7 +12318,7 @@ func (q *Queries) RefuseIssueChanges(ctx context.Context, issue sql.NullInt64) e
 const rejectPendingAction = `-- name: RejectPendingAction :one
 UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type RejectPendingActionParams struct {
@@ -12331,6 +12351,8 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -12422,7 +12444,7 @@ func (q *Queries) ReopenWorkstream(ctx context.Context, arg ReopenWorkstreamPara
 const replacePendingAction = `-- name: ReplacePendingAction :one
 UPDATE pending_actions SET state = 'replaced', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type ReplacePendingActionParams struct {
@@ -12454,6 +12476,8 @@ func (q *Queries) ReplacePendingAction(ctx context.Context, arg ReplacePendingAc
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
@@ -13521,6 +13545,21 @@ type SetPendingActionOldBriefParams struct {
 
 func (q *Queries) SetPendingActionOldBrief(ctx context.Context, arg SetPendingActionOldBriefParams) error {
 	_, err := q.db.ExecContext(ctx, setPendingActionOldBrief, arg.OldBrief, arg.ID)
+	return err
+}
+
+const setPendingActionOldRecurring = `-- name: SetPendingActionOldRecurring :exec
+UPDATE pending_actions SET old_recurring_text = ?, old_recurring_cron = ? WHERE id = ?
+`
+
+type SetPendingActionOldRecurringParams struct {
+	OldRecurringText string
+	OldRecurringCron string
+	ID               int64
+}
+
+func (q *Queries) SetPendingActionOldRecurring(ctx context.Context, arg SetPendingActionOldRecurringParams) error {
+	_, err := q.db.ExecContext(ctx, setPendingActionOldRecurring, arg.OldRecurringText, arg.OldRecurringCron, arg.ID)
 	return err
 }
 
@@ -14761,7 +14800,7 @@ func (q *Queries) UpsertVoiceLanguage(ctx context.Context, arg UpsertVoiceLangua
 const withdrawPendingAction = `-- name: WithdrawPendingAction :one
 UPDATE pending_actions SET state = 'withdrawn', decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
-RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, old_brief, created_workstream, awaits_number, old_recurring_text, old_recurring_cron
 `
 
 type WithdrawPendingActionParams struct {
@@ -14793,6 +14832,8 @@ func (q *Queries) WithdrawPendingAction(ctx context.Context, arg WithdrawPending
 		&i.OldBrief,
 		&i.CreatedWorkstream,
 		&i.AwaitsNumber,
+		&i.OldRecurringText,
+		&i.OldRecurringCron,
 	)
 	return i, err
 }
