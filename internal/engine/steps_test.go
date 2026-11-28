@@ -321,7 +321,7 @@ func TestACheckThatWaitsForALowLoadHasALowLoadRowWithNoResultAfterStartCheckNow(
 		return sessions[0], sessions[0].QueueReason.String == "waits for a low load"
 	})
 
-	if err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
+	if _, err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 

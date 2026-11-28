@@ -264,7 +264,7 @@ func TestAClaudeCodeTurnWithTheSubscriptionErrorPausesClaudeCodeAndSendsThePromp
 		t.Errorf("the Transcript reply = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -299,7 +299,7 @@ func TestALeadTurnWithTheSubscriptionErrorKeepsTheEventAndTheOwnerMessageUndeliv
 		t.Fatalf("sessions = %+v", sessions)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 

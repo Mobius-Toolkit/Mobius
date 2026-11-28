@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -73,9 +74,9 @@ func (e *Engine) McpServers(ctx context.Context, organization string) ([]McpServ
 
 // AddMcpServer adds the server to the organization and gives it with its id. It refuses a server that fails a check,
 // and gives ErrMcpServerNameTaken for a name that another server of the organization has.
-func (e *Engine) AddMcpServer(ctx context.Context, organization string, server McpServer) (McpServer, error) {
+func (e *Engine) AddMcpServer(ctx context.Context, organization string, server McpServer) (McpServer, Record, error) {
 	if err := checkMcpServer(server, nil); err != nil {
-		return McpServer{}, err
+		return McpServer{}, Record{}, err
 	}
 	var added McpServer
 	err := e.inTx(ctx, func(q *store.Queries) error {
@@ -93,17 +94,18 @@ func (e *Engine) AddMcpServer(ctx context.Context, organization string, server M
 		added, err = mcpServerOf(row)
 		return err
 	})
-	if err == nil {
-		e.publish(Change{Workstreams: true})
+	if err != nil {
+		return McpServer{}, Record{}, err
 	}
-	return added, err
+	e.publish(Change{Workstreams: true})
+	return added, recordIn(fmt.Sprintf("You added the MCP server %s.", added.Name), ChatKey{Organization: organization}), nil
 }
 
 // UpdateMcpServer replaces the server with the id. A header or an environment variable with an empty value keeps the
 // stored value of the same name, and is refused when the server has no such name. A change of the URL, or a header
 // Authorization, removes the OAuth connection of the server. It gives ErrNoMcpServer for an id that is not a server of
 // the organization.
-func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id int64, server McpServer) (McpServer, error) {
+func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id int64, server McpServer) (McpServer, Record, error) {
 	var updated McpServer
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		stored, err := q.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})
@@ -153,24 +155,32 @@ func (e *Engine) UpdateMcpServer(ctx context.Context, organization string, id in
 		updated.OAuth, updated.OAuthReason = mcpOAuthState(state)
 		return err
 	})
-	if err == nil {
-		e.publish(Change{Workstreams: true})
+	if err != nil {
+		return McpServer{}, Record{}, err
 	}
-	return updated, err
+	e.publish(Change{Workstreams: true})
+	return updated, recordIn(fmt.Sprintf("You changed the MCP server %s.", updated.Name), ChatKey{Organization: organization}), nil
 }
 
 // DeleteMcpServer deletes the server and removes it from the selection of each Workstream. It gives ErrNoMcpServer for
 // an id that is not a server of the organization.
-func (e *Engine) DeleteMcpServer(ctx context.Context, organization string, id int64) error {
+func (e *Engine) DeleteMcpServer(ctx context.Context, organization string, id int64) (Record, error) {
+	server, err := e.queries.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Record{}, ErrNoMcpServer
+	}
+	if err != nil {
+		return Record{}, err
+	}
 	deleted, err := e.queries.DeleteMcpServer(ctx, store.DeleteMcpServerParams{ID: id, Organization: organization})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if deleted == 0 {
-		return ErrNoMcpServer
+		return Record{}, ErrNoMcpServer
 	}
 	e.publish(Change{Workstreams: true})
-	return nil
+	return recordIn(fmt.Sprintf("You deleted the MCP server %s.", server.Name), ChatKey{Organization: organization}), nil
 }
 
 // SetWorkstreamMcpServers replaces the selection of the Workstream with the servers of ids. It refuses an id of a

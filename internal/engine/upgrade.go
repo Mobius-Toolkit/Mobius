@@ -80,11 +80,11 @@ func (r retryable) Unwrap() error { return r.error }
 // Upgrade starts an upgrade in the background and gives its state. The upgrade reads the newest release, downloads it,
 // drains the agents, replaces the program and runs the new program in this process. It tries again after an error that
 // can pass, until the upgrade is done or CancelUpgrade ends it. UpgradeStatus gives the state of the upgrade.
-func (e *Engine) Upgrade() (UpgradeState, error) {
+func (e *Engine) Upgrade() (UpgradeState, Record, error) {
 	e.upgradeMu.Lock()
 	defer e.upgradeMu.Unlock()
 	if e.upgradeState.Step != UpgradeIdle {
-		return UpgradeState{}, refuse("An upgrade runs now.")
+		return UpgradeState{}, Record{}, refuse("An upgrade runs now.")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	e.upgradeCancel = cancel
@@ -93,17 +93,18 @@ func (e *Engine) Upgrade() (UpgradeState, error) {
 	state := e.upgradeState
 	e.publish(Change{Upgrade: &state})
 	go e.runUpgrade(ctx, e.upgradeDone)
-	return state, nil
+	return state, e.organizationRecord("You started the upgrade."), nil
 }
 
 // CancelUpgrade ends the upgrade and the drain, and waits until the upgrade has ended. With no upgrade, it ends only
-// the drain. It does nothing while the upgrade replaces the program.
-func (e *Engine) CancelUpgrade() {
+// the drain. It does nothing while the upgrade replaces the program. It gives the Record of the upgrade that it ended,
+// or else of the drain that it ended.
+func (e *Engine) CancelUpgrade() Record {
 	e.upgradeMu.Lock()
 	step := e.upgradeState.Step
 	if step == UpgradeRestart {
 		e.upgradeMu.Unlock()
-		return
+		return Record{}
 	}
 	var done chan struct{}
 	if step != UpgradeIdle {
@@ -115,7 +116,11 @@ func (e *Engine) CancelUpgrade() {
 		// The drain of the upgrade can start after the cancel, so the drain ends after the upgrade has ended.
 		<-done
 	}
-	e.CancelDrain()
+	drain := e.CancelDrain()
+	if done != nil {
+		return e.organizationRecord("You cancelled the upgrade.")
+	}
+	return drain
 }
 
 // UpgradeStatus gives the state of the upgrade.

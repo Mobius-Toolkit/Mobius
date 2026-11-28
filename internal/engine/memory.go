@@ -106,23 +106,24 @@ func (e *Engine) readMemory(repository, file string) (string, error) {
 func (e *Engine) SaveMemory(ctx context.Context, repository, file, author, reason, text string) error {
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
-	return e.saveMemory(ctx, repository, file, author, reason, text)
+	_, err := e.saveMemory(ctx, repository, file, author, reason, text)
+	return err
 }
 
-// saveMemory is SaveMemory for a caller that holds memoryMu.
-func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reason, text string) error {
+// saveMemory is SaveMemory for a caller that holds memoryMu. It tells if the text of the file changed.
+func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reason, text string) (bool, error) {
 	if lines := countLines(text); lines > maxMemoryLines {
-		return fmt.Errorf("%w: the memory file %s has %d lines and the maximum is %d", ErrMemoryTooLong, file, lines, maxMemoryLines)
+		return false, fmt.Errorf("%w: the memory file %s has %d lines and the maximum is %d", ErrMemoryTooLong, file, lines, maxMemoryLines)
 	}
 	current, err := e.readMemory(repository, file)
 	if err != nil || current == text {
-		return err
+		return false, err
 	}
 	limit := maxMemoryBytes(file)
 	if len(text) > limit && (len(current) <= limit || len(text) >= len(current)) {
-		return fmt.Errorf("%w: the memory file %s would have %d bytes, and the limit is %d. Remove at least %d bytes. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit, len(text)-limit)
+		return false, fmt.Errorf("%w: the memory file %s would have %d bytes, and the limit is %d. Remove at least %d bytes. Remove or shorten a lesson. Do not make a line longer", ErrMemoryTooLong, file, len(text), limit, len(text)-limit)
 	}
-	return e.inTx(ctx, func(queries *store.Queries) error {
+	err = e.inTx(ctx, func(queries *store.Queries) error {
 		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, File: file, Time: now(), Author: author, Reason: reason, Text: text})
 		if err != nil {
 			return err
@@ -133,6 +134,17 @@ func (e *Engine) saveMemory(ctx context.Context, repository, file, author, reaso
 		}
 		return os.WriteFile(path, []byte(text), 0o600)
 	})
+	return err == nil, err
+}
+
+// memoryRecord is the Record of a change of the memory file of the repository by the Owner. It has no chat when the
+// text did not change.
+func memoryRecord(changed bool, text, repository string) Record {
+	if !changed {
+		return Record{}
+	}
+	organization, _, _ := strings.Cut(repository, "/")
+	return recordIn(text, ChatKey{Organization: organization})
 }
 
 // newestMemoryVersionID gives the newest id of a version of any memory file of the repository, and 0 when it has no
@@ -151,17 +163,18 @@ func (e *Engine) newestMemoryVersionID(ctx context.Context, repository string) (
 
 // EditMemory saves text like SaveMemory with the author owner, for an edit that started from the version base (0 when
 // the file had no version). It refuses the edit when the newest version of the repository and file is another version.
-func (e *Engine) EditMemory(ctx context.Context, repository, file string, base int64, text string) error {
+func (e *Engine) EditMemory(ctx context.Context, repository, file string, base int64, text string) (Record, error) {
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
 	newest, err := e.queries.GetNewestMemoryVersionID(ctx, store.GetNewestMemoryVersionIDParams{Repository: repository, File: file})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if newest != base {
-		return refuse("The memory file changed after the start of your edit. Copy your text, then load the file again.")
+		return Record{}, refuse("The memory file changed after the start of your edit. Copy your text, then load the file again.")
 	}
-	return e.saveMemory(ctx, repository, file, "owner", "", text)
+	changed, err := e.saveMemory(ctx, repository, file, "owner", "", text)
+	return memoryRecord(changed, fmt.Sprintf("You saved the memory file %s of %s.", file, repository), repository), err
 }
 
 // splitLines gives the lines of text with their line ends.
@@ -257,12 +270,13 @@ func (e *Engine) MemoryRevertProblem(ctx context.Context, repository, file strin
 // RevertMemory undoes the change of the version id of the repository and file in the current text, and saves the result
 // as a new version of the author owner. It returns ErrNoMemoryVersion for an unknown version and for a version of
 // another repository or file, and a refusal when the change cannot be undone.
-func (e *Engine) RevertMemory(ctx context.Context, repository, file string, id int64) error {
+func (e *Engine) RevertMemory(ctx context.Context, repository, file string, id int64) (Record, error) {
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
 	text, err := e.revertedMemory(ctx, repository, file, id)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
-	return e.saveMemory(ctx, repository, file, "owner", fmt.Sprintf("Revert of version %d", id), text)
+	changed, err := e.saveMemory(ctx, repository, file, "owner", fmt.Sprintf("Revert of version %d", id), text)
+	return memoryRecord(changed, fmt.Sprintf("You reverted version %d of the memory file %s of %s.", id, file, repository), repository), err
 }

@@ -199,7 +199,7 @@ func moveImplementerToClaudeCode(t *testing.T, server *testserver.Server) {
 		}
 	}
 	binding.Harness, binding.Model = config.ClaudeCode, "haiku"
-	if err := server.Engine.SetRole(t.Context(), engine.ImplementerRole, binding); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), engine.ImplementerRole, binding); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -518,7 +518,7 @@ func TestARetryThatHitsTheUsageLimitAgainPausesAgainWithNoSecondChatMessage(t *t
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	first := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -533,7 +533,7 @@ func TestARetryThatHitsTheUsageLimitAgainPausesAgainWithNoSecondChatMessage(t *t
 		t.Errorf("%d chat messages", n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -560,7 +560,7 @@ func TestARetryThatHitsTheUsageLimitAfterARestartAddsNoChatMessage(t *testing.T)
 		t.Errorf("%d chat messages", n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -586,7 +586,7 @@ func TestARetryThatHitsTheUsageLimitAfterARestartThatFollowsTheEndOfThePauseAdds
 		t.Errorf("%d chat messages", n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -733,7 +733,7 @@ func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T)
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -766,7 +766,7 @@ func TestAPromptToAnOpenSessionOfAPausedHarnessWaitsForTheEndOfThePause(t *testi
 		t.Errorf("prompts during the pause = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -821,7 +821,7 @@ func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
 		t.Errorf("sessions = %+v", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -896,7 +896,7 @@ func TestTheChatOfALeadThatWaitsForAPauseGivesTheEndOfThePauseUntilThePauseEnds(
 	}
 
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -933,7 +933,7 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 	sendChat(t, server, leadChat, "Plan the API")
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Lead")) == 1 })
@@ -1033,7 +1033,7 @@ func TestAUsageLimitTurnShowsOnlyTheMobiusMessageAndDeliversTheOwnerMessageAfter
 				t.Errorf("the Transcript reply = %q", got)
 			}
 
-			if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+			if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1124,7 +1124,7 @@ func TestAnAntigravityLimitReplyPausesTheHarnessUntilTheResetTime(t *testing.T) 
 		t.Errorf("reply before resume = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -1166,7 +1166,7 @@ func TestAnAntigravityLimitAfterReplyTextAndFailedToolCallsPausesTheHarness(t *t
 		t.Errorf("until = %v, before = %v", gotUntil, before)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -1199,7 +1199,7 @@ func TestAnAntigravityLimitTurnWritesNoReplyToTheChat(t *testing.T) {
 		t.Errorf("Lead chat messages = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1341,7 +1341,7 @@ reply = ["First answer."]
 		t.Errorf("prompts during the pause = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1376,7 +1376,7 @@ reply = ["First answer."]
 		t.Errorf("prompts during the pause = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1421,7 +1421,7 @@ call = { tool = "background_state", arguments = { state = "done" } }
 		t.Errorf("prompts during the pause = %q", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 

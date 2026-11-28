@@ -181,7 +181,7 @@ func TestStartCheckNowStartsACheckThatWaitsForAHighLoadAndTheNextCheckWaitsAgain
 		})
 	}
 	session := waiting()
-	if err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
+	if _, err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 	waited := fmt.Sprintf("The check waits for a low load. The 1-minute load average is %.2f, and the machine has %d cores.", highLoad(), engine.Cores)
@@ -215,7 +215,7 @@ func TestStartCheckNowRefusesASessionThatDoesNotWaitForALowLoad(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	session := endedImplementers(t, server, 1)[0]
-	err := server.Engine.StartCheckNow(t.Context(), session.ID)
+	_, err := server.Engine.StartCheckNow(t.Context(), session.ID)
 	if !engine.Refused(err) {
 		t.Errorf("err = %v", err)
 	}

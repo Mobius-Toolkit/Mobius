@@ -135,7 +135,7 @@ error = { code = -32603, message = "You've hit your session limit · resets 8:30
 		t.Errorf("access items = %+v", items)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 

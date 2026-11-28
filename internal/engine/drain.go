@@ -181,16 +181,22 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	}
 }
 
+// DrainOnRecord is the Record of the start of the drain by the Owner.
+func (e *Engine) DrainOnRecord() Record {
+	return e.organizationRecord("You turned on the drain.")
+}
+
 // CancelDrain ends the drain: the held Workers take their slots, and the waiting events go to the Leads. It does
-// nothing to a sealed drain.
-func (e *Engine) CancelDrain() {
+// nothing to a sealed drain. It gives a Record with no chat when it ended no drain.
+func (e *Engine) CancelDrain() Record {
 	d := &e.drain
 	d.mu.Lock()
 	sealed := d.sealed
 	d.mu.Unlock()
-	if !sealed {
-		e.releaseDrain()
+	if sealed || !e.releaseDrain() {
+		return Record{}
 	}
+	return e.organizationRecord("You turned off the drain.")
 }
 
 // seal closes a completed drain for the restart: no session and no npm upgrade starts and a cancel does nothing, until
@@ -241,12 +247,12 @@ func (e *Engine) abortDrain() {
 	e.releaseDrain()
 }
 
-func (e *Engine) releaseDrain() {
+func (e *Engine) releaseDrain() bool {
 	d := &e.drain
 	d.mu.Lock()
 	if !d.on {
 		d.mu.Unlock()
-		return
+		return false
 	}
 	d.on = false
 	d.mu.Unlock()
@@ -260,4 +266,5 @@ func (e *Engine) releaseDrain() {
 	if err := e.wakeAllEvents(context.Background()); err != nil {
 		log.Printf("give the waiting events to the Leads after the drain: %v", err)
 	}
+	return true
 }

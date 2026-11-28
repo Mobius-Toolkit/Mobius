@@ -49,7 +49,7 @@ func TestSetRoleRefusesAnEffortThatTheHarnessDoesNotGiveForTheModel(t *testing.T
 	t.Parallel()
 	server, _ := connectWithChoices(t)
 
-	err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding("high"))
+	_, err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding("high"))
 
 	requireRefusal(t, err, "roles.lead.effort: claude-code gives no effort high for the model sonnet")
 	if rows := roleRows(t, server); rows != 0 {
@@ -73,7 +73,7 @@ func TestAddImplementerBindingRefusesAnEffortThatTheHarnessDoesNotGiveForTheMode
 	t.Parallel()
 	server, _ := connectWithChoices(t)
 
-	_, err := server.Engine.AddImplementerBinding(t.Context(), sonnetBinding("high"))
+	_, _, err := server.Engine.AddImplementerBinding(t.Context(), sonnetBinding("high"))
 
 	requireRefusal(t, err, "roles.implementer.effort: claude-code gives no effort high for the model sonnet")
 	roles, rolesErr := server.Engine.Roles(t.Context())
@@ -92,7 +92,7 @@ func TestSetRoleAcceptsAnEffortThatTheHarnessGivesAndAnEmptyEffort(t *testing.T)
 	server, _ := connectWithChoices(t)
 
 	for _, effort := range []string{"medium", ""} {
-		if err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding(effort)); err != nil {
+		if _, err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding(effort)); err != nil {
 			t.Errorf("effort %q: %v", effort, err)
 		}
 	}
@@ -102,7 +102,7 @@ func TestSetRoleRefusesNothingForTheEffortWhenNoReadOfTheChoicesEnded(t *testing
 	t.Parallel()
 	server, _ := connectScript(t, testkit.NewFakeGitHub(t), options, func(*config.Config) {})
 
-	if err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding("high")); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), "lead", sonnetBinding("high")); err != nil {
 		t.Errorf("SetRole = %v", err)
 	}
 }
@@ -110,7 +110,7 @@ func TestSetRoleRefusesNothingForTheEffortWhenNoReadOfTheChoicesEnded(t *testing
 func TestLoadRolesLoadsAStoredEffortThatTheHarnessDoesNotGiveAfterASuccessfulRead(t *testing.T) {
 	t.Parallel()
 	first, dataDir := connectScript(t, testkit.NewFakeGitHub(t), options, func(*config.Config) {})
-	if err := first.Engine.SetRole(t.Context(), "lead", sonnetBinding("high")); err != nil {
+	if _, err := first.Engine.SetRole(t.Context(), "lead", sonnetBinding("high")); err != nil {
 		t.Fatal(err)
 	}
 	first.Stop()

@@ -120,7 +120,8 @@ func TestTwoEditsFromTheSameVersionSaveOnlyOne(t *testing.T) {
 	errs := make(chan error, edits)
 	for i := range edits {
 		go func() {
-			errs <- server.Engine.EditMemory(t.Context(), shop, "shared", base, fmt.Sprintf("Edit %d.\n", i))
+			_, err := server.Engine.EditMemory(t.Context(), shop, "shared", base, fmt.Sprintf("Edit %d.\n", i))
+			errs <- err
 		}()
 	}
 	saved := 0
@@ -179,10 +180,10 @@ func TestAnEditOfOneFileUsesTheNewestVersionOfThatFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := server.Engine.EditMemory(t.Context(), shop, "implementer", sharedBase, "Role two.\n"); err == nil || !engine.Refused(err) {
+	if _, err := server.Engine.EditMemory(t.Context(), shop, "implementer", sharedBase, "Role two.\n"); err == nil || !engine.Refused(err) {
 		t.Errorf("stale edit of another file: err = %v", err)
 	}
-	if err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, sharedBase, "Shared two.\n"); err != nil {
+	if _, err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, sharedBase, "Shared two.\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,7 +216,7 @@ func TestARevertOfARoleMemoryVersionChangesOnlyThatFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := server.Engine.RevertMemory(t.Context(), shop, "implementer", roleNewest); err != nil {
+	if _, err := server.Engine.RevertMemory(t.Context(), shop, "implementer", roleNewest); err != nil {
 		t.Fatal(err)
 	}
 	role, roleErr := os.ReadFile(filepath.Clean(filepath.Join(dataDir, "memory", shop, "implementer.md")))
@@ -227,7 +228,7 @@ func TestARevertOfARoleMemoryVersionChangesOnlyThatFile(t *testing.T) {
 		file string
 		id   int64
 	}{{"shared", roleNewest}, {"implementer", sharedNewest}} {
-		if err := server.Engine.RevertMemory(t.Context(), shop, other.file, other.id); !errors.Is(err, engine.ErrNoMemoryVersion) {
+		if _, err := server.Engine.RevertMemory(t.Context(), shop, other.file, other.id); !errors.Is(err, engine.ErrNoMemoryVersion) {
 			t.Errorf("revert of %s with version %d of another file: err = %v", other.file, other.id, err)
 		}
 	}
@@ -237,7 +238,7 @@ func TestTheEditOfTheOwnerGivesErrMemoryTooLongAboveTheByteLimit(t *testing.T) {
 	t.Parallel()
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
 
-	err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, 0, strings.Repeat("A", 16385))
+	_, err := server.Engine.EditMemory(t.Context(), shop, engine.MemoryFileShared, 0, strings.Repeat("A", 16385))
 	if !errors.Is(err, engine.ErrMemoryTooLong) {
 		t.Fatalf("err = %v, want ErrMemoryTooLong", err)
 	}
@@ -318,7 +319,7 @@ func TestARevertAboveTheByteLimitWithMoreBytesThanTheCurrentTextIsRefused(t *tes
 		t.Errorf("problem = %q, want %q", problem, want)
 	}
 
-	err = server.Engine.RevertMemory(t.Context(), shop, engine.MemoryFileShared, v2ID)
+	_, err = server.Engine.RevertMemory(t.Context(), shop, engine.MemoryFileShared, v2ID)
 	if err == nil || !engine.Refused(err) || err.Error() != want {
 		t.Errorf("err = %v, want refusal %q", err, want)
 	}

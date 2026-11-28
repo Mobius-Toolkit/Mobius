@@ -140,17 +140,17 @@ type SetIssueRepositoryResponse struct {
 // SetIssueRepository stores the choice of the issue repository of the organization. A new choice replaces the earlier
 // choice. It returns 409 when config.toml sets the issue repository of the organization, and 422 when the repository is
 // not a repository of the organization that the App sees.
-func (h *handlers) SetIssueRepository(ctx context.Context, req SetIssueRepositoryRequest) (*SetIssueRepositoryResponse, error) {
-	repository, err := h.engine.SetIssueRepository(ctx, req.Body.Organization, req.Body.Repository)
+func (h *handlers) SetIssueRepository(ctx context.Context, req SetIssueRepositoryRequest) (*SetIssueRepositoryResponse, engine.Record, error) {
+	repository, record, err := h.engine.SetIssueRepository(ctx, req.Body.Organization, req.Body.Repository)
 	switch {
 	case errors.Is(err, engine.ErrIssueRepositoryInConfig):
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	case engine.Refused(err):
-		return nil, api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	case err != nil:
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &SetIssueRepositoryResponse{Body: Envelope[IssueRepositoryChoice]{Data: IssueRepositoryChoice{Organization: req.Body.Organization, Repository: repository}}}, nil
+	return &SetIssueRepositoryResponse{Body: Envelope[IssueRepositoryChoice]{Data: IssueRepositoryChoice{Organization: req.Body.Organization, Repository: repository}}}, record, nil
 }
 
 func labelFix(repositories []engine.RepositoryCheckup) string {
@@ -278,6 +278,6 @@ type FixLabelsRequest struct {
 
 // FixLabels creates the missing Mobius labels and sets the fixed color of each Mobius label with a
 // different color, in each repository of the organization. The description of an existing label stays.
-func (h *handlers) FixLabels(ctx context.Context, req FixLabelsRequest) error {
+func (h *handlers) FixLabels(ctx context.Context, req FixLabelsRequest) (engine.Record, error) {
 	return h.engine.FixOrganizationLabels(ctx, req.Body.Organization)
 }

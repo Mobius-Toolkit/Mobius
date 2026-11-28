@@ -340,10 +340,10 @@ type StartCheckRequest struct {
 
 // StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for
 // this run. It returns 409 when the session does not wait for a low load.
-func (h *handlers) StartCheck(ctx context.Context, req StartCheckRequest) error {
-	err := h.engine.StartCheckNow(ctx, req.Path.ID)
+func (h *handlers) StartCheck(ctx context.Context, req StartCheckRequest) (engine.Record, error) {
+	record, err := h.engine.StartCheckNow(ctx, req.Path.ID)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }

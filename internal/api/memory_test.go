@@ -169,7 +169,7 @@ func TestTheMemoryRouteGivesTheReasonOfEachVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := listMemory(t, server, shop)[1]
-	if err := server.Engine.RevertMemory(t.Context(), shop, "shared", first.ID); err != nil {
+	if _, err := server.Engine.RevertMemory(t.Context(), shop, "shared", first.ID); err != nil {
 		t.Fatal(err)
 	}
 

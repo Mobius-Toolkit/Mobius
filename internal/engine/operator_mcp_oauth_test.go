@@ -147,7 +147,7 @@ func withOAuthUIURL(cfg *config.Config) { cfg.UIURL = oauthUIURL }
 func connectOAuthServer(t *testing.T, server *testserver.Server, fake *fakeOAuth, workstreams ...int64) int64 {
 	t.Helper()
 	ctx := t.Context()
-	added, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
+	added, _, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
 		Name: oauthServer, Kind: "http", URL: fake.URL + "/mcp", Headers: []engine.McpPair{{Name: siteHeader, Value: siteTeam}},
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func connectOAuthServer(t *testing.T, server *testserver.Server, fake *fakeOAuth
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.Engine.FinishMcpOAuth(ctx, oauthCode, address.Query().Get("state"), fake.URL, ""); err != nil {
+	if _, _, err := server.Engine.FinishMcpOAuth(ctx, oauthCode, address.Query().Get("state"), fake.URL, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, workstream := range workstreams {

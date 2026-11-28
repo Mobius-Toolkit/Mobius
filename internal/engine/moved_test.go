@@ -35,7 +35,7 @@ func setHarness(t *testing.T, server *testserver.Server, role string, harness co
 		}
 	}
 	binding.Harness, binding.Model = harness, model
-	if err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,7 +173,7 @@ func TestAResetOfTheLeadThatChangesItsHarnessMovesTheWaitingLead(t *testing.T) {
 	sendChat(t, server, leadChat, "Plan the API")
 	waitForPausedSession(t, server, leadChat, engine.LeadRole, 1)
 
-	if err := server.Engine.ResetRole(t.Context(), "lead"); err != nil {
+	if _, err := server.Engine.ResetRole(t.Context(), "lead"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -203,7 +203,7 @@ func TestEachMoveOfAChatAddsNothingToItsCrashCount(t *testing.T) {
 		waitForPausedSession(t, server, leadChat, engine.LeadRole, n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return ownerDelivered(t, server, leadChat) })

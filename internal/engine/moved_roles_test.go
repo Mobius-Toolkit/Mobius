@@ -45,7 +45,7 @@ func moveRole(t *testing.T, server *testserver.Server, role string, harness conf
 		}
 	}
 	binding.Harness, binding.Model, binding.Effort = harness, model, effort
-	if err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
 		t.Fatal(err)
 	}
 }

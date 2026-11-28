@@ -1773,7 +1773,7 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 				return true
 			}
 			if node.Session.QueueReason.String == "waits for a low load" {
-				_ = server.Engine.StartCheckNow(t.Context(), node.Session.ID)
+				_, _ = server.Engine.StartCheckNow(t.Context(), node.Session.ID)
 			}
 		}
 		return false

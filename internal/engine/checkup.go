@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -122,12 +123,17 @@ func (e *Engine) permissions(ctx context.Context, appID int64, organization stri
 	return checks, nil
 }
 
-// FixOrganizationLabels runs FixLabels on each repository of the organization.
-func (e *Engine) FixOrganizationLabels(ctx context.Context, organization string) error {
-	for _, repository := range e.managed(organization) {
+// FixOrganizationLabels runs FixLabels on each repository of the organization. An organization with no repository gives
+// a Record with no chat.
+func (e *Engine) FixOrganizationLabels(ctx context.Context, organization string) (Record, error) {
+	repositories := e.managed(organization)
+	for _, repository := range repositories {
 		if err := FixLabels(ctx, repository); err != nil {
-			return err
+			return Record{}, err
 		}
 	}
-	return nil
+	if len(repositories) == 0 {
+		return Record{}, nil
+	}
+	return recordIn(fmt.Sprintf("You fixed the Mobius labels of %s.", organization), ChatKey{Organization: organization}), nil
 }

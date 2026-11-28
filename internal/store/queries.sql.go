@@ -4535,6 +4535,28 @@ func (q *Queries) GetMcpServer(ctx context.Context, arg GetMcpServerParams) (Mcp
 	return i, err
 }
 
+const getMcpServerByID = `-- name: GetMcpServerByID :one
+SELECT id, organization, name, kind, url, headers, command, args, env, updated_at FROM mcp_servers WHERE id = ?
+`
+
+func (q *Queries) GetMcpServerByID(ctx context.Context, id int64) (McpServer, error) {
+	row := q.db.QueryRowContext(ctx, getMcpServerByID, id)
+	var i McpServer
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Name,
+		&i.Kind,
+		&i.Url,
+		&i.HeaderList,
+		&i.Command,
+		&i.Args,
+		&i.Env,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getMcpServerOAuth = `-- name: GetMcpServerOAuth :one
 SELECT server, client_id, client_secret, issuer, token_endpoint, resource, scope, state, code_verifier, flow_started_at, access_token, refresh_token, expires_at, failure, updated_at FROM mcp_server_oauth WHERE server = ?
 `

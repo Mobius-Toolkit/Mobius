@@ -474,13 +474,16 @@ func (e *Engine) endDuePauses(ctx context.Context) {
 	}
 }
 
-// Resume ends the pause of harness now. A Harness with no pause is no error.
-func (e *Engine) Resume(ctx context.Context, harness string) error {
+// Resume ends the pause of harness now. A Harness with no pause is no error, and gives a Record with no chat.
+func (e *Engine) Resume(ctx context.Context, harness string) (Record, error) {
 	pause, err := e.harnessPause(ctx, config.Harness(harness))
 	if err != nil || pause == nil {
-		return err
+		return Record{}, err
 	}
-	return e.endPause(ctx, *pause)
+	if err := e.endPause(ctx, *pause); err != nil {
+		return Record{}, err
+	}
+	return e.organizationRecord(fmt.Sprintf("You resumed the Harness %s.", harness)), nil
 }
 
 // The kinds of a PauseUser.

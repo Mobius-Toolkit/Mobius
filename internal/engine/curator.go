@@ -510,7 +510,7 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 		}
 		text = strings.Replace(text, input.Old, input.New, 1)
 	}
-	if err := e.saveMemory(ctx, c.repository, input.File, "curator", input.Reason, text); err != nil {
+	if _, err := e.saveMemory(ctx, c.repository, input.File, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
 	c.agent.memoryEdits = append(c.agent.memoryEdits, input)
