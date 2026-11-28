@@ -1216,11 +1216,11 @@ function oldValueOf(model: Model, action: PendingAction, arg: ActionArgument): s
   }
 }
 
-// The title of the action names the recurring task, so the sheet has no row for its id.
 function isHiddenArgument(action: PendingAction, arg: ActionArgument): boolean {
   switch (action.tool) {
     case "message_lead":
       return arg.name === "workstream";
+    // The title of the action names the recurring task.
     case "update_recurring_task":
     case "delete_recurring_task":
       return arg.name === "id";
