@@ -301,7 +301,7 @@ func postRun(t *testing.T, server *testserver.Server, id int64) (int, string) {
 func TestARunNowThroughTheAPIGivesOneLeadEventThatStartsATurnAndAManualHistoryRow(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
+	server, dataDir := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
 	setNow(server, friday)
 	task := addRecurringTask(t, server, weekdays, weekdaysText)
 
@@ -319,7 +319,7 @@ func TestARunNowThroughTheAPIGivesOneLeadEventThatStartsATurnAndAManualHistoryRo
 	if len(body.Data.Runs) != 1 || body.Data.Runs[0].Result != "manual" || body.Data.Runs[0].Reason != "" || !body.Data.Runs[0].Time.Equal(friday) {
 		t.Errorf("runs in the response = %+v", body.Data.Runs)
 	}
-	want := friday.UTC().Format("2006-01-02 15:04 UTC") + " the Owner started the recurring task 1 `0 8 * * 1-5` by hand:\n\n" + weekdaysQuote
+	want := friday.UTC().Format("2006-01-02 15:04 UTC") + " the Owner started the recurring task 1 `0 8 * * 1-5` by hand:\n\n" + weekdaysQuote + directoryText(dataDir, task.ID)
 	events := recurringEvents(t, server)
 	if len(events) != 1 || events[0].Payload != want {
 		t.Fatalf("recurring events = %+v, want one with %q", events, want)
