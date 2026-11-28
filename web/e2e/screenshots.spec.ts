@@ -5,8 +5,12 @@ import {
   askStore,
   briefTitle,
   cardOf,
+  changeRecurring,
+  changeRecurringTitle,
   checksQuestion,
   createTitle,
+  deleteRecurring,
+  deleteRecurringTitle,
   draftQuestion,
   draftWorkstream,
   dropColumn,
@@ -5115,8 +5119,8 @@ test("screenshots", async ({ page }) => {
     page.evaluate(`fetch("/api/unread")
       .then((response) => response.json())
       .then(({ data }) => data.some((chat) => chat.repository === "owner/shop" && chat.workstream === 14 && chat.count > 0))`);
-  const showBriefCard = async () => {
-    const card = briefCard();
+  const showDoneCard = (title: string) => async () => {
+    const card = cardOf(page, title);
     await expect(card.getByText("Done", { exact: true })).toBeVisible();
     await expect(card.getByRole("button", { name: "Details" })).toBeVisible();
     await expect.poll(unreadBrief).toBe(false);
@@ -5133,6 +5137,7 @@ test("screenshots", async ({ page }) => {
       )
       .toBe(true);
   };
+  const showBriefCard = showDoneCard(briefTitle);
   await page.goto("/workstreams/owner/shop/14");
   await expect(briefCard().getByText("Done", { exact: true })).toBeVisible();
   await fixActionTimes();
@@ -5242,6 +5247,87 @@ test("screenshots", async ({ page }) => {
     ],
     showDecision("Rejected", leadToLeadTitle),
   );
+
+  // The fake Lead of #14 changes and then deletes its recurring task. The fake Lead knows the ID 3 of the task: the
+  // fixtures have the IDs 1 and 2. The delete removes the task, so no other step sees it.
+  const recurringText = "Check the open pull requests and tell me which ones wait for a review.";
+  const recurringAdded = await page.request.post(
+    `/e2e/recurring-tasks/owner/shop/14?cron=${encodeURIComponent("0 8 * * 1-5")}&text=${encodeURIComponent(recurringText)}`,
+  );
+  expect(await recurringAdded.text()).toBe("3");
+  await page.goto("/workstreams/owner/shop/14");
+  await sendToLead(page, changeRecurring);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "action-recurring-update",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      removedText(panel).first(),
+      addedText(panel).first(),
+      removedSwitch(panel),
+    ],
+    async () => {
+      await showEnd(changeRecurringTitle)();
+      await row(changeRecurringTitle).getByRole("button", { name: "Answer" }).click();
+      await expect(addedText(panel).first()).toBeVisible();
+      await removedSwitch(panel).click();
+      await expect(removedSwitch(panel)).toBeChecked();
+      await expect(removedText(panel).first()).toBeVisible();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(changeRecurringTitle).getByRole("button", { name: "Answer" }).click();
+  await decide(page, panel, "approve");
+  await expect(panel).toBeHidden();
+  await expect(waits(1)).toBeHidden();
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(cardOf(page, changeRecurringTitle).getByText("Done", { exact: true })).toBeVisible();
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "action-recurring-update-done",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "1"),
+      removedSwitch(panel),
+      addedText(panel).first(),
+      panel.getByText("Done", { exact: true }),
+    ],
+    async () => {
+      await showDoneCard(changeRecurringTitle)();
+      await cardOf(page, changeRecurringTitle).getByRole("button", { name: "Details" }).click();
+      await expect(addedText(panel).first()).toBeVisible();
+      await expect(removedText(panel)).toHaveCount(0);
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await sendToLead(page, deleteRecurring);
+  await expect(waits(1)).toBeVisible({ timeout: 30_000 });
+  await fixActionTimes();
+  await screenshot(
+    page,
+    "action-recurring-delete",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      panel.getByText("Check the open pull requests and the failed checks"),
+      panel.getByText("0 10 * * 1-5"),
+    ],
+    async () => {
+      await showEnd(deleteRecurringTitle)();
+      await row(deleteRecurringTitle).getByRole("button", { name: "Answer" }).click();
+      await expect(panel.getByText("0 10 * * 1-5")).toBeVisible();
+    },
+    () => page.keyboard.press("Escape"),
+  );
+  await row(deleteRecurringTitle).getByRole("button", { name: "Answer" }).click();
+  await decide(page, panel, "approve");
+  await expect(panel).toBeHidden();
+  await expect(waits(1)).toBeHidden();
+  await settle(page);
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);

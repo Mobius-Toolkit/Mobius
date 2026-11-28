@@ -1945,6 +1945,9 @@ UPDATE pending_actions SET awaits_number = 0 WHERE id = ?;
 -- name: SetPendingActionOldBrief :exec
 UPDATE pending_actions SET old_brief = ? WHERE id = ?;
 
+-- name: SetPendingActionOldRecurring :exec
+UPDATE pending_actions SET old_recurring_text = ?, old_recurring_cron = ? WHERE id = ?;
+
 -- name: FailRunningPendingActions :exec
 UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;
 

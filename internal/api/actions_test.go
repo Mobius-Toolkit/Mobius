@@ -118,3 +118,69 @@ func TestTheBriefOfAnUnknownActionGives404(t *testing.T) {
 		t.Errorf("status %d: %s", recorder.Code, recorder.Body)
 	}
 }
+
+func TestAnActionGivesTheStoredOldTextAndCronOfItsRecurringTask(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:00Z'),
+		(2, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:01Z')`)
+	exec(t, db, `INSERT INTO pending_actions (id, organization, repository, workstream, issue, role, tool, arguments, state, time, inbox_item, old_recurring_text, old_recurring_cron) VALUES
+		(1, 'owner', 'owner/shop', 12, 0, 'lead', 'update_recurring_task', '{"id":3,"text":"New.","cron":"0 9 * * *"}', 'done', '2026-10-04T10:00:00Z', 1, 'Old.', '0 8 * * *'),
+		(2, 'owner', 'owner/shop', 12, 0, 'lead', 'edit_brief', '{"brief":"New.","reason":"Why."}', 'pending', '2026-10-04T10:00:01Z', 2, '', '')`)
+
+	actions := listedActions(t, mux)
+
+	if found := actions[1]; found.OldRecurringText != "Old." || found.OldRecurringCron != "0 8 * * *" {
+		t.Errorf("found = %+v", found)
+	}
+	if found := actions[2]; found.OldRecurringText != "" || found.OldRecurringCron != "" {
+		t.Errorf("found = %+v", found)
+	}
+}
+
+func TestTheRecurringTaskOfAnUpdateOrDeleteActionIsTheTaskNow(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:00Z'),
+		(2, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:01Z'),
+		(3, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:02Z')`)
+	exec(t, db, `INSERT INTO recurring_tasks (id, repository, workstream, cron, text, checked_at) VALUES
+		(3, 'owner/shop', 12, '0 8 * * *', 'Check the plans.', '2026-10-04T10:00:00Z')`)
+	exec(t, db, `INSERT INTO pending_actions (id, organization, repository, workstream, issue, role, tool, arguments, state, time, inbox_item) VALUES
+		(1, 'owner', 'owner/shop', 12, 0, 'lead', 'update_recurring_task', '{"id":3,"text":"New.","cron":"0 9 * * *"}', 'pending', '2026-10-04T10:00:00Z', 1),
+		(2, 'owner', 'owner/shop', 12, 0, 'lead', 'delete_recurring_task', '{"id":3}', 'pending', '2026-10-04T10:00:01Z', 2),
+		(3, 'owner', 'owner/shop', 12, 0, 'lead', 'delete_recurring_task', '{"id":4}', 'pending', '2026-10-04T10:00:02Z', 3)`)
+
+	for _, id := range []string{"1", "2"} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/actions/"+id+"/recurring", nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("action %s: status %d: %s", id, recorder.Code, recorder.Body)
+		}
+		var body Envelope[ActionRecurring]
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if want := (ActionRecurring{Text: "Check the plans.", Cron: "0 8 * * *"}); body.Data != want {
+			t.Errorf("action %s: data = %+v, want %+v", id, body.Data, want)
+		}
+	}
+}
+
+func TestTheRecurringTaskOfAnUnknownActionOrATaskThatDoesNotExistGives404AndOfAnActionOfAnotherToolGives409(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `INSERT INTO inbox_items (id, kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES
+		(1, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:00Z'),
+		(2, 'approval', 'owner', 'owner/shop', 'owner/shop', 12, 0, '', '', '2026-10-04T10:00:01Z')`)
+	exec(t, db, `INSERT INTO pending_actions (id, organization, repository, workstream, issue, role, tool, arguments, state, time, inbox_item) VALUES
+		(1, 'owner', 'owner/shop', 12, 0, 'lead', 'delete_recurring_task', '{"id":4}', 'pending', '2026-10-04T10:00:00Z', 1),
+		(2, 'owner', 'owner/shop', 12, 0, 'lead', 'edit_brief', '{"brief":"New.","reason":"Why."}', 'pending', '2026-10-04T10:00:01Z', 2)`)
+
+	for id, want := range map[string]int{"9": http.StatusNotFound, "1": http.StatusNotFound, "2": http.StatusConflict} {
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/actions/"+id+"/recurring", nil))
+		if recorder.Code != want {
+			t.Errorf("action %s: status %d, want %d: %s", id, recorder.Code, want, recorder.Body)
+		}
+	}
+}

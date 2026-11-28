@@ -41,6 +41,11 @@ type PendingAction struct {
 	// OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the
 	// other tools, for a pending action, and for an action of an older release
 	OldBrief string `gork:"oldBrief"`
+	// OldRecurringText is the text of the recurring task that the approval of update_recurring_task or
+	// delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action
+	OldRecurringText string `gork:"oldRecurringText"`
+	// OldRecurringCron is the cron expression of that recurring task, with the same empty cases
+	OldRecurringCron string `gork:"oldRecurringCron"`
 	// DecidedAt is the time when the action was done, rejected, replaced or withdrawn, or null
 	DecidedAt *time.Time `gork:"decidedAt"`
 	// Sender is the Workstream of the Lead that made the action. It is null for the other roles
@@ -207,6 +212,47 @@ func (h *handlers) GetActionBrief(ctx context.Context, req GetActionBriefRequest
 	return &GetActionBriefResponse{Body: Envelope[ActionBrief]{Data: ActionBrief{Brief: brief}}}, nil
 }
 
+// GetActionRecurringRequest is the request of GetActionRecurring.
+type GetActionRecurringRequest struct {
+	Path struct {
+		// ID is the id of the action
+		ID int64 `gork:"id"`
+	}
+}
+
+// ActionRecurring is the current recurring task of an update_recurring_task or delete_recurring_task action.
+type ActionRecurring struct {
+	// Text is the text of the recurring task now
+	Text string `gork:"text"`
+	// Cron is the cron expression of the recurring task now
+	Cron string `gork:"cron"`
+}
+
+// GetActionRecurringResponse is the response of GetActionRecurring.
+type GetActionRecurringResponse struct {
+	Body Envelope[ActionRecurring]
+}
+
+// GetActionRecurring reads the recurring task of the id argument of an update_recurring_task or delete_recurring_task
+// action. It returns 404 for an unknown action or a recurring task that does not exist, and 409 for an action of
+// another tool.
+func (h *handlers) GetActionRecurring(ctx context.Context, req GetActionRecurringRequest) (*GetActionRecurringResponse, error) {
+	text, cron, err := h.engine.ActionRecurring(ctx, req.Path.ID)
+	if errors.Is(err, engine.ErrNoAction) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "There is no such action.")
+	}
+	if errors.Is(err, engine.ErrNoRecurringTask) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
+	}
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &GetActionRecurringResponse{Body: Envelope[ActionRecurring]{Data: ActionRecurring{Text: text, Cron: cron}}}, nil
+}
+
 func (h *handlers) decided(ctx context.Context, action store.PendingAction, err error) (PendingAction, error) {
 	if errors.Is(err, engine.ErrNoAction) {
 		return PendingAction{}, api.NewHTTPError(http.StatusNotFound, "There is no such action.")
@@ -230,16 +276,18 @@ func (h *handlers) actionOf(ctx context.Context, action store.PendingAction) (Pe
 		return PendingAction{}, err
 	}
 	found := PendingAction{
-		ID:        action.ID,
-		Role:      action.Role,
-		Tool:      action.Tool,
-		Arguments: make([]ActionArgument, 0, len(arguments)),
-		State:     action.State,
-		Error:     action.Error,
-		Result:    action.Result,
-		Message:   action.Message,
-		OldBrief:  action.OldBrief,
-		Time:      t,
+		ID:               action.ID,
+		Role:             action.Role,
+		Tool:             action.Tool,
+		Arguments:        make([]ActionArgument, 0, len(arguments)),
+		State:            action.State,
+		Error:            action.Error,
+		Result:           action.Result,
+		Message:          action.Message,
+		OldBrief:         action.OldBrief,
+		OldRecurringText: action.OldRecurringText,
+		OldRecurringCron: action.OldRecurringCron,
+		Time:             t,
 	}
 	for _, argument := range arguments {
 		labels, err := actionLabels(argument)

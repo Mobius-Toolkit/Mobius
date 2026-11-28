@@ -175,6 +175,82 @@
         ]
       }
     },
+    "/api/actions/{id}/recurring": {
+      "get": {
+        "description": "GetActionRecurring reads the recurring task of the id argument of an update_recurring_task or delete_recurring_task action. It returns 404 for an unknown action or a recurring task that does not exist, and 409 for an action of another tool.",
+        "operationId": "GetActionRecurring",
+        "parameters": [
+          {
+            "description": "ID is the id of the action",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ActionRecurring"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "actions"
+        ]
+      }
+    },
     "/api/actions/{id}/reject": {
       "post": {
         "description": "RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.",
@@ -7652,6 +7728,25 @@
         ],
         "description": "ActionLabel is a label name of an action argument."
       },
+      "ActionRecurring": {
+        "type": "object",
+        "title": "ActionRecurring",
+        "properties": {
+          "cron": {
+            "type": "string",
+            "description": "Cron is the cron expression of the recurring task now"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the recurring task now"
+          }
+        },
+        "required": [
+          "text",
+          "cron"
+        ],
+        "description": "ActionRecurring is the current recurring task of an update_recurring_task or delete_recurring_task action."
+      },
       "ActionSender": {
         "type": "object",
         "title": "ActionSender",
@@ -8930,6 +9025,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ActionBrief",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_ActionRecurring": {
+        "type": "object",
+        "title": "Envelope_ActionRecurring",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActionRecurring",
             "description": "Data is the payload of the response"
           }
         },
@@ -11293,6 +11402,14 @@
             "type": "string",
             "description": "OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release"
           },
+          "oldRecurringCron": {
+            "type": "string",
+            "description": "OldRecurringCron is the cron expression of that recurring task, with the same empty cases"
+          },
+          "oldRecurringText": {
+            "type": "string",
+            "description": "OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action"
+          },
           "result": {
             "type": "string",
             "description": "Result is the result text of the tool after the run, or empty"
@@ -11349,6 +11466,8 @@
           "message",
           "time",
           "oldBrief",
+          "oldRecurringText",
+          "oldRecurringCron",
           "decidedAt",
           "sender"
         ],
