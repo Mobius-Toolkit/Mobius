@@ -176,12 +176,12 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 			fake.AddIssue(shop, 41, "Add plan model")
 			fake.AddSubIssue(shop, 12, 41)
 			fake.CloseIssue(shop, 41)
-			if err := server.Engine.CompleteWorkstream(t.Context(), shop, 12); err != nil {
+			if _, err := server.Engine.CompleteWorkstream(t.Context(), shop, 12); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"won't do": func(t *testing.T, server *testserver.Server, _ *testkit.FakeGitHub) {
-			if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+			if _, err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -495,7 +495,7 @@ func TestTwoStartsDuringACuratorSessionGiveOneMoreCuratorSession(t *testing.T) {
 		t.Fatalf("Curators after 10 sessions = %+v", sessions)
 	}
 	endLeads(t, server, 12)
-	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+	if _, err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
 		t.Fatal(err)
 	}
 	if sessions := curatorSessions(t, server); len(sessions) != 2 {

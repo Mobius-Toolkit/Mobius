@@ -171,7 +171,7 @@ func TestAPendingCIFailureIssueWithNoReadyGetsBelowTheWorkstreamWithNoLabelAndNo
 	twoPlacesOfTheSameFailure(t, fake, server)
 
 	number := createdCIFailureIssue(t, server)
-	if err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
+	if _, err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -203,11 +203,11 @@ func TestAPendingCIFailureIssueWithATaskGetsBelowTheWorkstreamWithNoLabelWrite(t
 	twoPlacesOfTheSameFailure(t, fake, server)
 
 	number := createdCIFailureIssue(t, server)
-	if err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
+	if _, err := server.Engine.StopIssue(t.Context(), shop, number); err != nil {
 		t.Fatal(err)
 	}
 	fake.AddSubIssue(shop, maintenance, number)
-	if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
 		t.Fatal(err)
 	}
 	if task := liveTaskOf(t, server, number); task.Workstream != maintenance {

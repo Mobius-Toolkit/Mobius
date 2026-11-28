@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -551,8 +552,8 @@ func TestDismissKeepsTheWaitingMessageAndTheNextTryDeliversIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := server.Engine.DismissByOwner(t.Context(), item.ID); err != nil {
-		t.Fatal(err)
+	if status, body := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/dismiss", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
 	}
 
 	waitForFailedMessage(t, server, leadChat, text)

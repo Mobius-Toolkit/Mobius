@@ -360,28 +360,25 @@ func TestTheEvergreenSwitchOfTheOwnerAddsOneRecordThatIsNotUnreadAndNotInTheProm
 func TestTheCloseOfAWorkstreamAddsOneRecordToTheLeadChat(t *testing.T) {
 	t.Parallel()
 	for name, test := range map[string]struct {
-		close func(*testing.T, *testserver.Server, *testkit.FakeGitHub)
+		close func(*testkit.FakeGitHub)
+		path  string
 		want  string
 	}{
-		"completed": {func(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
-			fake.CloseIssue(shop, 41)
-			if err := server.Engine.CompleteWorkstream(t.Context(), shop, 12); err != nil {
-				t.Fatal(err)
-			}
-		}, "You closed the Workstream."},
-		"won't do": {func(t *testing.T, server *testserver.Server, _ *testkit.FakeGitHub) {
-			if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
-				t.Fatal(err)
-			}
-		}, "You closed the Workstream as won't do."},
+		"completed": {func(fake *testkit.FakeGitHub) { fake.CloseIssue(shop, 41) }, "complete", "You closed the Workstream."},
+		"won't do":  {func(*testkit.FakeGitHub) {}, "close", "You closed the Workstream as won't do."},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			fake := testkit.NewFakeGitHub(t)
+			fake.AddUserCode(testkit.AppID, "user-code", "owner")
 			addWorkstream(fake)
 			server := startCopiedWithLead(t, fake)
+			authorize(t, server)
+			test.close(fake)
 
-			test.close(t, server, fake)
+			if status, body := send(t, server, http.MethodPost, "/api/workstreams/owner/shop/12/"+test.path, ""); status != http.StatusNoContent {
+				t.Fatalf("status = %d: %s", status, body)
+			}
 
 			waitForRecords(t, server, leadChat, test.want)
 		})
@@ -408,5 +405,30 @@ func TestEachSwitchChangeOfTheOwnerAddsOneRecordToTheCoordinatorChatThatIsNotUnr
 
 	if got, err := server.Engine.UnreadChats(t.Context()); err != nil || !reflect.DeepEqual(got, unread) {
 		t.Errorf("unread = %+v, %v, want %+v", got, err, unread)
+	}
+}
+
+func TestAnEngineActionGivesItsRecordAndAddRecordIsTheOnlyWriteOfTheLine(t *testing.T) {
+	t.Parallel()
+	server := startWithTasks(t, testkit.NewFakeGitHub(t))
+
+	record, err := server.Engine.SetSwitch(t.Context(), "start", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := (engine.Record{Chats: []engine.ChatKey{coordinatorChat}, Text: "You turned Start off."}); !reflect.DeepEqual(record, want) {
+		t.Errorf("record = %+v, want %+v", record, want)
+	}
+	if got := records(t, server, coordinatorChat); len(got) != 0 {
+		t.Errorf("records before AddRecord = %q", got)
+	}
+	server.Engine.AddRecord(t.Context(), engine.Record{Text: "No chat."})
+	server.Engine.AddRecord(t.Context(), engine.Record{Chats: []engine.ChatKey{coordinatorChat, leadChat}, Text: "Two chats."})
+	if got := records(t, server, coordinatorChat); !reflect.DeepEqual(got, []string{"Two chats."}) {
+		t.Errorf("records of the Coordinator = %q", got)
+	}
+	if got := records(t, server, leadChat); !reflect.DeepEqual(got, []string{"Two chats."}) {
+		t.Errorf("records of the Lead = %q", got)
 	}
 }

@@ -187,7 +187,7 @@ func TestAFailedParentReadOfACreatedIssueDoesNotStopTheDispatchOfALaterIssueAndT
 	})
 	fake.FailParents(shop, 44, true)
 	for _, number := range []int64{44, 43} {
-		if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+		if _, err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
 			t.Fatal(err)
 		}
 	}

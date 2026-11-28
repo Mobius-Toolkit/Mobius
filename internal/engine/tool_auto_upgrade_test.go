@@ -102,7 +102,7 @@ func TestTheAutoUpgradeInstallsTheNewestVersionWithTheNPMOfTheNodeInstall(t *tes
 
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
-	checks, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true)
+	checks, _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestAFailedAutoUpgradeAddsOneItemAndWaitsForANewerVersion(t *testing.T) {
 	server, fake, registry := upgradeServer(t, prefix, npm, program)
 	logAutoUpgradeStateOnFailure(t, server, runs)
 
-	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
+	if _, _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
@@ -188,11 +188,11 @@ func TestAnUpgradeByTheOwnerClearsTheFailedVersion(t *testing.T) {
 
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
-	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
+	if _, _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil {
 		t.Fatal("the upgrade did not fail")
 	}
 	rows, err := store.New(server.DB).ListToolAutoUpgrades(context.Background())
@@ -204,7 +204,7 @@ func TestAnUpgradeByTheOwnerClearsTheFailedVersion(t *testing.T) {
 	}
 
 	nodeProgram(t, filepath.Join(prefix, "bin", "npm"), "#!/bin/sh\n"+installScript(program, "0.2.1-rc.5")+"\n")
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err != nil {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err != nil {
 		t.Fatal(err)
 	}
 	rows, err = store.New(server.DB).ListToolAutoUpgrades(context.Background())
@@ -224,16 +224,19 @@ func TestSetToolAutoUpgradeKeepsTheValueAndAddsTheRecord(t *testing.T) {
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
 	ctx := context.Background()
-	if _, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, true); err != nil {
-		t.Fatal(err)
-	}
-	if !dshTool(t, server.Engine.Tools(ctx)).AutoUpgrade {
-		t.Errorf("the switch is off after a new tool list read")
-	}
-	checks, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, false)
+	_, record, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, true)
 	if err != nil {
 		t.Fatal(err)
 	}
+	server.Engine.AddRecord(ctx, record)
+	if !dshTool(t, server.Engine.Tools(ctx)).AutoUpgrade {
+		t.Errorf("the switch is off after a new tool list read")
+	}
+	checks, record, err := server.Engine.SetToolAutoUpgrade(ctx, upgradePackage, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.Engine.AddRecord(ctx, record)
 	if dshTool(t, checks).AutoUpgrade {
 		t.Errorf("the switch is on after the turn off")
 	}
@@ -252,7 +255,7 @@ func TestSetToolAutoUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 
 	server, _, _ := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program)
 
-	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), "@example/none", true); !engine.Refused(err) {
+	if _, _, err := server.Engine.SetToolAutoUpgrade(context.Background(), "@example/none", true); !engine.Refused(err) {
 		t.Errorf("error = %v", err)
 	}
 }
@@ -272,7 +275,7 @@ func TestTheAutoUpgradeRunsNoNPMWhileTheDrainIsOn(t *testing.T) {
 		t.Fatalf("drain: %v, %v", end, err)
 	}
 
-	if _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
+	if _, _, err := server.Engine.SetToolAutoUpgrade(context.Background(), upgradePackage, true); err != nil {
 		t.Fatal(err)
 	}
 

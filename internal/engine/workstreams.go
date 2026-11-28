@@ -21,63 +21,62 @@ const closedText = "Workstream closed"
 
 // CompleteWorkstream closes the open Workstream number of repository as completed, when the Workstream issue has
 // closed sub-issues or no sub-issue after a report of its Lead.
-func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, number int64) error {
+func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, number int64) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	stored, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if !stored {
-		return refuse("The issue is not an open Workstream.")
+		return Record{}, refuse("The issue is not an open Workstream.")
 	}
 	issue, err := repository.Issue(ctx, number)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, workstreamLabel) {
-		return refuse("The issue is not an open Workstream.")
+		return Record{}, refuse("The issue is not an open Workstream.")
 	}
 	tasks, err := repository.SubIssues(ctx, number)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if len(tasks) == 0 {
 		finishedAt, err := e.queries.GetWorkstreamFinishedAt(ctx, store.GetWorkstreamFinishedAtParams{Repository: repository.FullName, Number: number})
 		if errors.Is(err, sql.ErrNoRows) {
-			return refuse("The issue is not an open Workstream.")
+			return Record{}, refuse("The issue is not an open Workstream.")
 		}
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 		if !finishedAt.Valid {
-			return refuse("The Workstream has no task, and its Lead did not report it as finished.")
+			return Record{}, refuse("The Workstream has no task, and its Lead did not report it as finished.")
 		}
 	} else if slices.ContainsFunc(tasks, func(task *gh.Issue) bool { return task.GetState() != "closed" }) {
-		return refuse("A task of the Workstream is open.")
+		return Record{}, refuse("A task of the Workstream is open.")
 	}
 	todos, err := e.queries.CountOpenWorkstreamTodos(ctx, store.CountOpenWorkstreamTodosParams{
 		WorkstreamRepository: repository.FullName,
 		Workstream:           number,
 	})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if todos == 1 {
-		return refuse("The Workstream has 1 open todo.")
+		return Record{}, refuse("The Workstream has 1 open todo.")
 	}
 	if todos > 1 {
-		return refuse("The Workstream has %d open todos.", todos)
+		return Record{}, refuse("The Workstream has %d open todos.", todos)
 	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()
 	if err := e.handleWorkstreamClose(ctx, repository, number, closedCompleted); err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream.")
-	return nil
+	return recordIn("You closed the Workstream.", leadChat(repository.FullName, number)), nil
 }
 
 // setBrief writes brief with no Lead chat link line into the open Workstream row and adds an outgoing body change in
@@ -690,34 +689,34 @@ func (e *Engine) WorkstreamClosure(ctx context.Context, repositoryName string, n
 
 // CloseWorkstreamWontDo closes the open Workstream number of repository and the items of WorkstreamClosure as "won't
 // do", also when the Workstream has open issues. Then it does the work of a close on GitHub.
-func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName string, number int64) error {
+func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName string, number int64) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if _, err := e.openWorkstream(ctx, repository, number); err != nil {
-		return err
+		return Record{}, err
 	}
 	ctx = context.WithoutCancel(ctx)
 	defer e.beginClose(repository.FullName, number)()
 	if err := e.stopWorkstream(ctx, repository, number); err != nil {
-		return err
+		return Record{}, err
 	}
 	items, err := e.closureItems(ctx, repository, number)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	for _, item := range items {
 		source, err := e.repository(item.Repository)
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 		workstream := fmt.Sprintf("#%d", number)
 		if item.Repository != repository.FullName {
 			workstream = fmt.Sprintf("%s#%d", repository.FullName, number)
 		}
 		if err := e.postCommentOnce(ctx, source, item.Number, fmt.Sprintf("The Workstream %s closed as \"won't do\".", workstream)); err != nil {
-			return err
+			return Record{}, err
 		}
 		switch {
 		case item.PullRequest:
@@ -725,33 +724,32 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		case item.Repository == repository.FullName && item.Number == number:
 			// The issue can be closed on GitHub after a failed call, so the own write stays.
 			if _, ownErr := addOwnWrite(ctx, e.queries, repository.FullName, number, stateField, "", closedChange); ownErr != nil {
-				return ownErr
+				return Record{}, ownErr
 			}
 			_, err = source.CloseIssue(ctx, item.Number, "not_planned")
 		default:
 			err = e.closeTreeIssue(ctx, source, item.Number, "not_planned")
 		}
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 	}
 	if err := e.closeCopiedWorkstream(ctx, repository, number, closedNotPlanned); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.closeWorkstream(ctx, repository, number); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.removeClosedWorkstreamTree(ctx, repository.FullName, number); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.queries.ClearWorkstreamClosePending(ctx, store.ClearWorkstreamClosePendingParams{Repository: repository.FullName, Number: number}); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.startCurator(ctx, repository.FullName); err != nil {
 		log.Printf("start a Curator of %s: %v", repository.FullName, err)
 	}
-	e.addRecord(ctx, leadChat(repository.FullName, number), "You closed the Workstream as won't do.")
-	return nil
+	return recordIn("You closed the Workstream as won't do.", leadChat(repository.FullName, number)), nil
 }
 
 // beginClose hides the Workstream number of repository from the Workstream list. The returned function shows it
@@ -1058,26 +1056,25 @@ func (e *Engine) hasWork(ctx context.Context, repository string, workstream int6
 
 // SetAutopilot sets the Autopilot level of the open Workstream number of repository. It changes workstreams and acts
 // at once. The send of the outgoing changes writes the labels.
-func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number int64, level string) error {
+func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number int64, level string) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse("The issue is not an open Workstream.")
+		return Record{}, refuse("The issue is not an open Workstream.")
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.changeLevel(ctx, repository, number, copied.Title, level, "the Owner"); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.applyLevel(ctx, repository.FullName, number, level); err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]))
-	return nil
+	return recordIn(fmt.Sprintf("You set the Autopilot level to %s.", levelNames[level]), leadChat(repository.FullName, number)), nil
 }
 
 // changeLevel is the handler of a change of the Autopilot level of the Workstream number of repository to level. It
@@ -1135,34 +1132,33 @@ func (e *Engine) setLevel(ctx context.Context, repository github.Repository, num
 
 // SetEvergreen makes the open Workstream number of repository evergreen or not evergreen. It refuses the Maintenance
 // Workstream and the Skills Workstream, because Mobius manages them.
-func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number int64, on bool) error {
+func (e *Engine) SetEvergreen(ctx context.Context, repositoryName string, number int64, on bool) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse("The issue is not an open Workstream.")
+		return Record{}, refuse("The issue is not an open Workstream.")
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if copied.Maintenance {
-		return refuse("#%d is the Maintenance Workstream. Mobius manages it, so its evergreen value cannot change.", number)
+		return Record{}, refuse("#%d is the Maintenance Workstream. Mobius manages it, so its evergreen value cannot change.", number)
 	}
 	if copied.Skills {
-		return refuse("#%d is the Skills Workstream. Mobius manages it, so its evergreen value cannot change.", number)
+		return Record{}, refuse("#%d is the Skills Workstream. Mobius manages it, so its evergreen value cannot change.", number)
 	}
 	if err := e.setEvergreen(ctx, repository, number, on); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.publish(Change{Workstreams: true})
 	state := "off"
 	if on {
 		state = "on"
 	}
-	e.addRecord(ctx, leadChat(repository.FullName, number), fmt.Sprintf("You turned Evergreen %s.", state))
-	return nil
+	return recordIn(fmt.Sprintf("You turned Evergreen %s.", state), leadChat(repository.FullName, number)), nil
 }
 
 // setEvergreen is the handler of a change of the evergreen setting of the Workstream number of repository. It sets the

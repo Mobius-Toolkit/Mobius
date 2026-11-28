@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 // HeldWork is an open issue with work that an off switch holds.
@@ -87,6 +89,6 @@ type SetSwitchRequest struct {
 }
 
 // SetSwitch turns a global switch on or off. Turning a switch on ends the hold of its work.
-func (h *handlers) SetSwitch(ctx context.Context, req SetSwitchRequest) error {
+func (h *handlers) SetSwitch(ctx context.Context, req SetSwitchRequest) (engine.Record, error) {
 	return h.engine.SetSwitch(ctx, req.Path.Kind, req.Body.On)
 }

@@ -82,10 +82,11 @@ func TestTheUpgradeRunsTheNPMOfTheNodeInstallOfTheProgram(t *testing.T) {
 
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
-	checks, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
+	checks, record, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
 	if err != nil {
 		t.Fatal(err)
 	}
+	server.Engine.AddRecord(context.Background(), record)
 
 	written, err := os.ReadFile(filepath.Clean(args))
 	if err != nil {
@@ -117,7 +118,7 @@ func TestAFailedUpgradeGivesTheNPMOutputAndKeepsTheVersion(t *testing.T) {
 
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil || !strings.Contains(err.Error(), "npm ERR! network down") {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil || !strings.Contains(err.Error(), "npm ERR! network down") {
 		t.Fatalf("error = %v", err)
 	}
 	if got := dshVersion(t, server.Engine.Tools(context.Background())); got != "0.2.1-rc.4" {
@@ -136,12 +137,12 @@ func TestASecondUpgradeOfTheSamePackageIsRefusedWhileTheFirstRuns(t *testing.T) 
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
+		_, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
 		done <- err
 	}()
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
 
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); !engine.Refused(err) {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); !engine.Refused(err) {
 		t.Errorf("second upgrade error = %v", err)
 	}
 	touch(t, release)
@@ -163,7 +164,8 @@ func TestAnUpgradeEndsAfterTheRequestOfTheOwnerEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := server.Engine.UpgradeTool(ctx, upgradePackage)
+		_, record, err := server.Engine.UpgradeTool(ctx, upgradePackage)
+		server.Engine.AddRecord(ctx, record)
 		done <- err
 	}()
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
@@ -186,7 +188,7 @@ func TestTheUpgradeRefusesAPackageThatNoRowHas(t *testing.T) {
 
 	server, _, _ := upgradeServer(t, prefix, "#!/bin/sh\nexit 0\n", program)
 
-	if _, err := server.Engine.UpgradeTool(context.Background(), "@example/none"); !engine.Refused(err) {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), "@example/none"); !engine.Refused(err) {
 		t.Errorf("error = %v", err)
 	}
 }
@@ -203,7 +205,7 @@ func TestTheDrainWaitsForARunningUpgrade(t *testing.T) {
 
 	upgradeDone := make(chan error, 1)
 	go func() {
-		_, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
+		_, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage)
 		upgradeDone <- err
 	}()
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
@@ -247,7 +249,7 @@ func TestAnUpgradeIsRefusedWhileTheDrainIsOn(t *testing.T) {
 		t.Fatalf("drain: %v, %v", end, err)
 	}
 
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); !engine.Refused(err) {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); !engine.Refused(err) {
 		t.Errorf("error = %v, want refusal", err)
 	}
 	if _, err := os.Stat(ran); !errors.Is(err, fs.ErrNotExist) {
@@ -263,7 +265,7 @@ func TestTheDrainGivesDrainedAfterAFailedUpgrade(t *testing.T) {
 	server, _, _ := upgradeServer(t, prefix, npm, program)
 	t.Cleanup(func() { server.Engine.CancelDrain() })
 
-	if _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil {
+	if _, _, err := server.Engine.UpgradeTool(context.Background(), upgradePackage); err == nil {
 		t.Fatal("upgrade succeeded, want failure")
 	}
 

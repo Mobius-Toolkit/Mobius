@@ -364,11 +364,34 @@ func (e *Engine) announceChatMessage(ctx context.Context, key ChatKey, author st
 	return e.publishUnread(ctx, key)
 }
 
-// addRecord adds a record line about an action of the Owner to the chat. No agent gets the record. A failed write only
-// goes to the log, because the action has succeeded.
-func (e *Engine) addRecord(ctx context.Context, key ChatKey, text string) {
-	if _, err := e.addChatMessage(ctx, key, recordAuthor, text, "", "", nil, nil, false, 0); err != nil {
-		log.Printf("add a record to the chat of %s #%d: %v", key.Repository, key.Workstream, err)
+// Record is the record line about an action. Chats are the chats that get the line. A Record with no chat tells that the
+// action changed nothing.
+type Record struct {
+	Chats []ChatKey
+	Text  string
+}
+
+func recordIn(text string, chats ...ChatKey) Record {
+	return Record{Chats: chats, Text: text}
+}
+
+// organizationRecord is a Record for the chat of each organization.
+func (e *Engine) organizationRecord(text string) Record {
+	record := Record{Text: text}
+	for _, organization := range e.github.Organizations() {
+		record.Chats = append(record.Chats, ChatKey{Organization: organization})
+	}
+	return record
+}
+
+// AddRecord adds the line of record to each chat of record, after its action succeeded. It is the only write of a Record
+// message. No agent gets the line. A failed write only goes to the log, because the action has succeeded.
+func (e *Engine) AddRecord(ctx context.Context, record Record) {
+	ctx = context.WithoutCancel(ctx)
+	for _, key := range record.Chats {
+		if _, err := e.addChatMessage(ctx, key, recordAuthor, record.Text, "", "", nil, nil, false, 0); err != nil {
+			log.Printf("add a record to the chat of %s #%d: %v", key.Repository, key.Workstream, err)
+		}
 	}
 }
 
