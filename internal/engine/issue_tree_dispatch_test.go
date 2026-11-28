@@ -209,6 +209,7 @@ func TestACloseAsWontDoClosesEachOpenIssueOfTheTreeInTheTableIssues(t *testing.T
 	fake.AddLabel(shop, 45, "mobius:ready", "owner")
 	server := startAutopilot(t, fake, func(*config.Config) {}, "")
 	testkit.WaitFor(t, func() bool { return len(issueRows(t, server)) == 5 })
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 45), "mobius:ready") })
 
 	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -222,7 +223,9 @@ func TestACloseAsWontDoClosesEachOpenIssueOfTheTreeInTheTableIssues(t *testing.T
 			t.Errorf("comments of #%d = %v", number, comments)
 		}
 	}
-	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 45), "mobius:ready") })
+	if labels := fake.Labels(shop, 45); slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels of #45 = %v", labels)
+	}
 	if start := startByOf(t, server, shop, 45); start != "" {
 		t.Errorf("start of #45 = %q", start)
 	}
