@@ -201,7 +201,7 @@ func roleTitleOf(name string) string {
 	return groups[slices.IndexFunc(groups, func(g group) bool { return g.name == name })].title
 }
 
-// bindingText gives the Harness, the model and the effort of binding, for a Record.
+// bindingText gives the Harness, the model, the effort, the context and the max of binding, for a Record.
 func bindingText(binding config.RoleBinding) string {
 	parts := []string{string(binding.Harness)}
 	if binding.Model != "" {
@@ -210,6 +210,10 @@ func bindingText(binding config.RoleBinding) string {
 	if binding.Effort != "" {
 		parts = append(parts, "effort "+binding.Effort)
 	}
+	if binding.Context != 0 {
+		parts = append(parts, fmt.Sprintf("context %d", binding.Context))
+	}
+	parts = append(parts, fmt.Sprintf("max %d", binding.Max))
 	return strings.Join(parts, ", ")
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
@@ -22,7 +23,7 @@ func TestARoleChangeOfTheOwnerAddsOneRecordToTheCoordinatorChatAndARefusalAddsNo
 	}
 
 	sendRole(t, server, "lead", leadOpus)
-	want := []string{"You set the Role Lead to claude-code, opus, effort high."}
+	want := []string{"You set the Role Lead to claude-code, opus, effort high, max 8."}
 	if got := records(t, server, coordinatorChat); !reflect.DeepEqual(got, want) {
 		t.Errorf("records after the PUT = %q, want %q", got, want)
 	}
@@ -33,6 +34,24 @@ func TestARoleChangeOfTheOwnerAddsOneRecordToTheCoordinatorChatAndARefusalAddsNo
 	got := records(t, server, coordinatorChat)
 	if len(got) != 2 || !strings.HasPrefix(got[1], "You reset the Role Lead to ") {
 		t.Errorf("records after the DELETE = %q", got)
+	}
+}
+
+func TestAChangeOfOnlyTheMaxOfAnImplementerBindingGivesARecordThatNamesTheNewMax(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), usageTurn)
+	binding := config.RoleBinding{Harness: config.ClaudeCode, Model: "sonnet", Effort: "high", Max: 1}
+	id := addBinding(t, server, binding.Harness, binding.Model, binding.Effort, binding.Max)
+
+	binding.Max = 2
+	record, err := server.Engine.SetImplementerBinding(t.Context(), id, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "You changed the Implementer binding claude-code, sonnet, effort high, max 1 to claude-code, sonnet, effort high, max 2."
+	if record.Text != want {
+		t.Errorf("record = %q, want %q", record.Text, want)
 	}
 }
 
