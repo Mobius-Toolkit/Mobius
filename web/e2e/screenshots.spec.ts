@@ -2543,6 +2543,7 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/orchard/issues/5",
       blockedBy: [],
       startWait: "",
+      merging: false,
       pausedUntil: null,
       wait: "",
     });
@@ -2588,6 +2589,7 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/garden/issues/74",
       blockedBy: [],
       startWait: "",
+      merging: false,
       pausedUntil: null,
       wait: "",
     });
@@ -2633,6 +2635,7 @@ test("screenshots", async ({ page }) => {
       url: "https://github.com/plants/garden/issues/75",
       blockedBy: [],
       startWait: "",
+      merging: false,
       pausedUntil: null,
       wait: "",
     });
@@ -2661,6 +2664,52 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute(ownerActionRoute);
+  const mergingRoute = "**/api/workstreams/plants/garden/19/tasks";
+  await page.route(mergingRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 76,
+      title: "Merge the hedge",
+      kind: "task",
+      evergreen: false,
+      state: "review",
+      depth: 0,
+      repository: "plants/garden",
+      implementer: null,
+      otherRepository: false,
+      url: "https://github.com/plants/garden/issues/76",
+      blockedBy: [],
+      startWait: "",
+      merging: true,
+      pausedUntil: null,
+      wait: "",
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(
+    page,
+    "chat-merging-task",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      ...(device === "desktop"
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
+      page.getByText("#76 Merge the hedge").filter({ visible: true }),
+      page.getByText("approved", { exact: true }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await page.getByRole("banner").getByRole("button", { name: "Tasks", exact: true }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await page.unroute(mergingRoute);
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),

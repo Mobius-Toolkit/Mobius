@@ -1456,6 +1456,8 @@ export interface TaskLine {
   implementer: IssueSetting | null;
   /** Kind is task for a task issue, and project for a Project of the Workstream */
   kind: TaskLineKind;
+  /** Merging is true when the task is in ready_for_review and the Owner started its merge */
+  merging: boolean;
   /** Number is the number of the task issue */
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */

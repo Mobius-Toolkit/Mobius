@@ -40,6 +40,8 @@ type TaskLine struct {
 	Wait string `gork:"wait" validate:"oneof='' paused start_off drain no_access slot check_slot low_load local_check init harness_start ci lead owner start_implementer owner_action"`
 	// PausedUntil is the end of the pause of the Harness when wait is paused, or null
 	PausedUntil *time.Time `gork:"pausedUntil"`
+	// Merging is true when the task is in ready_for_review and the Owner started its merge
+	Merging bool `gork:"merging"`
 }
 
 // Blocker is an open blocker of a task.
@@ -81,7 +83,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, Evergreen: line.Evergreen, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil}
+		task := TaskLine{Number: line.Number, Title: line.Title, Kind: line.Kind, Evergreen: line.Evergreen, State: line.State, StartWait: line.StartWait, URL: line.URL, Repository: line.Repository, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy)), Wait: string(line.Wait), PausedUntil: line.PausedUntil, Merging: line.Merging}
 		if line.Implementer != nil {
 			task.Implementer = &IssueSetting{Harness: line.Implementer.Harness, Model: line.Implementer.Model, Effort: line.Implementer.Effort}
 		}
