@@ -36,28 +36,34 @@ describe("displayState", () => {
     ["start_implementer", "waits for start_implementer"],
     ["owner_action", "waits for Owner action"],
   ])("gives the text of the wait %s and the variant outline", (wait, text) => {
-    expect(displayState({ state: "working", wait, pausedUntil: null })).toEqual({
+    expect(displayState({ state: "working", merging: false, wait, pausedUntil: null })).toEqual({
       text,
       variant: "outline",
     });
   });
 
   it("gives the end of the pause for the wait paused", () => {
-    expect(displayState({ state: "working", wait: "paused", pausedUntil: until })).toEqual({
+    expect(
+      displayState({ state: "working", merging: false, wait: "paused", pausedUntil: until }),
+    ).toEqual({
       text: `paused until ${dayClock(until)}`,
       variant: "outline",
     });
   });
 
   it("gives paused with no time when the end of the pause is unknown", () => {
-    expect(displayState({ state: "working", wait: "paused", pausedUntil: null })).toEqual({
+    expect(
+      displayState({ state: "working", merging: false, wait: "paused", pausedUntil: null }),
+    ).toEqual({
       text: "paused",
       variant: "outline",
     });
   });
 
   it("gives the state and the variant secondary for no wait", () => {
-    expect(displayState({ state: "reviewed", wait: "", pausedUntil: null })).toEqual({
+    expect(
+      displayState({ state: "reviewed", merging: false, wait: "", pausedUntil: null }),
+    ).toEqual({
       text: "reviewed",
       variant: "secondary",
     });
@@ -77,8 +83,12 @@ describe("displayState", () => {
   });
 
   it("keeps the state of an agent that is kept or stopped", () => {
-    expect(displayState({ state: "kept", wait: "", pausedUntil: null }).text).toBe("kept");
-    expect(displayState({ state: "stopped", wait: "", pausedUntil: null }).text).toBe("stopped");
+    expect(displayState({ state: "kept", merging: false, wait: "", pausedUntil: null }).text).toBe(
+      "kept",
+    );
+    expect(
+      displayState({ state: "stopped", merging: false, wait: "", pausedUntil: null }).text,
+    ).toBe("stopped");
   });
 });
 
