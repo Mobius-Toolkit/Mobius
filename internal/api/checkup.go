@@ -227,16 +227,16 @@ type UpgradeCheckupToolResponse struct {
 
 // UpgradeCheckupTool installs the newest version of the npm package of a tool, and returns the new tool list. It
 // returns 409 with the reason when Mobius does not upgrade the package or the npm run fails.
-func (h *handlers) UpgradeCheckupTool(ctx context.Context, req UpgradeCheckupToolRequest) (*UpgradeCheckupToolResponse, error) {
-	found, err := h.engine.UpgradeTool(ctx, req.Body.Package)
+func (h *handlers) UpgradeCheckupTool(ctx context.Context, req UpgradeCheckupToolRequest) (*UpgradeCheckupToolResponse, engine.Record, error) {
+	found, record, err := h.engine.UpgradeTool(ctx, req.Body.Package)
 	if err != nil {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	tools := make([]ToolCheck, 0, len(found))
 	for _, tool := range found {
 		tools = append(tools, ToolCheck(tool))
 	}
-	return &UpgradeCheckupToolResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
+	return &UpgradeCheckupToolResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, record, nil
 }
 
 // SetToolAutoUpgradeRequest is the request of SetToolAutoUpgrade.
@@ -256,16 +256,16 @@ type SetToolAutoUpgradeResponse struct {
 
 // SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and returns the new tool list. It
 // returns 409 with the reason when Mobius does not upgrade the package.
-func (h *handlers) SetToolAutoUpgrade(ctx context.Context, req SetToolAutoUpgradeRequest) (*SetToolAutoUpgradeResponse, error) {
-	found, err := h.engine.SetToolAutoUpgrade(ctx, req.Body.Package, *req.Body.On)
+func (h *handlers) SetToolAutoUpgrade(ctx context.Context, req SetToolAutoUpgradeRequest) (*SetToolAutoUpgradeResponse, engine.Record, error) {
+	found, record, err := h.engine.SetToolAutoUpgrade(ctx, req.Body.Package, *req.Body.On)
 	if err != nil {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	tools := make([]ToolCheck, 0, len(found))
 	for _, tool := range found {
 		tools = append(tools, ToolCheck(tool))
 	}
-	return &SetToolAutoUpgradeResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
+	return &SetToolAutoUpgradeResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, record, nil
 }
 
 // FixLabelsRequest is the request of FixLabels.

@@ -289,12 +289,12 @@ type ResumeIssueRequest struct {
 // ResumeIssue continues the stopped task of an issue. Mobius then removes mobius:needs-human from the issue and from the
 // pull request of the task. An issue with no live task gets a Start request. It returns 409 when Mobius refuses the
 // action.
-func (h *handlers) ResumeIssue(ctx context.Context, req ResumeIssueRequest) error {
-	err := h.engine.ResumeIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+func (h *handlers) ResumeIssue(ctx context.Context, req ResumeIssueRequest) (engine.Record, error) {
+	record, err := h.engine.ResumeIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // StartIssueRequest is the request of StartIssue.
@@ -310,12 +310,12 @@ type StartIssueRequest struct {
 }
 
 // StartIssue clears the triage state of an issue and requests a Start, so Mobius starts the task.
-func (h *handlers) StartIssue(ctx context.Context, req StartIssueRequest) error {
-	err := h.engine.StartIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+func (h *handlers) StartIssue(ctx context.Context, req StartIssueRequest) (engine.Record, error) {
+	record, err := h.engine.StartIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // StopIssueRequest is the request of StopIssue.
@@ -332,10 +332,10 @@ type StopIssueRequest struct {
 
 // StopIssue stops the live task of an issue and its agents, or clears a waiting Start when the issue has no running
 // task. It returns 409 with the reason when the issue has no task to stop.
-func (h *handlers) StopIssue(ctx context.Context, req StopIssueRequest) error {
-	err := h.engine.StopIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+func (h *handlers) StopIssue(ctx context.Context, req StopIssueRequest) (engine.Record, error) {
+	record, err := h.engine.StopIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }

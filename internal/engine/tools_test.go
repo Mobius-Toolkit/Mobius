@@ -977,7 +977,7 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
 	})
-	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 	if !hasStart(t, server, 41) {

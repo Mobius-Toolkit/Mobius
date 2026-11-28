@@ -1033,7 +1033,7 @@ func TestTheCloseOfAWorkstreamStopsTheQueuedOwnerMessages(t *testing.T) {
 	})
 	sendChat(t, server, leadChat, "Also add a price")
 
-	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+	if _, err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
 		t.Fatal(err)
 	}
 

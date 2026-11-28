@@ -325,33 +325,30 @@ func (e *Engine) autoUpgradePackages(ctx context.Context) map[string]bool {
 
 // UpgradeTool installs the newest version of the npm package of a tool, and gives the new tool list. It refuses a
 // package that no row has, a row with no newest version, and a package whose upgrade runs now.
-func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolCheck, error) {
+func (e *Engine) UpgradeTool(ctx context.Context, npmPackage string) ([]ToolCheck, Record, error) {
 	checks := e.Tools(ctx)
 	index := slices.IndexFunc(checks, func(check ToolCheck) bool { return check.Package == npmPackage })
 	if index < 0 {
-		return nil, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
+		return nil, Record{}, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
 	}
 	check := checks[index]
 	if check.Newest == "" {
-		return nil, refuse("Mobius has no newest version of %s.", check.Name)
+		return nil, Record{}, refuse("Mobius has no newest version of %s.", check.Name)
 	}
 	// The npm run and the steps after it continue when the request ends, so a closed connection cannot leave the
-	// package of the Harness half written and without its record.
+	// package of the Harness half written.
 	ctx = context.WithoutCancel(ctx)
 	if err := e.installNewest(ctx, check); err != nil {
 		if errors.Is(err, errUpgradeRuns) {
-			return nil, refuse("An upgrade of %s runs now.", check.Name)
+			return nil, Record{}, refuse("An upgrade of %s runs now.", check.Name)
 		}
 		if errors.Is(err, errDraining) {
-			return nil, refuse("Mobius prepares an upgrade, so no upgrade of %s starts now.", check.Name)
+			return nil, Record{}, refuse("Mobius prepares an upgrade, so no upgrade of %s starts now.", check.Name)
 		}
-		return nil, err
+		return nil, Record{}, err
 	}
 	e.clearToolUpgradeFailure(ctx, npmPackage)
-	for _, organization := range e.github.Organizations() {
-		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You upgraded %s to %s.", check.Name, check.Newest))
-	}
-	return e.Tools(ctx), nil
+	return e.Tools(ctx), e.organizationRecord(fmt.Sprintf("You upgraded %s to %s.", check.Name, check.Newest)), nil
 }
 
 // installNewest runs npm to install the newest version of check in the Node install of its program.
@@ -378,28 +375,25 @@ func (e *Engine) installNewest(ctx context.Context, check ToolCheck) error {
 
 // SetToolAutoUpgrade turns the auto-upgrade of the npm package of a tool on or off, and gives the new tool list. It
 // refuses a package that no row has.
-func (e *Engine) SetToolAutoUpgrade(ctx context.Context, npmPackage string, on bool) ([]ToolCheck, error) {
+func (e *Engine) SetToolAutoUpgrade(ctx context.Context, npmPackage string, on bool) ([]ToolCheck, Record, error) {
 	checks := e.Tools(ctx)
 	index := slices.IndexFunc(checks, func(check ToolCheck) bool { return check.Package == npmPackage })
 	if index < 0 {
-		return nil, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
+		return nil, Record{}, refuse("Mobius does not upgrade the package \"%s\".", npmPackage)
 	}
 	if on {
 		if err := e.queries.AddToolAutoUpgrade(ctx, npmPackage); err != nil {
-			return nil, err
+			return nil, Record{}, err
 		}
 	} else if err := e.queries.DeleteToolAutoUpgrade(ctx, npmPackage); err != nil {
-		return nil, err
+		return nil, Record{}, err
 	}
 	checks[index].AutoUpgrade = on
 	state := "off"
 	if on {
 		state = "on"
 	}
-	for _, organization := range e.github.Organizations() {
-		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You turned Auto-upgrade of %s %s.", checks[index].Name, state))
-	}
-	return checks, nil
+	return checks, e.organizationRecord(fmt.Sprintf("You turned Auto-upgrade of %s %s.", checks[index].Name, state)), nil
 }
 
 // clearToolUpgradeFailure records that npmPackage has no failed version, so a later auto-upgrade of the same version

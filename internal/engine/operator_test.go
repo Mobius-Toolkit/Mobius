@@ -277,7 +277,7 @@ hang = true
 		return len(sessions) == 1 && len(promptTexts(t, server, sessions[0].ID)) == 1
 	})
 
-	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+	if _, err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
 		t.Fatal(err)
 	}
 

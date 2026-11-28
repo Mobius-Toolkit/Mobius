@@ -496,52 +496,50 @@ func stopReason(number int64, text string) string {
 // mobius:needs-human from the issue and from the pull request of the task. An issue with no live task has lost its
 // task: ResumeIssue requests a Start instead, so the dispatch starts a new task, and it dismisses the lost item and
 // sends the state labels, so the issue loses mobius:needs-human.
-func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
+func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	return e.resumeIssue(ctx, repository, number, "ui", "You resumed")
 }
 
 // resumeIssue is the handler of the resume of the issue number for the actor: the Owner in the UI, or a trusted user
-// who removed mobius:needs-human on GitHub. record is the start of the record in the chat of the Lead.
-func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, number int64, actor, record string) error {
+// who removed mobius:needs-human on GitHub. what is the start of the Record for the chat of the Lead.
+func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, number int64, actor, what string) (Record, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := e.requestStart(ctx, repository, number, actor); err != nil {
-			return err
+			return Record{}, err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
-			return err
+			return Record{}, err
 		}
 		change, err := addStateLabelsChange(ctx, e.queries, repository.FullName, number)
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 		if err := e.sendNow(ctx, repository, change); err != nil {
-			return err
+			return Record{}, err
 		}
-		e.addIssueRecord(ctx, repository, number, record)
-		return nil
+		return e.issueRecord(ctx, repository, number, what), nil
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if task.State == "needs_human" {
 		issue, err := e.existingIssue(ctx, repository, number)
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 		if err := e.resumeNeedsHuman(ctx, repository, issue, task, actor); err != nil {
-			return err
+			return Record{}, err
 		}
 	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addIssueRecord(ctx, repository, number, record)
-	return nil
+	return e.issueRecord(ctx, repository, number, what), nil
 }
 
 // resumeNeedsHuman continues the task of the issue as resume says, when the live task of the issue is still the task in
@@ -563,18 +561,19 @@ func (e *Engine) resumeNeedsHuman(ctx context.Context, repository github.Reposit
 	return e.resume(ctx, repository, issue, current, actor)
 }
 
-// addIssueRecord adds a record "<what> <issue>." to the Lead chat of the Workstream of the issue number. The live
-// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets no record. A failed
-// read only goes to the log, because the action has succeeded.
-func (e *Engine) addIssueRecord(ctx context.Context, repository github.Repository, number int64, what string) {
+// issueRecord gives the Record "<what> <issue>." for the Lead chat of the Workstream of the issue number. The live
+// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets a Record with no
+// chat. A failed read only goes to the log, because the action has succeeded.
+func (e *Engine) issueRecord(ctx context.Context, repository github.Repository, number int64, what string) Record {
 	workstreamRepository, workstream, err := e.issueWorkstream(ctx, repository, number)
 	if err != nil {
 		log.Printf("find the Workstream of %s#%d for a record: %v", repository.FullName, number, err)
-		return
+		return Record{}
 	}
-	if workstream != 0 {
-		e.addRecord(ctx, leadChat(workstreamRepository, workstream), fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number)))
+	if workstream == 0 {
+		return Record{}
 	}
+	return recordIn(fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number)), leadChat(workstreamRepository, workstream))
 }
 
 func (e *Engine) issueWorkstream(ctx context.Context, repository github.Repository, number int64) (string, int64, error) {
@@ -586,67 +585,64 @@ func (e *Engine) issueWorkstream(ctx context.Context, repository github.Reposito
 }
 
 // stopLiveTask is the handler of the stop of the live task that is not stopped: it clears the Start of its issue and
-// stops the task with summary. record is the start of the record in the chat of the Lead. The caller holds stopMu.
-func (e *Engine) stopLiveTask(ctx context.Context, repository github.Repository, task store.Task, summary, record string) error {
+// stops the task with summary. what is the start of the Record for the chat of the Lead. The caller holds stopMu.
+func (e *Engine) stopLiveTask(ctx context.Context, repository github.Repository, task store.Task, summary, what string) (Record, error) {
 	if err := e.clearStart(ctx, task.Repository, task.Issue); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.stopTask(ctx, repository, task, summary); err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addIssueRecord(ctx, repository, task.Issue, record)
-	return nil
+	return e.issueRecord(ctx, repository, task.Issue, what), nil
 }
 
 // StopIssue stops the work on the issue number of repositoryName. A live task that is not stopped stops with its
 // Workers and clears any waiting Start. An issue with a waiting Start and no such task clears its Start.
-func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) error {
+func (e *Engine) StopIssue(ctx context.Context, repositoryName string, number int64) (Record, error) {
 	e.stopMu.Lock()
 	defer e.stopMu.Unlock()
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if _, err := e.existingIssue(ctx, repository, number); err != nil {
-		return err
+		return Record{}, err
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return Record{}, err
 	}
 	if err == nil && task.State != "stopped" {
 		return e.stopLiveTask(ctx, repository, task, "Stopped by the Owner.", "You stopped")
 	}
 	start, err := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: repository.FullName, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return Record{}, err
 	}
 	if err == nil && start.StartRequestedAt.Valid {
 		if err := e.clearStart(ctx, repository.FullName, number); err != nil {
-			return err
+			return Record{}, err
 		}
-		e.addIssueRecord(ctx, repository, number, "You stopped")
-		return nil
+		return e.issueRecord(ctx, repository, number, "You stopped"), nil
 	}
 	workstreamRepository, _, err := e.issueWorkstream(ctx, repository, number)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
-	return refuse("%s has no task to stop.", eventRef(workstreamRepository, repository.FullName, number))
+	return Record{}, refuse("%s has no task to stop.", eventRef(workstreamRepository, repository.FullName, number))
 }
 
 // StartIssue clears the triage state of the issue number of repositoryName and requests a Start.
-func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) error {
+func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addIssueRecord(ctx, repository, number, "You started")
-	return nil
+	return e.issueRecord(ctx, repository, number, "You started"), nil
 }

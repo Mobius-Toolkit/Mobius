@@ -172,7 +172,12 @@ func (e *Engine) stopForLabel(ctx context.Context, repository github.Repository,
 	if err != nil {
 		return false, err
 	}
-	return true, e.stopLiveTask(ctx, repository, task, "Stopped by a label removal.", "@"+actor+" stopped")
+	record, err := e.stopLiveTask(ctx, repository, task, "Stopped by a label removal.", "@"+actor+" stopped")
+	if err != nil {
+		return true, err
+	}
+	e.AddRecord(ctx, record)
+	return true, nil
 }
 
 // resumeForLabel resumes the issue number as ResumeIssue does, when its live task is in needs_human, or when it has no
@@ -191,11 +196,15 @@ func (e *Engine) resumeForLabel(ctx context.Context, repository github.Repositor
 			return false, err
 		}
 	}
-	err = e.resumeIssue(ctx, repository, number, actor, "@"+actor+" resumed")
+	record, err := e.resumeIssue(ctx, repository, number, actor, "@"+actor+" resumed")
 	if Refused(err) {
 		return false, nil
 	}
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	e.AddRecord(ctx, record)
+	return true, nil
 }
 
 type labelWrite struct {

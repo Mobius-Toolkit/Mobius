@@ -201,44 +201,47 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 // items of the task to the listeners again. Thus the Owner can mark the todo as done
 // again after an error. For an open owner action item it runs doneOwnerAction: the next step of the action starts.
 // It returns a refusal when the item is not an open todo or an open owner action item.
-func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, error) {
+func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, Record, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.InboxItem{}, ErrNoInboxItem
+		return store.InboxItem{}, Record{}, ErrNoInboxItem
 	}
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if item.Kind != todoKind && item.Kind != ownerActionKind || item.DismissedAt.Valid {
-		return store.InboxItem{}, refuse("This item is not an open todo or an open action of the Owner.")
+		return store.InboxItem{}, Record{}, refuse("This item is not an open todo or an open action of the Owner.")
 	}
 	if item.Kind == ownerActionKind {
 		return e.doneOwnerAction(ctx, item, note)
 	}
 	todo, err := e.queries.GetDeploymentTodoOfItem(ctx, id)
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	ctx = context.WithoutCancel(ctx)
 	if err := e.queries.SetDeploymentTodoDone(ctx, store.SetDeploymentTodoDoneParams{Note: note, DoneAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if err := e.writeTodosOfItem(ctx, item, todo); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if err := e.publishReadyItemsOfTodo(ctx, item); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if err := e.Dismiss(ctx, id); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	e.addTodosClosedEvent(ctx, item)
 	e.addInboxOwnerMessage(ctx, item, note)
-	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You marked the todo \"%s\" of PR %s as done.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
-	return e.queries.GetInboxItem(ctx, id)
+	done, err := e.queries.GetInboxItem(ctx, id)
+	if err != nil {
+		return store.InboxItem{}, Record{}, err
+	}
+	return done, recordIn(fmt.Sprintf("You marked the todo \"%s\" of PR %s as done.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)), inboxChat(item)), nil
 }
 
 // TodoMarks tells if the todo is mandatory and if it is an after-merge todo. The need of the same kind and name in the
@@ -395,40 +398,39 @@ func (e *Engine) writeTodosOfItem(ctx context.Context, item store.InboxItem, tod
 // dismissTodo stores the time on the todo of the open todo Inbox item, runs closeTodoStep, sends the open ready for
 // review Inbox items of the task to the listeners again, and dismisses the item. It
 // returns a refusal when the item is not open or the todo is mandatory.
-func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) error {
+func (e *Engine) dismissTodo(ctx context.Context, item store.InboxItem) (Record, error) {
 	if item.DismissedAt.Valid {
-		return refuse("This item is not an open todo.")
+		return Record{}, refuse("This item is not an open todo.")
 	}
 	todo, err := e.queries.GetDeploymentTodoOfItem(ctx, item.ID)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	mandatory, _, err := e.TodoMarks(ctx, todo)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if mandatory {
-		return refuse("A mandatory todo cannot be dismissed. Mark it as done.")
+		return Record{}, refuse("A mandatory todo cannot be dismissed. Mark it as done.")
 	}
 	ctx = context.WithoutCancel(ctx)
 	if err := e.queries.SetDeploymentTodoDismissed(ctx, store.SetDeploymentTodoDismissedParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: todo.ID}); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.writeTodosOfItem(ctx, item, todo); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.closeTodoStep(ctx, item, todo); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.publishReadyItemsOfTodo(ctx, item); err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.Dismiss(ctx, item.ID); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.addTodosClosedEvent(ctx, item)
-	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You dismissed the todo \"%s\" of PR %s.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
-	return nil
+	return recordIn(fmt.Sprintf("You dismissed the todo \"%s\" of PR %s.", item.Title, eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)), inboxChat(item)), nil
 }
 
 // publishReadyItemsOfTodo runs publishReadyItems for the live task of the issue of the todo Inbox item. It does nothing

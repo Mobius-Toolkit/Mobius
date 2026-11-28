@@ -425,64 +425,63 @@ func (e *Engine) setMergeItems(ctx context.Context, task store.Task, merging int
 // changed item. It returns a refusal when the item is not open, when the task of its issue is not in ready_for_review
 // with the pull request of the item, when a todo of the task blocks (blockedByTodos), when the pull request is not open, and when the Owner did not authorize the Mobius
 // App. Requests take turns, so two requests at the same time give one review.
-func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem, error) {
+func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem, Record, error) {
 	e.mergeMu.Lock()
 	defer e.mergeMu.Unlock()
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.InboxItem{}, ErrNoInboxItem
+		return store.InboxItem{}, Record{}, ErrNoInboxItem
 	}
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if item.DismissedAt.Valid || item.Kind != readyForReviewKind || item.Merging != 0 {
-		return store.InboxItem{}, refuse("This item is not waiting for a merge.")
+		return store.InboxItem{}, Record{}, refuse("This item is not waiting for a merge.")
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if err != nil || task.State != "ready_for_review" || task.PullRequest.Int64 != item.PullRequest {
-		return store.InboxItem{}, refuse("The task of #%d is not ready for review.", item.Issue)
+		return store.InboxItem{}, Record{}, refuse("The task of #%d is not ready for review.", item.Issue)
 	}
 	blocked, err := e.blockedByTodos(ctx, task)
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if blocked {
-		return store.InboxItem{}, refuse("Pull request #%d has open todos. Close them first.", item.PullRequest)
+		return store.InboxItem{}, Record{}, refuse("Pull request #%d has open todos. Close them first.", item.PullRequest)
 	}
 	repository, err := e.repository(item.Repository)
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	asOwner, err := e.github.AsOwner(ctx, repository)
 	if err != nil {
 		// The text tells the Owner how to authorize the Mobius App.
-		return store.InboxItem{}, refusal(err.Error())
+		return store.InboxItem{}, Record{}, refusal(err.Error())
 	}
 	pullRequest, err := repository.PullRequest(ctx, item.PullRequest)
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	if pullRequest.GetState() != "open" {
-		return store.InboxItem{}, refuse("Pull request #%d is already merged or closed.", item.PullRequest)
+		return store.InboxItem{}, Record{}, refuse("Pull request #%d is already merged or closed.", item.PullRequest)
 	}
 	ctx = context.WithoutCancel(ctx)
 	if _, err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	item, err = e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 1, ID: id})
 	if err != nil {
-		return store.InboxItem{}, err
+		return store.InboxItem{}, Record{}, err
 	}
 	e.publish(Change{Inbox: &item})
 	select {
 	case e.pollWake <- struct{}{}:
 	default:
 	}
-	e.addRecord(ctx, inboxChat(item), fmt.Sprintf("You started the merge of PR %s.", eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)))
-	return item, nil
+	return item, recordIn(fmt.Sprintf("You started the merge of PR %s.", eventRef(item.WorkstreamRepository, item.Repository, item.PullRequest)), inboxChat(item)), nil
 }
 
 func inboxChat(item store.InboxItem) ChatKey {
@@ -552,35 +551,34 @@ func (e *Engine) dismiss(ctx context.Context, id int64) (store.InboxItem, error)
 	return item, e.sendLabelsNow(ctx, item.Repository, change)
 }
 
-// DismissByOwner removes the Inbox item id at the request of the Owner, and adds a record to the chat of the item. For a
+// DismissByOwner removes the Inbox item id at the request of the Owner, and gives the Record for the chat of the item. For a
 // todo item, it also marks the todo as dismissed, and it returns a refusal when the item is not open or the todo is
 // mandatory. It returns a refusal for an open owner action item, because the task waits for the action. For an item of a
 // missing Workstream, it also stores that the Owner dismissed the kind for the organization, so the check adds no new item.
-func (e *Engine) DismissByOwner(ctx context.Context, id int64) error {
+func (e *Engine) DismissByOwner(ctx context.Context, id int64) (Record, error) {
 	found, err := e.queries.GetInboxItem(ctx, id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return Record{}, err
 	}
 	if err == nil && found.Kind == todoKind {
 		return e.dismissTodo(ctx, found)
 	}
 	if err == nil && found.Kind == ownerActionKind && !found.DismissedAt.Valid {
-		return refuse("Mark the action as done. The task waits for it.")
+		return Record{}, refuse("Mark the action as done. The task waits for it.")
 	}
 	if err == nil && missingWorkstreamKind(found.Kind) {
 		e.missingWorkstreamsMu.Lock()
 		defer e.missingWorkstreamsMu.Unlock()
 		err := e.queries.AddMissingWorkstreamDismissal(ctx, store.AddMissingWorkstreamDismissalParams{Organization: found.Organization, Kind: found.Kind})
 		if err != nil {
-			return err
+			return Record{}, err
 		}
 	}
 	item, err := e.dismiss(ctx, id)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
-	e.addRecord(ctx, inboxChat(item), dismissRecord(item))
-	return nil
+	return recordIn(dismissRecord(item), inboxChat(item)), nil
 }
 
 const failedMessageStartLength = 40
