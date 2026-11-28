@@ -215,14 +215,15 @@ type SetWorkstreamMcpServersRequest struct {
 
 // SetWorkstreamMcpServers replaces the MCP servers that the Owner selected for the Workstream. It returns 404 when the
 // issue is not an open Workstream of the local copy, and 422 for an id of a server of another organization.
-func (h *handlers) SetWorkstreamMcpServers(ctx context.Context, req SetWorkstreamMcpServersRequest) error {
+func (h *handlers) SetWorkstreamMcpServers(ctx context.Context, req SetWorkstreamMcpServersRequest) (engine.Record, error) {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	err := h.engine.CheckOpenWorkstream(ctx, repository, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusNotFound, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 	if err != nil {
-		return err
+		return engine.Record{}, err
 	}
-	return mcpServerError(h.engine.SetWorkstreamMcpServers(ctx, repository, req.Path.Number, req.Body.IDs))
+	record, err := h.engine.SetWorkstreamMcpServers(ctx, repository, req.Path.Number, req.Body.IDs)
+	return record, mcpServerError(err)
 }

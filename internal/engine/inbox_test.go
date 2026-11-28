@@ -252,7 +252,7 @@ func TestTellOwnerAddsAChatMessageAndNoInboxItem(t *testing.T) {
 	waitForChat(t, server, leadChat, "tell_owner", "#41 needs a decision.")
 	var lines []chatLine
 	for _, line := range chatLines(t, server, leadChat) {
-		if line.Author != "Event" {
+		if line.Author != "Event" && line.Author != "Record" {
 			lines = append(lines, line)
 		}
 	}

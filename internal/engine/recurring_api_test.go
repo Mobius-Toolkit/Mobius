@@ -3,6 +3,7 @@ package engine_test
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,9 @@ func TestAPauseThroughTheAPIGivesOneQuietLeadEventAndTheLeadReadsItInItsNextProm
 	if got := recurringChanges(t, server); len(got) != 1 {
 		t.Errorf("recurring_change events after the same state = %+v", got)
 	}
+	if got, want := records(t, server, leadChat), []string{"You paused the recurring task 1."}; !slices.Equal(got, want) {
+		t.Errorf("records after the same state = %q, want %q", got, want)
+	}
 	sendChat(t, server, leadChat, "Go on")
 	waitForLeadPrompts(t, server, 2)
 	if prompt := leadPrompts(t, server)[1]; !strings.Contains(prompt, quietSection(want)) {
@@ -127,6 +131,7 @@ func TestAResumeAndADeleteThroughTheAPIGiveALeadEventEach(t *testing.T) {
 	if tasks := recurringTasks(t, server); len(tasks) != 0 {
 		t.Errorf("tasks after the delete = %+v", tasks)
 	}
+	waitForRecords(t, server, leadChat, "You paused the recurring task 1.", "You resumed the recurring task 1.", "You deleted the recurring task 1.")
 }
 
 func TestAPauseOrADeleteOfAnUnknownTaskThroughTheAPIGivesNotFoundAndNoLeadEvent(t *testing.T) {
@@ -411,6 +416,9 @@ func TestARunNowWithAnUndeliveredEarlierEventGivesConflictAndNoEventAndNoRow(t *
 	if got := recurringTasks(t, server)[0]; len(got.Runs) != 1 {
 		t.Errorf("runs = %+v, want one", got.Runs)
 	}
+	if got, want := records(t, server, leadChat), []string{"You started the recurring task 1."}; !slices.Equal(got, want) {
+		t.Errorf("records = %q, want %q", got, want)
+	}
 }
 
 func TestARunNowPublishesTheRecurringTasksChange(t *testing.T) {
@@ -446,5 +454,8 @@ func TestARunNowOfAnUnknownTaskGivesNotFoundAndNoEvent(t *testing.T) {
 	}
 	if got := recurringTasks(t, server)[0]; len(got.Runs) != 0 {
 		t.Errorf("runs = %+v", got.Runs)
+	}
+	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records = %q", got)
 	}
 }

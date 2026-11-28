@@ -165,7 +165,7 @@ func connectOAuthServer(t *testing.T, server *testserver.Server, fake *fakeOAuth
 		t.Fatal(err)
 	}
 	for _, workstream := range workstreams {
-		if err := server.Engine.SetWorkstreamMcpServers(ctx, shop, workstream, []int64{added.ID}); err != nil {
+		if _, err := server.Engine.SetWorkstreamMcpServers(ctx, shop, workstream, []int64{added.ID}); err != nil {
 			t.Fatal(err)
 		}
 	}

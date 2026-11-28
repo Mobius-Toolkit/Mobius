@@ -25,9 +25,19 @@ func records(t *testing.T, server *testserver.Server, key engine.ChatKey) []stri
 	return texts
 }
 
-func waitForRecords(t *testing.T, server *testserver.Server, key engine.ChatKey, want ...string) {
+// waitForAllRecords waits until the Record messages of the chat of key are exactly want.
+func waitForAllRecords(t *testing.T, server *testserver.Server, key engine.ChatKey, want ...string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(records(t, server, key), want) })
+}
+
+// waitForRecords is waitForAllRecords for the Records that no label of a person starts. A task that a test starts with
+// the label mobius:ready of the owner adds the Record "@owner started #N.", and waitForRecords does not count it.
+func waitForRecords(t *testing.T, server *testserver.Server, key engine.ChatKey, want ...string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(slices.DeleteFunc(records(t, server, key), func(text string) bool { return strings.HasPrefix(text, "@owner started ") }), want)
+	})
 }
 
 func TestTheMergeOfTheOwnerAddsOneRecordToTheLeadChat(t *testing.T) {
@@ -39,9 +49,9 @@ func TestTheMergeOfTheOwnerAddsOneRecordToTheLeadChat(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	waitForRecords(t, server, leadChat, "You started the merge of PR #42.")
+	waitForAllRecords(t, server, leadChat, "@owner started #41.", "You started the merge of PR #42.")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
-	if got := records(t, server, leadChat); len(got) != 1 {
+	if got := records(t, server, leadChat); len(got) != 2 {
 		t.Errorf("records = %q", got)
 	}
 }
@@ -77,7 +87,7 @@ func TestTheStartOfAnIssueOfAnotherRepositoryNamesTheRepositoryInTheRecord(t *te
 	waitForRecords(t, server, leadChat, "You started owner/garden#7.")
 }
 
-func TestTheStartOfAnIssueInNoWorkstreamAddsNoRecord(t *testing.T) {
+func TestTheStartOfAnIssueInNoWorkstreamAddsOneRecordToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -90,10 +100,54 @@ func TestTheStartOfAnIssueInNoWorkstreamAddsNoRecord(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	waitForPolls(t, fake)
+	waitForRecords(t, server, coordinatorChat, "You started owner/shop#50.")
 	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records of the Lead chat = %q", got)
+	}
+}
+
+func TestTheReadyLabelOfAPersonAddsOneRecordToTheLeadChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForAllRecords(t, server, leadChat, "@owner started #41.")
+	waitForPolls(t, fake)
+	if got := records(t, server, leadChat); len(got) != 1 {
 		t.Errorf("records = %q", got)
 	}
+}
+
+func TestTheReadyLabelOfAClosedIssueThatHasNoRowAddsNoRecord(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 50, "Fix the footer")
+	fake.CloseIssue(shop, 50)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 50), "mobius:ready") })
+	waitForPolls(t, fake)
+	for _, key := range []engine.ChatKey{leadChat, coordinatorChat} {
+		if got := records(t, server, key); len(got) != 0 {
+			t.Errorf("records of %+v = %q", key, got)
+		}
+	}
+}
+
+func TestTheReadyLabelOfAnIssueInNoWorkstreamAddsOneRecordToTheCoordinatorChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 50, "Fix the footer")
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+
+	waitForAllRecords(t, server, coordinatorChat, "@owner started owner/shop#50.")
 }
 
 func TestTheResumeOfTheOwnerAddsOneRecordToTheLeadChat(t *testing.T) {
@@ -230,7 +284,7 @@ func TestTheDismissOfAFailedMessageOfTheLeadNamesTheStartOfTheMessage(t *testing
 	}
 }
 
-func TestTheAnswerOfAQuestionOfTheCoordinatorAddsNoRecord(t *testing.T) {
+func TestTheAnswerOfAQuestionOfTheCoordinatorAddsOneRecordToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), `
 [[prompts]]
@@ -250,15 +304,16 @@ reply = ["Asked"]
 	answer(t, server, coordinatorItems(t, server)[0].ID, "Cents please.")
 
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Got the answer")
+	waitForRecords(t, server, coordinatorChat, `You answered "Which unit?".`)
 	sendChat(t, server, coordinatorChat, "Ask the Owner again")
 	testkit.WaitFor(t, func() bool { return len(coordinatorItems(t, server)) == 1 })
 	if status, body := send(t, server, http.MethodPost, "/api/inbox/"+itoa(coordinatorItems(t, server)[0].ID)+"/dismiss", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
-	waitForRecords(t, server, coordinatorChat, `You dismissed "Which unit?".`)
+	waitForRecords(t, server, coordinatorChat, `You answered "Which unit?".`, `You dismissed "Which unit?".`)
 }
 
-func TestTheAnswerOfALeadQuestionAddsNoRecord(t *testing.T) {
+func TestTheAnswerOfALeadQuestionAddsOneRecordToTheLeadChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -269,27 +324,67 @@ func TestTheAnswerOfALeadQuestionAddsNoRecord(t *testing.T) {
 	answer(t, server, item.ID, "Cents.")
 
 	waitForNoItem(t, server, "question")
-	waitForPolls(t, fake)
-	if got := records(t, server, leadChat); len(got) != 0 {
-		t.Errorf("records = %q", got)
+	waitForAllRecords(t, server, leadChat, "@owner started #41.", `You answered "`+item.Title+`".`)
+}
+
+func TestTheSendAgainOfAFailedMessageAddsOneRecordToTheChatOfTheItem(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), dies)
+	sendChat(t, server, leadChat, "Plan the loyalty points API for the shop checkout\nSecond line.")
+	failed := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "Lead failed" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+
+	if status, body := send(t, server, http.MethodPost, "/api/inbox/"+itoa(failed.ID)+"/send", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	waitForRecords(t, server, leadChat, `You sent the failed message "Plan the loyalty points API for the shop…" again.`)
+	if got := records(t, server, coordinatorChat); len(got) != 0 {
+		t.Errorf("records of the Coordinator chat = %q", got)
 	}
 }
 
-func TestTheApprovalOfAnActionAddsNoRecord(t *testing.T) {
+func TestTheApprovalOfAnActionAddsOneRecordToTheChatOfTheSender(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
 	session := run(t, server, coordinatorSpec(t), "Send.")
 	reply(t, server, session)
+	item := waitForItem(t, server, "approval")
 
 	approveNext(t, server, 1)
 
 	waitForNoItem(t, server, "approval")
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	for _, key := range []engine.ChatKey{leadChat, coordinatorChat} {
-		if got := records(t, server, key); len(got) != 0 {
-			t.Errorf("records of %+v = %q", key, got)
-		}
+	waitForRecords(t, server, coordinatorChat, `You approved "`+item.Title+`".`)
+	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records of the Lead chat = %q", got)
+	}
+}
+
+func TestTheRefusedApprovalOfAnActionAddsNoRecord(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
+	session := run(t, server, coordinatorSpec(t), "Send.")
+	reply(t, server, session)
+	item := waitForItem(t, server, "approval")
+	action := waitForActions(t, server, 1)[0]
+	decided(t, server, action.ID, "reject", "")
+	waitForRecords(t, server, coordinatorChat, `You rejected "`+item.Title+`".`)
+
+	if status, _ := decide(t, server, action.ID, "approve", ""); status != http.StatusConflict {
+		t.Errorf("status = %d, want %d", status, http.StatusConflict)
+	}
+
+	if got := records(t, server, coordinatorChat); len(got) != 1 {
+		t.Errorf("records = %q", got)
 	}
 }
 

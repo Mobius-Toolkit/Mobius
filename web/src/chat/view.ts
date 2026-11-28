@@ -425,7 +425,7 @@ function renderMessage(
         h.Key(`message-${message.id}`),
         h.DataAttribute("message", String(message.id)),
         h.Class(
-          "max-w-[85%] justify-self-end rounded-xl border border-transparent bg-secondary px-2 py-1 text-xs text-muted-foreground wrap-anywhere",
+          "max-w-[85%] justify-self-end rounded-xl border border-transparent bg-secondary px-2 py-1 text-xs text-muted-foreground whitespace-pre-line wrap-anywhere",
         ),
       ],
       [message.text, " · ", clock(message.time)],

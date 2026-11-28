@@ -184,24 +184,27 @@ func (e *Engine) DeleteMcpServer(ctx context.Context, organization string, id in
 }
 
 // SetWorkstreamMcpServers replaces the selection of the Workstream with the servers of ids. It refuses an id of a
-// server that is not in the organization of the repository.
-func (e *Engine) SetWorkstreamMcpServers(ctx context.Context, repositoryName string, workstream int64, ids []int64) error {
+// server that is not in the organization of the repository. Its Record names the servers for the Lead chat of the
+// Workstream.
+func (e *Engine) SetWorkstreamMcpServers(ctx context.Context, repositoryName string, workstream int64, ids []int64) (Record, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	ids = slices.Clone(ids)
 	slices.Sort(ids)
 	ids = slices.Compact(ids)
+	var names []string
 	err = e.inTx(ctx, func(q *store.Queries) error {
 		for _, id := range ids {
-			_, err := q.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: repository.Owner()})
+			server, err := q.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: repository.Owner()})
 			if errors.Is(err, sql.ErrNoRows) {
 				return refuse("The organization %s has no MCP server %d.", repository.Owner(), id)
 			}
 			if err != nil {
 				return err
 			}
+			names = append(names, server.Name)
 		}
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: workstream}); err != nil {
 			return err
@@ -213,10 +216,15 @@ func (e *Engine) SetWorkstreamMcpServers(ctx context.Context, repositoryName str
 		}
 		return nil
 	})
-	if err == nil {
-		e.publish(Change{Workstreams: true})
+	if err != nil {
+		return Record{}, err
 	}
-	return err
+	e.publish(Change{Workstreams: true})
+	text := "You cleared the MCP servers of the Workstream."
+	if len(names) > 0 {
+		text = "You set the MCP servers of the Workstream to " + strings.Join(names, ", ") + "."
+	}
+	return recordIn(text, leadChat(repository.FullName, workstream)), nil
 }
 
 // WorkstreamMcpServers gives the servers that the Owner selected for the Workstream, with their secrets: first the

@@ -11,9 +11,9 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
-func displayOnlyMessages(t *testing.T, server *testserver.Server, key engine.ChatKey) []ownerChatMessage {
+func displayOnlyOwnerMessages(t *testing.T, server *testserver.Server, key engine.ChatKey) []ownerChatMessage {
 	t.Helper()
-	return slices.DeleteFunc(ownerChatMessages(t, server, key), func(m ownerChatMessage) bool { return !m.DisplayOnly })
+	return slices.DeleteFunc(ownerChatMessages(t, server, key), func(m ownerChatMessage) bool { return !m.DisplayOnly || m.Author != "Owner" })
 }
 
 const createWorkstreamScript = `
@@ -26,7 +26,7 @@ when = "Move the API work to a new Workstream."
 call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
 `
 
-func TestTheOwnerApprovesAnActionOfTheLeadWithAMessageAndTheChatShowsOneOwnerMessageThatTheLeadDoesNotGet(t *testing.T) {
+func TestTheOwnerApprovesAnActionOfTheLeadWithAMessageAndTheChatShowsOneRecordLineThatTheLeadDoesNotGet(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, createWorkstreamScript)
@@ -38,15 +38,13 @@ func TestTheOwnerApprovesAnActionOfTheLeadWithAMessageAndTheChatShowsOneOwnerMes
 
 	waitForChat(t, server, leadChat, "Lead", "Created the Workstream #13.")
 	waitForNoItem(t, server, "approval")
-	wantCards := []apiInboxItem{{Title: item.Title, Reason: item.Reason}}
-	got := displayOnlyMessages(t, server, leadChat)
-	if len(got) != 1 || got[0].Author != "Owner" || got[0].Text != "Approved\n\nUse the same name." ||
-		got[0].BrowserID != "" || got[0].DeliveredAt != nil || !slices.Equal(got[0].InboxItems, wantCards) {
-		t.Errorf("messages = %+v, want one Owner message with card %+v", got, wantCards)
+	waitForRecords(t, server, leadChat, `You approved "`+item.Title+"\".\n\nUse the same name.")
+	if got := displayOnlyOwnerMessages(t, server, leadChat); len(got) != 0 {
+		t.Errorf("Owner messages = %+v, want none", got)
 	}
 	for _, prompt := range leadPrompts(t, server) {
-		if strings.Contains(prompt, "# Owner message") && strings.Contains(prompt, "Approved") {
-			t.Errorf("the Lead got the decision through the chat: %s", prompt)
+		if strings.Contains(prompt, "You approved") {
+			t.Errorf("the Lead got the Record: %s", prompt)
 		}
 	}
 }
@@ -61,8 +59,8 @@ func TestTheCuratorPromptHasNoDecisionMessageOfTheOwnerOnAnActionOfTheLead(t *te
 	decided(t, server, action.ID, "approve", "Use the same name.")
 	waitForNoItem(t, server, "approval")
 	waitForChat(t, server, leadChat, "Lead", "Created the Workstream #13.")
-	if got := displayOnlyMessages(t, server, leadChat); len(got) != 1 {
-		t.Fatalf("messages = %+v, want one decision message", got)
+	if got := records(t, server, leadChat); len(got) != 1 {
+		t.Fatalf("records = %q, want one decision Record", got)
 	}
 
 	prompt := nextCuratorPrompt(t, server, 1)
@@ -75,7 +73,7 @@ func TestTheCuratorPromptHasNoDecisionMessageOfTheOwnerOnAnActionOfTheLead(t *te
 	}
 }
 
-func TestTheOwnerRejectsAnActionOfTheCoordinatorWithNoMessageAndTheChatShowsOneOwnerMessage(t *testing.T) {
+func TestTheOwnerRejectsAnActionOfTheCoordinatorWithNoMessageAndTheChatShowsOneRecordLine(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
@@ -86,15 +84,16 @@ func TestTheOwnerRejectsAnActionOfTheCoordinatorWithNoMessageAndTheChatShowsOneO
 	decided(t, server, action.ID, "reject", "")
 
 	waitForNoItem(t, server, "approval")
-	wantCards := []apiInboxItem{{Title: item.Title, Reason: item.Reason}}
-	got := displayOnlyMessages(t, server, coordinatorChat)
-	if len(got) != 1 || got[0].Author != "Owner" || got[0].Text != "Rejected" ||
-		got[0].BrowserID != "" || got[0].DeliveredAt != nil || !slices.Equal(got[0].InboxItems, wantCards) {
-		t.Errorf("messages = %+v, want one Owner message with card %+v", got, wantCards)
+	waitForRecords(t, server, coordinatorChat, `You rejected "`+item.Title+`".`)
+	if got := displayOnlyOwnerMessages(t, server, coordinatorChat); len(got) != 0 {
+		t.Errorf("Owner messages = %+v, want none", got)
+	}
+	if got := records(t, server, leadChat); len(got) != 0 {
+		t.Errorf("records of the Lead chat = %q, want none", got)
 	}
 }
 
-func TestAnApprovalThatFailsAddsNoOwnerMessageToTheChat(t *testing.T) {
+func TestAnApprovalThatFailsAddsNoRecordToTheChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Billing")
@@ -108,12 +107,12 @@ func TestAnApprovalThatFailsAddsNoOwnerMessageToTheChat(t *testing.T) {
 		t.Fatalf("action = %+v", failed)
 	}
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	if got := displayOnlyMessages(t, server, coordinatorChat); len(got) != 0 {
-		t.Errorf("messages = %+v", got)
+	if got := records(t, server, coordinatorChat); len(got) != 0 {
+		t.Errorf("records = %q", got)
 	}
 }
 
-func TestTheOwnerDecidesAnActionOfTheTriagerAndNoChatGetsAnOwnerMessage(t *testing.T) {
+func TestTheOwnerDecidesAnActionOfTheTriagerAndNoChatGetsARecord(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
@@ -130,7 +129,7 @@ func TestTheOwnerDecidesAnActionOfTheTriagerAndNoChatGetsAnOwnerMessage(t *testi
 	}
 	waitForNoItem(t, server, "approval")
 	waitForPolls(t, fake)
-	if got := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE display_only = 1"); got != 0 {
-		t.Errorf("display-only messages = %d, want 0", got)
+	if got := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE display_only = 1 OR author = 'Record'"); got != 0 {
+		t.Errorf("display-only messages and Records = %d, want 0", got)
 	}
 }

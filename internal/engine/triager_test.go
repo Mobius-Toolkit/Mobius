@@ -1084,7 +1084,7 @@ func TestAPollThatReadsTheHeldTurnWhileAnApprovalRestartsTheTriagerStartsNoSecon
 	t.Cleanup(func() { *engine.AfterTriagerStop = nil })
 	approved := make(chan error, 1)
 	go func() {
-		_, err := server.Engine.ApproveAction(context.WithoutCancel(t.Context()), action.ID, "", engine.Attachments{})
+		_, _, err := server.Engine.ApproveAction(context.WithoutCancel(t.Context()), action.ID, "", engine.Attachments{})
 		approved <- err
 	}()
 	select {

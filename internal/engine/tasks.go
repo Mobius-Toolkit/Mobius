@@ -528,7 +528,8 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, number int64, actor, what string) (Record, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := e.requestStart(ctx, repository, number, actor); err != nil {
+		started, err := e.requestStart(ctx, repository, number, actor)
+		if err != nil {
 			return Record{}, err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
@@ -540,6 +541,9 @@ func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, 
 		}
 		if err := e.sendNow(ctx, repository, change); err != nil {
 			return Record{}, err
+		}
+		if !started {
+			return Record{}, nil
 		}
 		return e.issueRecord(ctx, repository, number, what), nil
 	}
@@ -581,18 +585,19 @@ func (e *Engine) resumeNeedsHuman(ctx context.Context, repository github.Reposit
 }
 
 // issueRecord gives the Record "<what> <issue>." for the Lead chat of the Workstream of the issue number. The live
-// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets a Record with no
-// chat. A failed read only goes to the log, because the action has succeeded.
+// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets its Record for the
+// Coordinator chat of the organization. A failed read only goes to the log, because the action has succeeded.
 func (e *Engine) issueRecord(ctx context.Context, repository github.Repository, number int64, what string) Record {
 	workstreamRepository, workstream, err := e.issueWorkstream(ctx, repository, number)
 	if err != nil {
 		log.Printf("find the Workstream of %s#%d for a record: %v", repository.FullName, number, err)
 		return Record{}
 	}
+	text := fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number))
 	if workstream == 0 {
-		return Record{}
+		return recordIn(text, ChatKey{Organization: repository.Owner()})
 	}
-	return recordIn(fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number)), leadChat(workstreamRepository, workstream))
+	return recordIn(text, leadChat(workstreamRepository, workstream))
 }
 
 func (e *Engine) issueWorkstream(ctx context.Context, repository github.Repository, number int64) (string, int64, error) {
@@ -660,9 +665,13 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
 		return Record{}, err
 	}
-	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
+	started, err := e.requestStart(ctx, repository, number, "ui")
+	if err != nil {
 		return Record{}, err
 	}
 	e.wakeDispatch()
+	if !started {
+		return Record{}, nil
+	}
 	return e.issueRecord(ctx, repository, number, "You started"), nil
 }

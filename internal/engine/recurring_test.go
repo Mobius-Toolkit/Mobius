@@ -566,7 +566,7 @@ func TestAScheduledRunAndARunByHandMakeTheDirectoryOfTheRecurringTask(t *testing
 
 	setNow(server, friday.Add(time.Hour))
 	waitForRuns(t, server, 1)
-	if _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, 12, manual.ID); err != nil {
+	if _, _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, 12, manual.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -619,7 +619,7 @@ func TestAFileInTheDirectoryOfARecurringTaskStaysForTheNextRun(t *testing.T) {
 func makeRecurringDirs(t *testing.T, server *testserver.Server, dataDir string, workstream int64, tasks ...engine.RecurringTask) {
 	t.Helper()
 	for _, task := range tasks {
-		if _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, workstream, task.ID); err != nil {
+		if _, _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, workstream, task.ID); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dataDir, "recurring", itoa(task.ID), "NOTES.md"), []byte("notes\n"), 0o600); err != nil {
@@ -644,7 +644,7 @@ func TestTheDeleteOfARecurringTaskDeletesItsDirectoryOnly(t *testing.T) {
 	second := addRecurringTask(t, server, hourly, "Check the prices.")
 	makeRecurringDirs(t, server, dataDir, 12, first, second)
 
-	if err := server.Engine.OwnerDeleteRecurringTask(t.Context(), shop, 12, first.ID); err != nil {
+	if _, err := server.Engine.OwnerDeleteRecurringTask(t.Context(), shop, 12, first.ID); err != nil {
 		t.Fatal(err)
 	}
 

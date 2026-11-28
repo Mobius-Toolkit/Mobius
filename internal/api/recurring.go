@@ -119,15 +119,15 @@ type SetRecurringTaskPausedResponse struct {
 // SetRecurringTaskPaused pauses or resumes a recurring task and gives the Lead the quiet event recurring_change. A
 // task that already has the state stays as it is and gives no event. A resume gives no event for the times of the
 // pause. It returns 404 for an id that is not a task of the Workstream.
-func (h *handlers) SetRecurringTaskPaused(ctx context.Context, req SetRecurringTaskPausedRequest) (*SetRecurringTaskPausedResponse, error) {
-	task, err := h.engine.OwnerSetRecurringTaskPaused(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID, req.Body.Paused)
+func (h *handlers) SetRecurringTaskPaused(ctx context.Context, req SetRecurringTaskPausedRequest) (*SetRecurringTaskPausedResponse, engine.Record, error) {
+	task, record, err := h.engine.OwnerSetRecurringTaskPaused(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID, req.Body.Paused)
 	if errors.Is(err, engine.ErrNoRecurringTask) {
-		return nil, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &SetRecurringTaskPausedResponse{Body: Envelope[RecurringTask]{Data: recurringTaskOf(task)}}, nil
+	return &SetRecurringTaskPausedResponse{Body: Envelope[RecurringTask]{Data: recurringTaskOf(task)}}, record, nil
 }
 
 // DeleteRecurringTaskRequest is the request of DeleteRecurringTask.
@@ -146,12 +146,12 @@ type DeleteRecurringTaskRequest struct {
 
 // DeleteRecurringTask deletes a recurring task with its history and gives the Lead the quiet event recurring_change.
 // It returns 404 for an id that is not a task of the Workstream.
-func (h *handlers) DeleteRecurringTask(ctx context.Context, req DeleteRecurringTaskRequest) error {
-	err := h.engine.OwnerDeleteRecurringTask(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID)
+func (h *handlers) DeleteRecurringTask(ctx context.Context, req DeleteRecurringTaskRequest) (engine.Record, error) {
+	record, err := h.engine.OwnerDeleteRecurringTask(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID)
 	if errors.Is(err, engine.ErrNoRecurringTask) {
-		return api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
+		return engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
 	}
-	return err
+	return record, err
 }
 
 // RunRecurringTaskRequest is the request of RunRecurringTask.
@@ -177,16 +177,16 @@ type RunRecurringTaskResponse struct {
 // the Owner started the run by hand. It works also for a paused task, which stays paused, and it does not change the
 // next scheduled time. It returns 404 for an id that is not a task of the Workstream, and 409 when the earlier event
 // of the task is not delivered yet.
-func (h *handlers) RunRecurringTask(ctx context.Context, req RunRecurringTaskRequest) (*RunRecurringTaskResponse, error) {
-	task, err := h.engine.OwnerRunRecurringTask(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID)
+func (h *handlers) RunRecurringTask(ctx context.Context, req RunRecurringTaskRequest) (*RunRecurringTaskResponse, engine.Record, error) {
+	task, record, err := h.engine.OwnerRunRecurringTask(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Path.ID)
 	if errors.Is(err, engine.ErrNoRecurringTask) {
-		return nil, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Workstream has no such recurring task.")
 	}
 	if errors.Is(err, engine.ErrRecurringEventPending) {
-		return nil, api.NewHTTPError(http.StatusConflict, "The earlier event of this recurring task is not delivered yet.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, "The earlier event of this recurring task is not delivered yet.")
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &RunRecurringTaskResponse{Body: Envelope[RecurringTask]{Data: recurringTaskOf(task)}}, nil
+	return &RunRecurringTaskResponse{Body: Envelope[RecurringTask]{Data: recurringTaskOf(task)}}, record, nil
 }
