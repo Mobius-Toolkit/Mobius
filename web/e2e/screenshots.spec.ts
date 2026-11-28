@@ -462,6 +462,22 @@ test("screenshots", async ({ page }) => {
     main.getByRole("img", { name: "Autopilot: Start and merge" }),
   ]);
   await page.unroute(levelsRoute);
+  const unavailableRoute = "**/api/workstreams";
+  await page.route(unavailableRoute, (route) =>
+    route.fulfill({
+      status: 502,
+      contentType: "text/html",
+      body: "<html><body>Bad Gateway</body></html>",
+    }),
+  );
+  await screenshot(page, "workstreams-unavailable", "/workstreams", (device) => [
+    chatCount,
+    ...(device === "desktop" ? [drain] : []),
+    page.getByLabel("Work in another organization").filter({ visible: true }),
+    page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+    main.getByText("The server is not available (502)."),
+  ]);
+  await page.unroute(unavailableRoute);
   await routeTasks(page, boardTasks);
   await screenshot(
     page,

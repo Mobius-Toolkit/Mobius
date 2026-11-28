@@ -81,7 +81,7 @@ const loadList = request(() => listWorkstreams()).pipe(
     if (res.status === 401) {
       showLogin();
     } else if (res.status === 200) {
-      setState({ list: res.data.data });
+      setState({ list: res.data.data, error: undefined });
     } else {
       setState({ error: res.data.error });
     }

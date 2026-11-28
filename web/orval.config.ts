@@ -44,7 +44,10 @@ export default defineConfig({
       mode: "single",
       // With request options, the generated code has a helper that Oxlint
       // refuses (unicorn/consistent-function-scoping).
-      override: { requestOptions: false },
+      override: {
+        requestOptions: false,
+        mutator: { path: "src/api/fetch.ts", name: "customFetch" },
+      },
     },
   },
   schemas: {
