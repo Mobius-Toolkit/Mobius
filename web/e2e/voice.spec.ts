@@ -258,18 +258,20 @@ const tick = (page: Page) => page.clock.runFor(2000);
 
 // The page asks for a conversion each 2 seconds, so the tests with a clock run it until the card does not record or
 // convert any more.
+// The failure shows the text that the card still has.
 const settled = (page: Page, timeout?: number) =>
   expect
     .poll(
       async () => {
         await tick(page);
-        return voiceCard(page)
+        const states = await voiceCard(page)
           .getByText(/^(Recording|Converting)/)
-          .count();
+          .allTextContents();
+        return states.join(", ");
       },
-      timeout ? { timeout, intervals: [10] } : {},
+      timeout ? { timeout, intervals: [10] } : { timeout: 15_000 },
     )
-    .toBe(0);
+    .toBe("");
 
 const fakeNow = (page: Page) => page.evaluate(() => Date.now());
 
@@ -528,7 +530,9 @@ test("a recording of 10 minutes stops with no error", async ({ page }) => {
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
   await begin(page);
-  await page.clock.runFor(10 * 60 * 1000);
+  // runFor fires each timer of the 10 minutes, and this takes more than 20 s on a CI runner. fastForward fires each due
+  // timer one time.
+  await page.clock.fastForward(10 * 60 * 1000);
   await settled(page);
   await expect(input).toHaveValue("red roses");
   await expect(page.getByRole("alert")).toHaveCount(0);
