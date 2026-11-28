@@ -3,7 +3,7 @@ import { dayClock } from "./time";
 
 export type StateInput = {
   state: string;
-  merging?: boolean;
+  merging: boolean;
   wait: AgentWait;
   pausedUntil: string | null;
 };
@@ -30,7 +30,7 @@ export const pausedText = (pausedUntil: string) => `paused until ${dayClock(paus
 export const networkText = (lostAt: string) =>
   `No network since ${dayClock(lostAt)}. Mobius waits for the network.`;
 
-export function displayState({ state, merging = false, wait, pausedUntil }: StateInput) {
+export function displayState({ state, merging, wait, pausedUntil }: StateInput) {
   if (wait === "") {
     return { text: merging ? "approved" : state, variant: "secondary" as const };
   }

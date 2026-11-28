@@ -619,6 +619,34 @@ func (e *Engine) ActionBrief(ctx context.Context, id int64) (string, error) {
 	return e.currentBrief(ctx, repository, action.Workstream)
 }
 
+// ActionRecurring gives the current text and cron expression of the recurring task of the update_recurring_task or
+// delete_recurring_task action id. It returns ErrNoAction for an action that does not exist, ErrNoRecurringTask for a
+// task that does not exist, and a refusal for an action of another tool.
+func (e *Engine) ActionRecurring(ctx context.Context, id int64) (string, string, error) {
+	action, err := e.queries.GetPendingAction(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrNoAction
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if action.Tool != "update_recurring_task" && action.Tool != "delete_recurring_task" {
+		return "", "", refuse("This action does not change a recurring task.")
+	}
+	var input deleteRecurringInput
+	if err := json.Unmarshal([]byte(action.Arguments), &input); err != nil {
+		return "", "", err
+	}
+	task, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: input.ID, Repository: action.Repository, Workstream: action.Workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrNoRecurringTask
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return task.Text, task.Cron, nil
+}
+
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
 // ErrNoAction for an action that does not exist, and a refusal for an action that does not wait for the approval or
 // that runs now. The agent gets the attachments with the message.

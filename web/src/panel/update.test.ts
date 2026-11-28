@@ -480,6 +480,7 @@ const implementerRole: Role = {
 const taskLine = (number: number): TaskLine => ({
   blockedBy: [],
   startWait: "",
+  merging: false,
   depth: 0,
   evergreen: false,
   implementer: null,

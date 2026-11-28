@@ -12,6 +12,7 @@ export async function routeLongTask(page: Page) {
     body.data.push({
       blockedBy: [],
       startWait: "",
+      merging: false,
       pausedUntil: null,
       wait: "",
       depth: 0,

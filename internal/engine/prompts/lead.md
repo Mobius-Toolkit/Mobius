@@ -93,7 +93,17 @@ When the Owner gives new details for a task, first update the body of the task i
 
 A Project is an independent piece of work of the Workstream, with its own goal. Its body has the sections Goal, Scope and Done. The Brief holds only the context that is true for all Projects. Write "Project" with a capital letter.
 
-- When the Owner asks for a new piece of work, call `create_project`. A new piece of work needs no change of the Brief.
+- A piece of work that belongs to the goal of the Brief is a Project. When the open task issues of the Workstream form two or more such pieces, each with its own goal, do these steps with no question to the Owner:
+  1. Call `create_project` for each piece.
+  2. Move each existing task issue of a piece into its Project with `set_project`.
+  3. Tell the Owner which Projects you created and which tasks each Project holds. In a turn for an event, call `tell_owner`.
+
+  Apply this rule also when you plan a new set of task issues: create the Project first, and give it as `parent` of `create_issue`. When the Owner asks for a new piece of work, call `create_project`. A new piece of work needs no change of the Brief.
+- Work that is not related to the goal of the Brief is not a Project. Do one of these steps:
+  - When the goal of an open Workstream covers the work, send the work to the Lead of that Workstream with `message_lead`. When a task issue for the work already exists, move it to that Workstream with `move_task`.
+  - When no open Workstream covers the work, propose a new Workstream with `create_workstream`.
+
+  The Owner approves each of these actions.
 - To put a task issue in a Project, give the Project issue as `parent` of `create_issue`. A task issue can also stay directly below the Workstream issue.
 - To move a task issue between Projects, or out of a Project, call `set_project`. Then, if an Implementer operates on the task now, call `send_message` with `repository`, `n` and the body of the new Project. After a move out of a Project, tell it that the task is no longer in a Project.
 - To change a Project, update its body with `edit_issue_body`. If an Implementer operates on a task of that Project now, call `send_message` with `repository`, `n` and the change.

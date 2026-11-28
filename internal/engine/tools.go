@@ -2567,6 +2567,9 @@ func (e *Engine) updateRecurringTask(ctx context.Context, c caller, repository g
 	if _, err := e.recurringProject(ctx, c, input.Project); err != nil {
 		return "", err
 	}
+	if err := e.storeOldRecurring(ctx, repository.FullName, c.workstream, input.ID); err != nil {
+		return "", err
+	}
 	task, err := e.UpdateRecurringTask(ctx, repository.FullName, c.workstream, input.ID, input.Cron, input.Text, input.Project)
 	if err != nil {
 		return "", err
@@ -2575,10 +2578,30 @@ func (e *Engine) updateRecurringTask(ctx context.Context, c caller, repository g
 }
 
 func (e *Engine) deleteRecurringTask(ctx context.Context, c caller, repository github.Repository, input deleteRecurringInput) (string, error) {
+	if err := e.storeOldRecurring(ctx, repository.FullName, c.workstream, input.ID); err != nil {
+		return "", err
+	}
 	if err := e.DeleteRecurringTask(ctx, repository.FullName, c.workstream, input.ID); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Deleted the recurring task %d.", input.ID), nil
+}
+
+// storeOldRecurring stores the text and the cron expression of the recurring task id in the approved action, before
+// the action changes or deletes the task. A run with no approved action stores nothing.
+func (e *Engine) storeOldRecurring(ctx context.Context, repository string, workstream, id int64) error {
+	action, approved := ctx.Value(approvedRun{}).(int64)
+	if !approved {
+		return nil
+	}
+	task, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNoRecurringTask
+	}
+	if err != nil {
+		return err
+	}
+	return e.queries.SetPendingActionOldRecurring(ctx, store.SetPendingActionOldRecurringParams{OldRecurringText: task.Text, OldRecurringCron: task.Cron, ID: action})
 }
 
 func checkMessageLead(c caller, input messageLeadInput) error {

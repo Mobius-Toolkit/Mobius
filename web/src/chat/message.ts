@@ -91,6 +91,7 @@ export const Message = defineMessageUnion({
   },
   ToggleRemovedText: {},
   ActionBriefFetched: { brief: Schema.String },
+  ActionRecurringFetched: { text: Schema.String, cron: Schema.String },
   ResumeClicked: { item: InboxItem },
   ResumeCompleted: { id: Schema.Number, error: Schema.optional(Schema.String) },
 

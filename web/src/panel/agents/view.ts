@@ -83,7 +83,7 @@ function renderEntry(h: H, model: Model, agent: Agent): Html {
               ),
             ],
           ),
-          renderStateBadge(h, { ...agent, state: endedState(agent) }),
+          renderStateBadge(h, { ...agent, state: endedState(agent), merging: false }),
         ],
       ),
       h.span([h.Class("text-sm text-muted-foreground")], [bindingText(agent)]),

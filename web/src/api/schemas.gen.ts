@@ -57,6 +57,8 @@ export const ApproveActionResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -81,6 +83,21 @@ export const GetActionBriefParams = S.Struct({
 export const GetActionBriefResponse = S.Struct({
   "data": S.Struct({
   "brief": S.String.annotate({ description: 'Brief is the body of the Workstream issue now, with no Lead chat link line and no white space at the end' })
+}).annotate({ description: 'Data is the payload of the response' })
+}).annotate({ description: 'Envelope is the body of each success response.' })
+
+
+/**
+ * GetActionRecurring reads the recurring task of the id argument of an update_recurring_task or delete_recurring_task action. It returns 404 for an unknown action or a recurring task that does not exist, and 409 for an action of another tool.
+ */
+export const GetActionRecurringParams = S.Struct({
+  "id": S.Number.annotate({ description: 'ID is the id of the action' })
+})
+
+export const GetActionRecurringResponse = S.Struct({
+  "data": S.Struct({
+  "cron": S.String.annotate({ description: 'Cron is the cron expression of the recurring task now' }),
+  "text": S.String.annotate({ description: 'Text is the text of the recurring task now' })
 }).annotate({ description: 'Data is the payload of the response' })
 }).annotate({ description: 'Envelope is the body of each success response.' })
 
@@ -134,6 +151,8 @@ export const RejectActionResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -257,6 +276,8 @@ export const GetChatResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -298,6 +319,8 @@ export const GetChatResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -720,6 +743,8 @@ export const ListInboxResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -876,6 +901,8 @@ export const DoneInboxItemResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -956,6 +983,8 @@ export const MergeInboxItemResponse = S.Struct({
   "id": S.Number.annotate({ description: 'ID increases with each new action' }),
   "message": S.String.annotate({ description: 'Message is the message of the Owner with the decision, or empty' }),
   "oldBrief": S.String.annotate({ description: 'OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release' }),
+  "oldRecurringCron": S.String.annotate({ description: 'OldRecurringCron is the cron expression of that recurring task, with the same empty cases' }),
+  "oldRecurringText": S.String.annotate({ description: 'OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action' }),
   "result": S.String.annotate({ description: 'Result is the result text of the tool after the run, or empty' }),
   "role": S.Literals(['coordinator', 'lead', 'triager']).annotate({ description: 'Role is the Role of the agent that called the tool' }),
   "sender": S.Union([S.Struct({
@@ -2491,6 +2520,7 @@ export const ListTasksResponse = S.Struct({
   "model": S.String.annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' }), S.Null]).annotate({ description: 'Implementer is the own Implementer setting of the task, or null when the task has none' }),
   "kind": S.Literals(['task', 'project']).annotate({ description: 'Kind is task for a task issue, and project for a Project of the Workstream' }),
+  "merging": S.Boolean.annotate({ description: 'Merging is true when the task is in ready_for_review and the Owner started its merge' }),
   "number": S.Number.annotate({ description: 'Number is the number of the task issue' }),
   "otherRepository": S.Boolean.annotate({ description: 'OtherRepository is true for a task in another repository than the Workstream' }),
   "pausedUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'PausedUntil is the end of the pause of the Harness when wait is paused, or null' }),

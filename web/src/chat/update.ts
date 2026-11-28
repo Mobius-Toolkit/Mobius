@@ -9,6 +9,7 @@ import {
   ApproveAction,
   DoneInboxItem,
   FetchActionBrief,
+  FetchActionRecurring,
   FetchOlder,
   FetchPage,
   ListQueued,
@@ -55,6 +56,20 @@ import {
   type Waiting,
 } from "./model";
 import { InboxItem, type Queued } from "./schemas";
+
+function fetchesOf(item: InboxItem) {
+  const action = item.action;
+  if (action?.state !== "pending") {
+    return [];
+  }
+  if (action.tool === "edit_brief") {
+    return [FetchActionBrief({ actionId: action.id })];
+  }
+  if (action.tool === "update_recurring_task" || action.tool === "delete_recurring_task") {
+    return [FetchActionRecurring({ actionId: action.id })];
+  }
+  return [];
+}
 
 export function enqueue(model: Model, item: Queued): UpdateReturn<Model, Message> {
   if (model.queue.some((other) => other.id === item.id)) {
@@ -952,10 +967,6 @@ function step(model: Model, message: Message): StepReturn {
     OpenAnswerPanel: ({ item: inboxItem, workstreamTitle }) => {
       const sameAnswerPanel =
         model.activePanel?.type === "answer" && model.activePanel.item.id === inboxItem.id;
-      const commands = [];
-      if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
-        commands.push(FetchActionBrief({ actionId: inboxItem.action.id }));
-      }
       return {
         model: {
           ...model,
@@ -971,16 +982,14 @@ function step(model: Model, message: Message): StepReturn {
           answerErrorAwaitsRow: false,
           showRemovedText: false,
           briefActionBrief: "",
+          recurringActionText: "",
+          recurringActionCron: "",
         },
-        commands,
+        commands: fetchesOf(inboxItem),
       };
     },
 
     OpenDetailsPanel: ({ item: inboxItem, workstreamTitle, fromTray }) => {
-      const commands = [];
-      if (inboxItem.action?.tool === "edit_brief" && inboxItem.action.state === "pending") {
-        commands.push(FetchActionBrief({ actionId: inboxItem.action.id }));
-      }
       return {
         model: {
           ...model,
@@ -993,8 +1002,10 @@ function step(model: Model, message: Message): StepReturn {
           selectedOptions: {},
           showRemovedText: false,
           briefActionBrief: "",
+          recurringActionText: "",
+          recurringActionCron: "",
         },
-        commands,
+        commands: fetchesOf(inboxItem),
       };
     },
 
@@ -1006,6 +1017,8 @@ function step(model: Model, message: Message): StepReturn {
         todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
         showRemovedText: false,
         briefActionBrief: "",
+        recurringActionText: "",
+        recurringActionCron: "",
       },
     }),
 
@@ -1020,6 +1033,14 @@ function step(model: Model, message: Message): StepReturn {
       model: {
         ...model,
         briefActionBrief: brief,
+      },
+    }),
+
+    ActionRecurringFetched: ({ text, cron }) => ({
+      model: {
+        ...model,
+        recurringActionText: text,
+        recurringActionCron: cron,
       },
     }),
 
@@ -1110,6 +1131,8 @@ function step(model: Model, message: Message): StepReturn {
             todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
             showRemovedText: ownActive ? false : model.showRemovedText,
             briefActionBrief: ownActive ? "" : model.briefActionBrief,
+            recurringActionText: ownActive ? "" : model.recurringActionText,
+            recurringActionCron: ownActive ? "" : model.recurringActionCron,
           },
         };
       }
