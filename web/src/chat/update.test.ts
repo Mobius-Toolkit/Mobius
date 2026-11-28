@@ -11,6 +11,7 @@ import {
   AnswerInboxItem,
   ApproveAction,
   FetchActionBrief,
+  FetchActionRecurring,
   FetchPage,
   DoneInboxItem,
   ListQueued,
@@ -145,6 +146,8 @@ function createPendingAction(overrides: Partial<PendingAction> = {}): PendingAct
     error: "",
     message: "",
     oldBrief: "",
+    oldRecurringText: "",
+    oldRecurringCron: "",
     result: "",
     ...overrides,
   };
@@ -872,6 +875,51 @@ describe("chat update story tests", () => {
         model((m) => {
           expect(m.briefActionBrief).toBe("Fetched brief from server");
         }),
+        StoryCommand.expectNone(),
+      );
+    });
+
+    it.each(["update_recurring_task", "delete_recurring_task"])(
+      "fetches the recurring task when opening the details panel for a pending %s",
+      (tool) => {
+        const item = createInboxItem({
+          id: 102,
+          kind: "approval",
+          action: createPendingAction({ tool, role: "lead" }),
+        });
+
+        story(
+          update,
+          given(createTestModel({ recurringActionText: "Old", recurringActionCron: "0 8 * * *" })),
+          message(Message.OpenDetailsPanel({ item, workstreamTitle: "Shop", fromTray: false })),
+          model((m) => {
+            expect(m.recurringActionText).toBe("");
+            expect(m.recurringActionCron).toBe("");
+          }),
+          StoryCommand.expectExact(FetchActionRecurring({ actionId: 42 })),
+          StoryCommand.resolve(
+            FetchActionRecurring,
+            Message.ActionRecurringFetched({ text: "Check the plans.", cron: "0 8 * * 1-5" }),
+          ),
+          model((m) => {
+            expect(m.recurringActionText).toBe("Check the plans.");
+            expect(m.recurringActionCron).toBe("0 8 * * 1-5");
+          }),
+        );
+      },
+    );
+
+    it("fetches nothing for a done update_recurring_task", () => {
+      const item = createInboxItem({
+        id: 103,
+        kind: "approval",
+        action: createPendingAction({ tool: "update_recurring_task", state: "done" }),
+      });
+
+      story(
+        update,
+        given(createTestModel()),
+        message(Message.OpenDetailsPanel({ item, workstreamTitle: "Shop", fromTray: false })),
         StoryCommand.expectNone(),
       );
     });

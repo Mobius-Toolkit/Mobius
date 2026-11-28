@@ -56,7 +56,7 @@ function renderRow(h: H, row: ActiveAgent): Html {
                       h.span([h.Class("min-w-0 wrap-anywhere")], [`${agent.name} ${agent.title}`]),
                     ],
                   ),
-                  renderStateBadge(h, { ...agent, state: "" }),
+                  renderStateBadge(h, { ...agent, state: "", merging: false }),
                 ],
               ),
               chevronRightIcon(h, "mt-0.5 size-4 shrink-0"),

@@ -251,3 +251,54 @@ func TestTheBoardGivesATaskWhoseMergeGitHubRefusedAfterTheDismissalTheReasonAndN
 		t.Errorf("merging = %v, error = %v", merging, err)
 	}
 }
+
+// reviewLine waits until the Tasks tab of the Workstream has the line of #41 in state review, and gives it.
+func reviewLine(t *testing.T, server *testserver.Server) engine.TaskLine {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (engine.TaskLine, bool) {
+		lines, err := server.Engine.Tasks(t.Context(), shop, 12)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(lines) != 1 {
+			return engine.TaskLine{}, false
+		}
+		return lines[0], lines[0].State == "review"
+	})
+}
+
+func TestTheTasksTabShowsATaskInTheMergeAsMergingAfterTheOwnerMerges(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+	if line := reviewLine(t, server); line.Merging {
+		t.Errorf("line before the merge = %+v", line)
+	}
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool { return reviewLine(t, server).Merging })
+}
+
+func TestTheTasksTabGivesATaskWhoseMergeGitHubRefusedNoMerging(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	fake.RefuseMerge(shop, 42, "Required status check is expected.")
+	reviewLine(t, server)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitForValue(t, func() (engine.BoardTask, bool) {
+		task := boardTaskOf(t, server, "ready_for_review")
+		return task, task.MergeRefusal != ""
+	})
+	if line := reviewLine(t, server); line.Merging {
+		t.Errorf("line = %+v", line)
+	}
+}

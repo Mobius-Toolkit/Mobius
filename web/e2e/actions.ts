@@ -13,6 +13,8 @@ export const editBriefTable = "Edit the Brief table of the Lead of #14.";
 export const askRenewals = "Ask the Owner about the renewals.";
 export const closeRenewals = "Close the question about the renewals.";
 export const restoreBriefMessage = "Restore the Brief of the Lead of #14.";
+export const changeRecurring = "Change the recurring task of the Lead of #14.";
+export const deleteRecurring = "Delete the recurring task of the Lead of #14.";
 export const messageLeadOfTwelve = "Tell the Lead of #12 to wait for the migration.";
 export const stopUnknown = "Tell the Lead of #9999 to stop.";
 export const askStore = "Ask which store and which checks.";
@@ -33,6 +35,8 @@ export const waitText = "Wait for the migration of #14 before you start the pric
 export const unknownText = "Stop the work.";
 
 export const briefTitle = "Change the Brief of #14 Early renewals";
+export const changeRecurringTitle = "Change the recurring task 3";
+export const deleteRecurringTitle = "Delete the recurring task 3";
 export const createTitle = 'Create the Workstream "Gift cards"';
 export const teaTitle = 'Create the Workstream "Tea"';
 export const leadTitle = "Message to the Lead of #14 Early renewals";
@@ -186,6 +190,8 @@ const triagerAction = {
   result: "",
   message: "",
   oldBrief: "",
+  oldRecurringText: "",
+  oldRecurringCron: "",
   sender: null,
   time: "2026-10-15T11:55:00Z",
   decidedAt: null,

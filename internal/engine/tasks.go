@@ -87,6 +87,13 @@ type TaskLine struct {
 	Wait Wait
 	// PausedUntil is the end of the pause of the Harness when Wait is "paused", or nil.
 	PausedUntil *time.Time
+	// Merging is true for a live task in ready_for_review whose merge the Owner started.
+	Merging bool
+}
+
+// isMerging is true for a task in ready_for_review whose newest ready for review Inbox item has merging set.
+func isMerging(state string, merging int64) bool {
+	return state == "ready_for_review" && merging != 0
 }
 
 // startWaits holds the state that Tasks reads one time to give the reason of each waiting Start. ciStops has the
@@ -229,6 +236,13 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 				}
 				if found {
 					line.Implementer = &setting
+				}
+				if line.State == "review" {
+					merging, err := e.queries.GetLiveTaskMerging(ctx, store.GetLiveTaskMergingParams{Repository: issueRepositoryName, Issue: row.Number})
+					if err != nil && !errors.Is(err, sql.ErrNoRows) {
+						return nil, err
+					}
+					line.Merging = err == nil && isMerging(merging.State, merging.Merging)
 				}
 				if line.State == "working" || line.State == "open" || line.State == "triage" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
@@ -469,7 +483,7 @@ func (e *Engine) BoardTasks(ctx context.Context) ([]BoardTask, error) {
 			}
 		}
 		if row.State == "ready_for_review" {
-			task.Merging = row.Merging != 0
+			task.Merging = isMerging(row.State, row.Merging)
 			if !task.Merging {
 				task.MergeRefusal = row.MergeRefusal
 			}

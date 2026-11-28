@@ -6,6 +6,7 @@ import {
   dismiss,
   doneInboxItem,
   getActionBrief,
+  getActionRecurring,
   getChat,
   mergeInboxItem,
   rejectAction,
@@ -568,6 +569,35 @@ export const FetchActionBrief = Command.define("FetchActionBrief", {
         // The dialog shows the full new Brief.
         Effect.catchTag("RequestFailed", () =>
           Effect.succeed({ message: Message.ActionBriefFetched({ brief: "" }) }),
+        ),
+      ),
+    ),
+});
+
+export const FetchActionRecurring = Command.define("FetchActionRecurring", {
+  args: {
+    actionId: Schema.Number,
+  },
+  messages: [Message.ActionRecurringFetched],
+  execute: ({ actionId }) =>
+    withLogin(
+      request(() => getActionRecurring(actionId)).pipe(
+        Effect.map((res) =>
+          res.status === 200
+            ? {
+                message: Message.ActionRecurringFetched({
+                  text: res.data.data.text,
+                  cron: res.data.data.cron,
+                }),
+              }
+            : {
+                message: Message.ActionRecurringFetched({ text: "", cron: "" }),
+                status: res.status,
+              },
+        ),
+        // The dialog shows the plain new values.
+        Effect.catchTag("RequestFailed", () =>
+          Effect.succeed({ message: Message.ActionRecurringFetched({ text: "", cron: "" }) }),
         ),
       ),
     ),

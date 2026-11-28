@@ -305,6 +305,15 @@ JOIN workstreams w ON w.repository = tasks.workstream_repository AND w.number = 
 JOIN issues i ON i.workstream = w.id AND i.repository = tasks.repository AND i.number = tasks.issue
 ORDER BY tasks.id;
 
+-- name: GetLiveTaskMerging :one
+SELECT tasks.state, coalesce(m.merging, 0) AS merging
+FROM tasks
+LEFT JOIN inbox_items m ON m.id = (
+  SELECT max(id) FROM inbox_items
+  WHERE kind = 'ready for review' AND repository = tasks.repository AND issue = tasks.issue AND pull_request = tasks.pull_request
+)
+WHERE tasks.repository = ? AND tasks.issue = ? AND tasks.state <> 'ended';
+
 -- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
   SELECT 1 FROM ci_fix_issues WHERE ci_fix_issues.repository = tasks.repository AND ci_fix_issues.issue = tasks.issue
@@ -1944,6 +1953,9 @@ UPDATE pending_actions SET awaits_number = 0 WHERE id = ?;
 
 -- name: SetPendingActionOldBrief :exec
 UPDATE pending_actions SET old_brief = ? WHERE id = ?;
+
+-- name: SetPendingActionOldRecurring :exec
+UPDATE pending_actions SET old_recurring_text = ?, old_recurring_cron = ? WHERE id = ?;
 
 -- name: FailRunningPendingActions :exec
 UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;
