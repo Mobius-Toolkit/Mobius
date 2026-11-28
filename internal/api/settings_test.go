@@ -108,7 +108,17 @@ func detailsWithOperator(t *testing.T, server *testserver.Server) (lead, operato
 
 func records(t *testing.T, server *testserver.Server) []string {
 	t.Helper()
-	rows, err := server.DB.Query("SELECT text FROM chat_messages WHERE repository = ? AND workstream = 12 AND author = 'Record' ORDER BY id", shop)
+	return recordsOf(t, server, shop, 12)
+}
+
+func coordinatorRecords(t *testing.T, server *testserver.Server) []string {
+	t.Helper()
+	return recordsOf(t, server, "", 0)
+}
+
+func recordsOf(t *testing.T, server *testserver.Server, repository string, workstream int64) []string {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT text FROM chat_messages WHERE repository = ? AND workstream = ? AND author = 'Record' ORDER BY id", repository, workstream)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +210,10 @@ func TestTheTaskImplementerClearGives204ForATaskThatIsInNoWorkstream(t *testing.
 		t.Errorf("issue_bindings has %d rows, want 0", rows)
 	}
 	if got := records(t, server); len(got) != 0 {
-		t.Errorf("records = %q, want none", got)
+		t.Errorf("records of the Lead chat = %q, want none", got)
+	}
+	if got, want := coordinatorRecords(t, server), []string{"The Owner cleared the setting of the Implementer of owner/shop#99."}; !slices.Equal(got, want) {
+		t.Errorf("records of the Coordinator chat = %q, want %q", got, want)
 	}
 }
 

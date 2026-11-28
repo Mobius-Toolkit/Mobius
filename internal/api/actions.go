@@ -119,14 +119,14 @@ type ApproveActionResponse struct {
 // a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no
 // image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not
 // PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
-func (h *handlers) ApproveAction(ctx context.Context, req ApproveActionRequest) (*ApproveActionResponse, error) {
+func (h *handlers) ApproveAction(ctx context.Context, req ApproveActionRequest) (*ApproveActionResponse, engine.Record, error) {
 	body := req.Body
-	action, err := h.engine.ApproveAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
+	action, record, err := h.engine.ApproveAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &ApproveActionResponse{Body: Envelope[PendingAction]{Data: found}}, nil
+	return &ApproveActionResponse{Body: Envelope[PendingAction]{Data: found}}, record, nil
 }
 
 // RejectActionRequest is the request of RejectAction.
@@ -167,14 +167,14 @@ type RejectActionResponse struct {
 // message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image.
 // It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG,
 // JPEG, GIF or WebP, and 409 for an action that is not pending.
-func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*RejectActionResponse, error) {
+func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*RejectActionResponse, engine.Record, error) {
 	body := req.Body
-	action, err := h.engine.RejectAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
+	action, record, err := h.engine.RejectAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &RejectActionResponse{Body: Envelope[PendingAction]{Data: found}}, nil
+	return &RejectActionResponse{Body: Envelope[PendingAction]{Data: found}}, record, nil
 }
 
 // GetActionBriefRequest is the request of GetActionBrief.

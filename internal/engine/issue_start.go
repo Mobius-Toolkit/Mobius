@@ -157,7 +157,8 @@ func isStartEvent(event *gh.IssueEvent) bool {
 
 // applyStartChange requests a Start for an add of mobius:ready by a trusted user, and adds an outgoing change that
 // removes mobius:ready as an own write. An upgrade event also accepts the Mobius App, because an open mobius:ready
-// from before the upgrade can have the App as its actor. A removal of mobius:ready changes nothing.
+// from before the upgrade can have the App as its actor. A removal of mobius:ready changes nothing. After the Start of a
+// trusted person and the write back, it adds the Record "@actor started #N" for the chat of the issue.
 func (e *Engine) applyStartChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	if change.Change != labeledChange {
 		return nil
@@ -167,7 +168,8 @@ func (e *Engine) applyStartChange(ctx context.Context, repository github.Reposit
 	if err := json.Unmarshal([]byte(change.Metadata), &meta); err != nil {
 		return err
 	}
-	trusted := e.trustedUser(change.Actor)
+	person := e.trustedUser(change.Actor)
+	trusted := person
 	if meta.Upgrade {
 		trusted = e.TrustedAuthor(repository.AppSlug, change.Actor)
 	}
@@ -176,7 +178,11 @@ func (e *Engine) applyStartChange(ctx context.Context, repository github.Reposit
 			return err
 		}
 	}
-	return e.writeBack(ctx, repository, change)
+	if err := e.writeBack(ctx, repository, change); err != nil || !person {
+		return err
+	}
+	e.AddRecord(ctx, e.issueRecord(ctx, repository, change.Number, "@"+change.Actor+" started"))
+	return nil
 }
 
 // sendStart removes the label mobius:ready from the issue as an own write, and drops it from the copied labels of the

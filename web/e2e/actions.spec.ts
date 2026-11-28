@@ -82,13 +82,11 @@ const badge = (card: Locator, name: string) =>
 const link = (page: Page, path: string) =>
   page.locator(`nav a[href="${path}"]`).filter({ visible: true });
 
-const ownerDecision = (page: Page, decision: string, title: string) =>
+const decisionRecord = (page: Page, decision: string, title: string) =>
   page
     .getByRole("main")
     .locator("[data-message]")
-    .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
-    .filter({ hasText: title })
-    .filter({ has: page.getByText(decision, { exact: true }) });
+    .filter({ hasText: `You ${decision} "${title}".` });
 
 async function expectOnTheRight(message: Locator) {
   const bubble = await message.boundingBox();
@@ -144,9 +142,9 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(card.getByText("Sent the message to the Lead of #14 Early renewals.")).toBeVisible();
   await expect(card.getByText("Go ahead.")).toHaveCount(0);
   await expect(card.getByRole("button")).toHaveText(["Details"]);
-  const decision = ownerDecision(page, "Approved", leadTitle);
+  const decision = decisionRecord(page, "approved", leadTitle);
   await expect(decision).toHaveCount(1);
-  await expect(decision.getByText("Go ahead.")).toBeVisible();
+  await expect(decision).toContainText("Go ahead.");
   await expectOnTheRight(decision);
 
   await card.getByRole("button", { name: "Details" }).click();
@@ -182,9 +180,9 @@ test("the Owner rejects an action with a note", async ({ page }) => {
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
   await expect(card.getByText("Wait for the migration of #12.")).toHaveCount(0);
   await expect(waiting(page, 1)).toBeHidden();
-  const decision = ownerDecision(page, "Rejected", leadTitle);
+  const decision = decisionRecord(page, "rejected", leadTitle);
   await expect(decision).toHaveCount(1);
-  await expect(decision.getByText("Wait for the migration of #12.")).toBeVisible();
+  await expect(decision).toContainText("Wait for the migration of #12.");
   await expectOnTheRight(decision);
 
   await card.getByRole("button", { name: "Details" }).click();

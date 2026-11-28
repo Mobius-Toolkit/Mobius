@@ -768,6 +768,17 @@ func TestServer(t *testing.T) {
 		}
 		return waiting == 1
 	})
+	// The fixture chats show no Record of these two Starts. A Record of a later Start stays.
+	testkit.WaitFor(t, func() bool {
+		var records int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE author = 'Record' AND text LIKE '@owner started %'").Scan(&records); err != nil {
+			t.Fatal(err)
+		}
+		return records == 2
+	})
+	if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND text LIKE '@owner started %'"); err != nil {
+		t.Fatal(err)
+	}
 	waitForChat(t, server, shop, "tell_owner")
 	testkit.WaitFor(t, func() bool {
 		var open int
@@ -1258,7 +1269,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 		}
 		return err == nil
 	})
-	if _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
+	if _, _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
@@ -1754,8 +1765,8 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 
 // keepImplementer starts the task of the issue with mobius:ready, and waits until the Implementer round of the task
 // ends, the engine keeps its Harness session, the task waits for the Lead, and the event ready_for_approval exists. StartCheckNow ends the wait of its check for a low load. The engine
-// clock fixes the time of the close of the kept session. The events of the dispatch leave the chat of the Workstream,
-// so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
+// clock fixes the time of the close of the kept session. The events of the dispatch and the Record of the Start leave
+// the chat of the Workstream, so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
 // Implementer runs /usr/bin/git.
 func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, repository string, workstream, issue int64) {
 	t.Helper()
@@ -1799,6 +1810,9 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 		if _, err := server.DB.Exec(query, repository, issue); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND repository = ?1 AND workstream = ?2 AND text = ?3", repository, workstream, fmt.Sprintf("@owner started #%d.", issue)); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -174,12 +174,12 @@ type SendAgainRequest struct {
 // message at the end of its chat, with the same text and images, and the agent gets the copy at once. A message that is
 // already delivered only closes the item. It returns 409 for an item that is not an open Lead failed item with a
 // message, and while Mobius restarts for an upgrade.
-func (h *handlers) SendAgain(ctx context.Context, req SendAgainRequest) error {
-	err := h.engine.SendAgain(ctx, req.Path.ID)
+func (h *handlers) SendAgain(ctx context.Context, req SendAgainRequest) (engine.Record, error) {
+	record, err := h.engine.SendAgain(ctx, req.Path.ID)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // AnswerInboxItemRequest is the request of AnswerInboxItem.
@@ -230,27 +230,27 @@ type AnsweredComment struct {
 // message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue, for an
 // empty text with no image, no Inbox item and no selection, and for a request that has more than 4 images or an image
 // that is not PNG, JPEG, GIF or WebP, and 409 with the steps when the Owner did not authorize the App.
-func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, error) {
+func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, engine.Record, error) {
 	body := req.Body
 	text := unixLines(body.Text)
 	attachments := attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds)
 	if strings.TrimSpace(text) == "" && attachments.Empty() {
-		return nil, api.NewHTTPError(http.StatusBadRequest, "The text must not be empty.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusBadRequest, "The text must not be empty.")
 	}
-	url, err := h.engine.AnswerInboxItem(ctx, req.Path.ID, text, attachments)
+	url, record, err := h.engine.AnswerInboxItem(ctx, req.Path.ID, text, attachments)
 	if errors.Is(err, engine.ErrNoInboxItem) {
-		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}
 	if errors.Is(err, engine.ErrNoInboxIssue) {
-		return nil, api.NewHTTPError(http.StatusBadRequest, "The Inbox item has no issue.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusBadRequest, "The Inbox item has no issue.")
 	}
 	if engine.Refused(err) {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &AnswerInboxItemResponse{Body: Envelope[AnsweredComment]{Data: AnsweredComment{URL: url}}}, nil
+	return &AnswerInboxItemResponse{Body: Envelope[AnsweredComment]{Data: AnsweredComment{URL: url}}}, record, nil
 }
 
 // MergeInboxItemRequest is the request of MergeInboxItem.

@@ -4669,7 +4669,10 @@ test("screenshots", async ({ page }) => {
             !(
               /Its ID is \d+, only for withdraw\.$/.test(
                 list.lastElementChild?.textContent ?? "",
-              ) || list.lastElementChild?.querySelector('[aria-label^="Sent from the Inbox"]')
+              ) ||
+              /^You (approved|rejected) .* · \d{2}:\d{2} [AP]M$/s.test(
+                list.lastElementChild?.textContent ?? "",
+              )
             )
           ) {
             return false;
@@ -4680,16 +4683,12 @@ test("screenshots", async ({ page }) => {
       )
       .toBe(true);
   };
-  const ownerDecision = (decision: string, title: string) =>
-    main
-      .locator("[data-message]")
-      .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
-      .filter({ hasText: title })
-      .filter({ has: page.getByText(decision, { exact: true }) });
+  const decisionRecord = (decision: string, title: string) =>
+    main.locator("[data-message]").filter({ hasText: `You ${decision} "${title}".` });
   const showDecision = (decision: string, title: string) => async () => {
-    await expect(ownerDecision(decision, title)).toBeVisible();
+    await expect(decisionRecord(decision, title)).toBeVisible();
     await showChatEnd(page);
-    await expect(ownerDecision(decision, title)).toBeInViewport();
+    await expect(decisionRecord(decision, title)).toBeInViewport();
   };
   const showCardInView = async (title: string) => {
     await showEnd(title)();
@@ -4849,9 +4848,7 @@ test("screenshots", async ({ page }) => {
       waits(2),
       cardOf(page, unknownTitle).getByText("Rejected", { exact: true }),
       cardOf(page, unknownTitle).getByRole("button", { name: "Details" }),
-      ownerDecision("Rejected", unknownTitle).getByRole("img", {
-        name: "Sent from the Inbox at 09:30 AM",
-      }),
+      decisionRecord("rejected", unknownTitle),
     ],
     async (device) => {
       if (device === "desktop") {
@@ -4865,17 +4862,17 @@ test("screenshots", async ({ page }) => {
       const card = cardOf(page, unknownTitle);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
       await expect(waits(2)).toBeVisible();
-      await expect(ownerDecision("Rejected", unknownTitle)).toHaveCount(1);
+      await expect(decisionRecord("rejected", unknownTitle)).toHaveCount(1);
       if (device === "desktop") {
         await showEnd(unknownTitle)();
         await expect(card).toBeInViewport({ ratio: 1 });
-        await expect(ownerDecision("Rejected", unknownTitle)).toBeInViewport({ ratio: 1 });
+        await expect(decisionRecord("rejected", unknownTitle)).toBeInViewport({ ratio: 1 });
       } else {
         await showCardInView(unknownTitle);
       }
     },
   );
-  // The Lead action has no decision, so the chat shows no message of the Owner for it. The state stays only for the
+  // The Lead action has no decision, so the chat shows no Record for it. The state stays only for the
   // screenshot.
   const leadAction = await cardOf(page, leadTitle).getAttribute("data-action");
   const setLeadAction = async (state: string) => {
@@ -4896,10 +4893,7 @@ test("screenshots", async ({ page }) => {
     async () => {
       await showCardInView(leadTitle);
       await expect(
-        main
-          .locator("[data-message]")
-          .filter({ has: page.getByRole("img", { name: /^Sent from the Inbox/ }) })
-          .filter({ hasText: leadTitle }),
+        main.locator("[data-message]").filter({ hasText: `You approved "${leadTitle}".` }),
       ).toHaveCount(0);
     },
   );
@@ -5203,14 +5197,10 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
-    "action-approved-owner-message",
+    "action-approved-record",
     "/workstreams/owner/shop/14",
-    (device) => [
-      ...approvalReady(device, "1"),
-      ownerDecision("Approved", briefTitle).getByText("Approved", { exact: true }),
-      ownerDecision("Approved", briefTitle).getByText(briefTitle),
-    ],
-    showDecision("Approved", briefTitle),
+    (device) => [...approvalReady(device, "1"), decisionRecord("approved", briefTitle)],
+    showDecision("approved", briefTitle),
   );
   const openBriefDetails = async () => {
     await showBriefCard();
@@ -5287,14 +5277,10 @@ test("screenshots", async ({ page }) => {
   await fixActionTimes();
   await screenshot(
     page,
-    "action-rejected-owner-message",
+    "action-rejected-record",
     "/workstreams/owner/shop/14",
-    (device) => [
-      ...approvalReady(device, "1"),
-      ownerDecision("Rejected", leadToLeadTitle).getByText("Rejected", { exact: true }),
-      ownerDecision("Rejected", leadToLeadTitle).getByText(leadToLeadTitle),
-    ],
-    showDecision("Rejected", leadToLeadTitle),
+    (device) => [...approvalReady(device, "1"), decisionRecord("rejected", leadToLeadTitle)],
+    showDecision("rejected", leadToLeadTitle),
   );
 
   // The fake Lead of #14 changes and then deletes its recurring task. The fake Lead knows the ID 3 of the task: the

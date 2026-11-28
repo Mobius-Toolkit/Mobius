@@ -581,18 +581,19 @@ func (e *Engine) resumeNeedsHuman(ctx context.Context, repository github.Reposit
 }
 
 // issueRecord gives the Record "<what> <issue>." for the Lead chat of the Workstream of the issue number. The live
-// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets a Record with no
-// chat. A failed read only goes to the log, because the action has succeeded.
+// task gives the Workstream, else the parents of the issue give it. An issue in no Workstream gets its Record for the
+// Coordinator chat of the organization. A failed read only goes to the log, because the action has succeeded.
 func (e *Engine) issueRecord(ctx context.Context, repository github.Repository, number int64, what string) Record {
 	workstreamRepository, workstream, err := e.issueWorkstream(ctx, repository, number)
 	if err != nil {
 		log.Printf("find the Workstream of %s#%d for a record: %v", repository.FullName, number, err)
 		return Record{}
 	}
+	text := fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number))
 	if workstream == 0 {
-		return Record{}
+		return recordIn(text, ChatKey{Organization: repository.Owner()})
 	}
-	return recordIn(fmt.Sprintf("%s %s.", what, eventRef(workstreamRepository, repository.FullName, number)), leadChat(workstreamRepository, workstream))
+	return recordIn(text, leadChat(workstreamRepository, workstream))
 }
 
 func (e *Engine) issueWorkstream(ctx context.Context, repository github.Repository, number int64) (string, int64, error) {
