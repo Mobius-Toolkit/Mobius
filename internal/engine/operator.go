@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 //go:embed prompts/operator.md
@@ -22,7 +23,8 @@ var operatorPrompt string
 type operatorKey int64
 
 type operatorInput struct {
-	Text string `json:"text"`
+	Text          string `json:"text"`
+	RecurringTask int64  `json:"recurring_task,omitempty"`
 }
 
 // operatorDir gives the directory of the Operators of the Workstream. The directory keeps the memory of the Operators.
@@ -36,8 +38,25 @@ func (e *Engine) startOperator(ctx context.Context, c caller, repository github.
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
+	if input.RecurringTask != 0 {
+		_, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: input.RecurringTask, Repository: c.repository, Workstream: c.workstream})
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", refuse("The Workstream has no recurring task %d.", input.RecurringTask)
+		}
+		if err != nil {
+			return "", err
+		}
+	}
 	if err := e.refuseInDrain(ctx, c, "start_operator", "Operator", input); err != nil {
 		return "", err
+	}
+	directory := ""
+	if input.RecurringTask != 0 {
+		text, err := e.recurringDirText(input.RecurringTask)
+		if err != nil {
+			return "", err
+		}
+		directory = "# Directory of the recurring task\n\n" + text + "\n\n"
 	}
 	a, err := e.newAgent(ctx, Spec{
 		Role:         OperatorRole,
@@ -57,7 +76,7 @@ func (e *Engine) startOperator(ctx context.Context, c caller, repository github.
 	started := e.startWorker(key, func(ctx context.Context) {
 		defer e.stop(key)
 		defer e.forgetOperator(a.id)
-		if err := e.operate(ctx, c, repository, a, input.Text); err != nil {
+		if err := e.operate(ctx, c, repository, a, directory, input.Text); err != nil {
 			log.Printf("Operator %d of %s#%d: %v", a.id, c.repository, c.workstream, err)
 		}
 	})
@@ -89,17 +108,18 @@ func (e *Engine) stopOperators(repository string, workstream int64) {
 	}
 }
 
-// operate runs the session a of the Operator on the text. A failed Operator reports its error. A stop ends the session
+// operate runs the session a of the Operator on the text. The directory is the prompt section of the recurring task,
+// or empty. A failed Operator reports its error. A stop ends the session
 // with no report. The report goes to the chat before the session ends, because the end frees the drain count, and
 // the chat refuses a message after the seal of an upgrade.
-func (e *Engine) operate(ctx context.Context, c caller, repository github.Repository, a *Agent, text string) error {
+func (e *Engine) operate(ctx context.Context, c caller, repository github.Repository, a *Agent, directory, text string) error {
 	if err := a.waitForSlot(ctx); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
 		return err
 	}
-	report, err := e.operateTurn(ctx, repository, a, text)
+	report, err := e.operateTurn(ctx, repository, a, directory, text)
 	a.closeHarness()
 	ended := context.WithoutCancel(ctx)
 	switch {
@@ -118,7 +138,7 @@ func (e *Engine) operate(ctx context.Context, c caller, repository github.Reposi
 
 // operateTurn makes the directory of the Operator a and runs its turn. It gives the report: the reply text after the
 // last tool call.
-func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, a *Agent, text string) (string, error) {
+func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, a *Agent, directory, text string) (string, error) {
 	if err := os.MkdirAll(a.spec.Dir, 0o750); err != nil {
 		return "", err
 	}
@@ -137,7 +157,7 @@ func (e *Engine) operateTurn(ctx context.Context, repository github.Repository, 
 	if memory = strings.TrimSpace(memory); memory != "" {
 		memorySection = "# MEMORY.md\n\n" + memory + "\n\n"
 	}
-	prompt := fmt.Sprintf("%s\n# Brief\n\n%s\n\n%s# Text\n\n%s", operatorPrompt, row.Body, memorySection, text)
+	prompt := fmt.Sprintf("%s\n# Brief\n\n%s\n\n%s%s# Text\n\n%s", operatorPrompt, row.Body, memorySection, directory, text)
 	for {
 		err := a.Prompt(ctx, prompt, nil)
 		if err == nil {

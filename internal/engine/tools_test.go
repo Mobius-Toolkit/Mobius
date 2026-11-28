@@ -159,6 +159,7 @@ func TestOptionalParametersAreNotRequiredInTheSchema(t *testing.T) {
 				"create_issue":          {"implementer"},
 				"create_recurring_task": {"project"},
 				"propose_skill":         {"repository"},
+				"start_operator":        {"recurring_task"},
 				"update_recurring_task": {"project"},
 			},
 		},
