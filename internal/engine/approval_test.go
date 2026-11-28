@@ -20,8 +20,20 @@ func longGrace(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Hour }
 func checksHead(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) string {
 	t.Helper()
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	waiter := logOnFatal{t, func() { logChecksWait(t, server, fake) }}
+	testkit.WaitFor(waiter, func() bool { return taskState(t, server) == "checks" })
 	return head(t, fake, "mobius/41")
+}
+
+// logChecksWait writes the state of the first round of #41 to the test log. A step of step_times has a row only after
+// it ended, so the first missing step is the step that did not end.
+func logChecksWait(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Logf("the task of #41 did not reach the state checks")
+	logRows(t, server, "task", "SELECT id, state, state_at, worker, worker_restarts, branch, pull_request FROM tasks WHERE repository = ? AND issue = 41 ORDER BY id", shop)
+	logRows(t, server, "session", "SELECT id, role, started_at, ended_at, end_reason, queue_reason FROM sessions ORDER BY id")
+	logRows(t, server, "step", "SELECT session, kind, started_at, ended_at, result FROM step_times ORDER BY id")
+	logRows(t, server, "transcript", "SELECT session, time, kind, substr(json, 1, 200) AS json FROM transcript ORDER BY id DESC LIMIT 10")
+	t.Logf("pull requests = %d", len(fake.PullRequests(shop)))
 }
 
 func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T) {
