@@ -404,7 +404,7 @@ func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *tes
 	}
 	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -429,7 +429,7 @@ func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
 	server.Engine.AbortDrain()
 	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -449,7 +449,7 @@ func TestASessionSendsThePromptWhenThePauseEndsInASealedDrainAndTheSealIsAborted
 		t.Fatalf("seal = %s", got)
 	}
 	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -483,7 +483,7 @@ func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testin
 	}
 	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 

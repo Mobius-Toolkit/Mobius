@@ -334,7 +334,7 @@ func TestARoundAfterAChangeOfTheImplementerBindingStartsANewSession(t *testing.T
 		}
 	}
 	binding.Model = "opus"
-	if err := server.Engine.SetRole(t.Context(), engine.ImplementerRole, binding); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), engine.ImplementerRole, binding); err != nil {
 		t.Fatal(err)
 	}
 	before := harnessStarts(t, dataDir)
@@ -370,7 +370,7 @@ func setRoleModel(t *testing.T, server *testserver.Server, role, model string) {
 		}
 	}
 	binding.Model = model
-	if err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
+	if _, err := server.Engine.SetRole(t.Context(), role, binding); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -397,7 +397,7 @@ func TestAResetOfTheImplementerRoleClosesTheKeptImplementerSession(t *testing.T)
 	kept := waitForKept(t, server, 41)
 	taskID := liveTask(t, server, 41).ID
 
-	if err := server.Engine.ResetRole(t.Context(), engine.ImplementerRole); err != nil {
+	if _, err := server.Engine.ResetRole(t.Context(), engine.ImplementerRole); err != nil {
 		t.Fatal(err)
 	}
 

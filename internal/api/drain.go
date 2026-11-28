@@ -60,7 +60,9 @@ type DrainEndResponse struct {
 
 // StartDrain holds each new Worker in the queue, and returns when no agent runs or when the Owner cancels the drain.
 func (h *handlers) StartDrain(ctx context.Context, _ StartDrainRequest) (*DrainEndResponse, error) {
-	end, err := h.engine.Drain(ctx)
+	// The wait can end after the cancel, and the Record of the cancel must come after this Record.
+	h.engine.AddRecord(ctx, h.engine.TurnOnDrain())
+	end, err := h.engine.WaitForDrain(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -71,9 +73,8 @@ func (h *handlers) StartDrain(ctx context.Context, _ StartDrainRequest) (*DrainE
 type CancelDrainRequest struct{}
 
 // CancelDrain ends the drain, so the held Workers start. It does nothing while the upgrade replaces the program.
-func (h *handlers) CancelDrain(_ context.Context, _ CancelDrainRequest) error {
-	h.engine.CancelDrain()
-	return nil
+func (h *handlers) CancelDrain(_ context.Context, _ CancelDrainRequest) (engine.Record, error) {
+	return h.engine.CancelDrain(), nil
 }
 
 // StartUpgradeRequest is the request of StartUpgrade.
@@ -87,15 +88,15 @@ type UpgradeResponse struct {
 // StartUpgrade starts the upgrade in the background and returns its state. The upgrade reads the newest release,
 // downloads it, drains the agents, and restarts Mobius with the new release. It tries again after an error that can
 // pass, until it is done or the Owner cancels it.
-func (h *handlers) StartUpgrade(_ context.Context, _ StartUpgradeRequest) (*UpgradeResponse, error) {
-	state, err := h.engine.Upgrade()
+func (h *handlers) StartUpgrade(_ context.Context, _ StartUpgradeRequest) (*UpgradeResponse, engine.Record, error) {
+	state, record, err := h.engine.Upgrade()
 	if engine.Refused(err) {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &UpgradeResponse{Body: Envelope[Upgrade]{Data: upgradeOf(state)}}, nil
+	return &UpgradeResponse{Body: Envelope[Upgrade]{Data: upgradeOf(state)}}, record, nil
 }
 
 // CancelUpgradeRequest is the request of CancelUpgrade.
@@ -103,9 +104,8 @@ type CancelUpgradeRequest struct{}
 
 // CancelUpgrade ends the upgrade and the drain. It does nothing while the upgrade replaces the program. With no upgrade,
 // it ends only the drain.
-func (h *handlers) CancelUpgrade(_ context.Context, _ CancelUpgradeRequest) error {
-	h.engine.CancelUpgrade()
-	return nil
+func (h *handlers) CancelUpgrade(_ context.Context, _ CancelUpgradeRequest) (engine.Record, error) {
+	return h.engine.CancelUpgrade(), nil
 }
 
 // GetUpgradeRequest is the request of GetUpgrade.

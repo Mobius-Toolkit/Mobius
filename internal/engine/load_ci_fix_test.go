@@ -174,7 +174,7 @@ func TestStartCheckNowStartsACheckWithNoCIFixTaskAtOnceWhileACIFixCheckWaits(t *
 	session := waitForLowLoadOf(t, server, 41)
 	waitForLowLoadOf(t, server, 43)
 
-	if err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
+	if _, err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
 		t.Fatal(err)
 	}
 

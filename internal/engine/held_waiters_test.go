@@ -37,7 +37,7 @@ func TestAPausedSessionWithASettingKeepsNoSlotFromALaterSessionAndStartsAfterThe
 
 	requireSession(t, server, later, "claude-code sonnet")
 	end(t, later, "done")
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	agent := awaitWithin(t, earlier)

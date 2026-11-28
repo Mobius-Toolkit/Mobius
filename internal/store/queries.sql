@@ -2476,6 +2476,9 @@ ORDER BY name;
 SELECT * FROM mcp_servers
 WHERE id = ? AND organization = ?;
 
+-- name: GetMcpServerByID :one
+SELECT * FROM mcp_servers WHERE id = ?;
+
 -- name: UpdateMcpServer :one
 UPDATE mcp_servers
 SET name = ?, kind = ?, url = ?, headers = ?, command = ?, args = ?, env = ?, updated_at = ?

@@ -123,8 +123,12 @@ func TestADrainWithNoRefusedCallGivesNoEventAndNoMessage(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 	for _, key := range []engine.ChatKey{leadChat, coordinatorChat} {
-		if lines := chatLines(t, server, key); len(lines) != 0 {
+		lines := slices.DeleteFunc(chatLines(t, server, key), func(line chatLine) bool { return line.Author == "Record" })
+		if len(lines) != 0 {
 			t.Errorf("chat %+v = %+v", key, lines)
 		}
+	}
+	if got, want := records(t, server, coordinatorChat), []string{"You turned on the drain.", "You turned off the drain."}; !slices.Equal(got, want) {
+		t.Errorf("records = %q, want %q", got, want)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -164,8 +165,20 @@ func (e *Engine) StartMcpOAuth(ctx context.Context, organization string, id int6
 // checks the flow, gets the tokens for the code and stores them. It gives the id of the server of the flow, or 0 when
 // no flow has the state. A refusal has the reason for the Owner. A flow that fails after its state matches ends. When
 // the server has no token, the flow stores the reason, so the server shows reconnect. A server with a token stays
-// connected.
-func (e *Engine) FinishMcpOAuth(ctx context.Context, code, state, iss, authorizationError string) (int64, error) {
+// connected. The Record tells the connection, and exists only after the tokens are stored.
+func (e *Engine) FinishMcpOAuth(ctx context.Context, code, state, iss, authorizationError string) (int64, Record, error) {
+	id, err := e.finishMcpOAuth(ctx, code, state, iss, authorizationError)
+	if err != nil {
+		return id, Record{}, err
+	}
+	server, err := e.queries.GetMcpServerByID(ctx, id)
+	if err != nil {
+		return id, Record{}, err
+	}
+	return id, recordIn(fmt.Sprintf("You connected the MCP server %s.", server.Name), ChatKey{Organization: server.Organization}), nil
+}
+
+func (e *Engine) finishMcpOAuth(ctx context.Context, code, state, iss, authorizationError string) (int64, error) {
 	row, err := e.queries.GetMcpServerOAuthByState(ctx, state)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, refuse("No connection waits for this answer of the authorization server.")
@@ -234,19 +247,19 @@ func (e *Engine) FinishMcpOAuth(ctx context.Context, code, state, iss, authoriza
 
 // DisconnectMcpOAuth removes the OAuth flow and the tokens of the server. It gives ErrNoMcpServer for an id that is not
 // a server of the organization.
-func (e *Engine) DisconnectMcpOAuth(ctx context.Context, organization string, id int64) error {
-	_, err := e.queries.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})
+func (e *Engine) DisconnectMcpOAuth(ctx context.Context, organization string, id int64) (Record, error) {
+	server, err := e.queries.GetMcpServer(ctx, store.GetMcpServerParams{ID: id, Organization: organization})
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNoMcpServer
+		return Record{}, ErrNoMcpServer
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.queries.DeleteMcpServerOAuth(ctx, id); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.publish(Change{Workstreams: true})
-	return nil
+	return recordIn(fmt.Sprintf("You disconnected the MCP server %s.", server.Name), ChatKey{Organization: organization}), nil
 }
 
 // mcpOAuthState gives the OAuth state of a server and the reason of a reconnect.

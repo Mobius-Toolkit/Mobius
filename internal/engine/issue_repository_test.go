@@ -195,7 +195,7 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			name:         "a stored choice wins over the one repository that the App sees",
 			repositories: []string{shop},
 			before: func(t *testing.T, server *testserver.Server) {
-				if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+				if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -206,7 +206,7 @@ func TestTheIssueRepositoryOfAnOrganizationFollowsTheOrderOfTheSources(t *testin
 			name:        "a stored choice wins over the repository of the Workstreams",
 			workstreams: []string{shop},
 			before: func(t *testing.T, server *testserver.Server) {
-				if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", garden); err != nil {
+				if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", garden); err != nil {
 					t.Fatal(err)
 				}
 			},

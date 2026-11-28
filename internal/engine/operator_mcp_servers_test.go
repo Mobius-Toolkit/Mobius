@@ -61,14 +61,14 @@ func serverNames(servers []sentServer) []string {
 func selectServers(t *testing.T, server *testserver.Server) {
 	t.Helper()
 	ctx := t.Context()
-	files, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
+	files, _, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
 		Name: "files", Kind: "stdio", Command: "files-server", Args: []string{"--root", "/data"},
 		Env: []engine.McpPair{{Name: "KEY", Value: envValue}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	site, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
+	site, _, err := server.Engine.AddMcpServer(ctx, "owner", engine.McpServer{
 		Name: "makeadir", Kind: "http", URL: "https://makeadir.example.com/mcp",
 		Headers: []engine.McpPair{{Name: "Authorization", Value: headerValue}},
 	})

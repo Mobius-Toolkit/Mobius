@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -164,35 +165,56 @@ func (e *Engine) Roles(ctx context.Context) ([]RoleSetting, error) {
 // on the PATH of the agents, and an effort that the read of the Harness does not give for the model. When the Harness,
 // the model or the effort changes, it also refuses a binding whose access check fails. A field that is equal to the
 // field of config.toml is not stored.
-func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBinding) error {
+func (e *Engine) SetRole(ctx context.Context, role string, binding config.RoleBinding) (Record, error) {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
 	merged := e.mergedRoles()
 	target := namedBinding(&merged, role)
 	if target == nil {
-		return refuse("The Role %s does not exist.", role)
+		return Record{}, refuse("The Role %s does not exist.", role)
 	}
 	if binding.Max < 1 {
-		return refuse("roles.%s.max: must be 1 or more", role)
+		return Record{}, refuse("roles.%s.max: must be 1 or more", role)
 	}
 	current := *target
 	*target = binding
 	if err := e.checkRoles(&merged, role); err != nil {
-		return refuse("%s", err)
+		return Record{}, refuse("%s", err)
 	}
 	if err := e.checkEffort(role, binding); err != nil {
-		return refuse("%s", err)
+		return Record{}, refuse("%s", err)
 	}
 	if err := e.checkChange(ctx, current, binding); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	if err := e.storeRole(ctx, e.queries, role, binding); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.applyRoles(merged)
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You set the Role %s to %s.", roleTitleOf(role), bindingText(binding))), nil
+}
+
+// roleTitleOf gives the title of the Role that config.toml calls name, for example Implementer for implementer.
+func roleTitleOf(name string) string {
+	return groups[slices.IndexFunc(groups, func(g group) bool { return g.name == name })].title
+}
+
+// bindingText gives the Harness, the model, the effort, the context and the max of binding, for a Record.
+func bindingText(binding config.RoleBinding) string {
+	parts := []string{string(binding.Harness)}
+	if binding.Model != "" {
+		parts = append(parts, binding.Model)
+	}
+	if binding.Effort != "" {
+		parts = append(parts, "effort "+binding.Effort)
+	}
+	if binding.Context != 0 {
+		parts = append(parts, fmt.Sprintf("context %d", binding.Context))
+	}
+	parts = append(parts, fmt.Sprintf("max %d", binding.Max))
+	return strings.Join(parts, ", ")
 }
 
 // storeRole writes the fields of binding that differ from config.toml to the role_settings row of role with q. It
@@ -222,32 +244,32 @@ func (e *Engine) storeRole(ctx context.Context, q *store.Queries, role string, b
 }
 
 // ResetRole removes the UI values of the Role role, so it uses config.toml again. It runs the same refusals as SetRole.
-func (e *Engine) ResetRole(ctx context.Context, role string) error {
+func (e *Engine) ResetRole(ctx context.Context, role string) (Record, error) {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
 	merged := e.mergedRoles()
 	target := namedBinding(&merged, role)
 	if target == nil {
-		return refuse("The Role %s does not exist.", role)
+		return Record{}, refuse("The Role %s does not exist.", role)
 	}
 	current := *target
 	*target = *namedBinding(&e.config.Roles, role)
 	if err := e.checkRoles(&merged, role); err != nil {
-		return refuse("%s", err)
+		return Record{}, refuse("%s", err)
 	}
 	if err := e.checkEffort(role, *target); err != nil {
-		return refuse("%s", err)
+		return Record{}, refuse("%s", err)
 	}
 	if err := e.checkChange(ctx, current, *target); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	if err := e.queries.DeleteRoleSetting(ctx, role); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.applyRoles(merged)
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You reset the Role %s to %s.", roleTitleOf(role), bindingText(*target))), nil
 }
 
 // applyRoles makes merged the Roles of the engine and wakes the sessions that wait for a slot, because a max can
@@ -283,43 +305,43 @@ func (e *Engine) checkImplementerChange(ctx context.Context, current, binding co
 
 // AddImplementerBinding adds binding at the end of the list of the Implementer bindings and gives its id. It runs the
 // refusals of SetRole.
-func (e *Engine) AddImplementerBinding(ctx context.Context, binding config.RoleBinding) (int64, error) {
+func (e *Engine) AddImplementerBinding(ctx context.Context, binding config.RoleBinding) (int64, Record, error) {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
 	if err := e.checkImplementerChange(ctx, config.RoleBinding{}, binding); err != nil {
-		return 0, err
+		return 0, Record{}, err
 	}
 	id, err := e.queries.AddImplementerBinding(ctx, store.AddImplementerBindingParams{
 		Harness: string(binding.Harness), Model: binding.Model, Effort: binding.Effort, Context: int64(binding.Context), Max: int64(binding.Max), UpdatedAt: now(),
 	})
 	if err != nil {
-		return 0, err
+		return 0, Record{}, err
 	}
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	e.moreBindings = append(slices.Clone(e.moreBindings), ImplementerBinding{ID: id, Binding: binding})
 	e.applyRoles(e.roles)
-	return id, nil
+	return id, e.organizationRecord(fmt.Sprintf("You added the Implementer binding %s.", bindingText(binding))), nil
 }
 
 // SetImplementerBinding changes the binding with the id id, which is not the first binding. It runs the refusals of
 // SetRole, and gives ErrNoImplementerBinding for an unknown id.
-func (e *Engine) SetImplementerBinding(ctx context.Context, id int64, binding config.RoleBinding) error {
+func (e *Engine) SetImplementerBinding(ctx context.Context, id int64, binding config.RoleBinding) (Record, error) {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
 	more := e.implementerBindings()
 	index := slices.IndexFunc(more, func(b ImplementerBinding) bool { return b.ID == id })
 	if index < 0 {
-		return ErrNoImplementerBinding
+		return Record{}, ErrNoImplementerBinding
 	}
 	if err := e.checkImplementerChange(ctx, more[index].Binding, binding); err != nil {
-		return err
+		return Record{}, err
 	}
 	err := e.queries.UpdateImplementerBinding(ctx, store.UpdateImplementerBindingParams{
 		ID: id, Harness: string(binding.Harness), Model: binding.Model, Effort: binding.Effort, Context: int64(binding.Context), Max: int64(binding.Max), UpdatedAt: now(),
 	})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	changed := slices.Clone(more)
 	changed[index].Binding = binding
@@ -327,13 +349,13 @@ func (e *Engine) SetImplementerBinding(ctx context.Context, id int64, binding co
 	defer e.rolesMu.Unlock()
 	e.moreBindings = changed
 	e.applyRoles(e.roles)
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You changed the Implementer binding %s to %s.", bindingText(more[index].Binding), bindingText(binding))), nil
 }
 
 // RemoveImplementerBinding removes the binding with the id id. The id 0 is the first binding: the second binding takes
 // its place in the role_settings row of the Implementer, with the refusals of SetRole. It refuses the removal of the
 // first binding when it is the only binding, and gives ErrNoImplementerBinding for an unknown id.
-func (e *Engine) RemoveImplementerBinding(ctx context.Context, id int64) error {
+func (e *Engine) RemoveImplementerBinding(ctx context.Context, id int64) (Record, error) {
 	e.roleWriteMu.Lock()
 	defer e.roleWriteMu.Unlock()
 	more := e.implementerBindings()
@@ -342,30 +364,32 @@ func (e *Engine) RemoveImplementerBinding(ctx context.Context, id int64) error {
 	}
 	index := slices.IndexFunc(more, func(b ImplementerBinding) bool { return b.ID == id })
 	if index < 0 {
-		return ErrNoImplementerBinding
+		return Record{}, ErrNoImplementerBinding
 	}
 	if err := e.queries.DeleteImplementerBinding(ctx, id); err != nil {
-		return err
+		return Record{}, err
 	}
 	e.workers.mu.Lock()
 	defer e.workers.mu.Unlock()
 	e.rolesMu.Lock()
 	defer e.rolesMu.Unlock()
 	delete(e.workers.bindings, id)
+	removed := more[index].Binding
 	e.moreBindings = slices.Delete(slices.Clone(more), index, index+1)
 	e.applyRoles(e.roles)
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You removed the Implementer binding %s.", bindingText(removed))), nil
 }
 
-func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []ImplementerBinding) error {
+func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []ImplementerBinding) (Record, error) {
 	if len(more) == 0 {
-		return refuse("The Implementer has only one binding. Add another binding before you remove it.")
+		return Record{}, refuse("The Implementer has only one binding. Add another binding before you remove it.")
 	}
 	merged := e.mergedRoles()
 	second := more[0]
 	if err := e.checkImplementerChange(ctx, merged.Implementer, second.Binding); err != nil {
-		return err
+		return Record{}, err
 	}
+	removed := merged.Implementer
 	merged.Implementer = second.Binding
 	e.workers.mu.Lock()
 	defer e.workers.mu.Unlock()
@@ -378,7 +402,7 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 		return q.DeleteImplementerBinding(ctx, second.ID)
 	})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	// The running sessions of the second binding keep their count under the id 0. The sessions of the removed first
 	// binding keep their own counter, which no id reaches.
@@ -390,7 +414,7 @@ func (e *Engine) removeFirstImplementerBinding(ctx context.Context, more []Imple
 	delete(e.workers.bindings, second.ID)
 	e.moreBindings = slices.Clone(more[1:])
 	e.applyRoles(merged)
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You removed the Implementer binding %s.", bindingText(removed))), nil
 }
 
 func (e *Engine) implementerBindings() []ImplementerBinding {

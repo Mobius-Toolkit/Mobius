@@ -42,7 +42,7 @@ func TestAnOrganizationWithAnOpenWorkstreamAndNoMaintenanceAndNoSkillsWorkstream
 
 	maintenance := waitForItem(t, server, "missing maintenance")
 	skills := waitForItem(t, server, "missing skills")
-	if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+	if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -66,7 +66,7 @@ func TestAnOrganizationWithNoOpenWorkstreamGetsNoItemOfAMissingWorkstream(t *tes
 	fake := testkit.NewFakeGitHub(t)
 	server := startOrganization(t, fake, func(*config.Config) {}, nil)
 
-	if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+	if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -103,7 +103,7 @@ func TestAnOrganizationWithNoIssueRepositoryGetsAMissingMaintenanceItemThatStays
 	server := startOrganization(t, fake, func(*config.Config) {}, nil, shop, garden)
 	item := waitForItem(t, server, "missing maintenance")
 
-	if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+	if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -124,14 +124,14 @@ func TestAfterTheOwnerDismissesAnItemACheckAddsNoNewItemOfThatKindAlsoAfterTheWo
 	if status, body := send(t, server, http.MethodPost, "/api/inbox/"+itoa(item.ID)+"/dismiss", ""); status != http.StatusNoContent {
 		t.Fatalf("dismiss: status %d: %s", status, body)
 	}
-	if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+	if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 		t.Fatal(err)
 	}
 	addMaintenanceWorkstream(fake, maintenanceWorkstream)
 	waitForOpenWorkstreams(t, server, 2)
 	fake.CloseIssue(shop, maintenanceWorkstream)
 	waitForOpenWorkstreams(t, server, 1)
-	if _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
+	if _, _, err := server.Engine.SetIssueRepository(t.Context(), "owner", shop); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)

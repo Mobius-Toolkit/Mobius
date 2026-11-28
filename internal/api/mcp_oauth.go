@@ -74,9 +74,11 @@ type McpOAuthCallbackResponse struct {
 // McpOAuthCallback is the page where an authorization server sends the browser after the Owner allows or refuses the
 // connection of an MCP server. It sends the browser to the page of the MCP servers with the result.
 func (h *handlers) McpOAuthCallback(ctx context.Context, req McpOAuthCallbackRequest) (*McpOAuthCallbackResponse, error) {
-	server, err := h.engine.FinishMcpOAuth(ctx, req.Query.Code, req.Query.State, req.Query.Iss, req.Query.Error)
+	server, record, err := h.engine.FinishMcpOAuth(ctx, req.Query.Code, req.Query.State, req.Query.Iss, req.Query.Error)
 	query := url.Values{"oauth": {"connected"}}
-	if err != nil {
+	if err == nil {
+		h.engine.AddRecord(ctx, record)
+	} else {
 		query.Set("oauth", "failed")
 		reason := "Mobius could not store the connection."
 		if engine.Refused(err) {
@@ -144,6 +146,7 @@ type DisconnectMcpOAuthRequest struct {
 
 // DisconnectMcpOAuth removes the OAuth flow and the tokens of an MCP server. It returns 404 for an id that is not a
 // server of the organization.
-func (h *handlers) DisconnectMcpOAuth(ctx context.Context, req DisconnectMcpOAuthRequest) error {
-	return mcpServerError(h.engine.DisconnectMcpOAuth(ctx, req.Path.Organization, req.Path.ID))
+func (h *handlers) DisconnectMcpOAuth(ctx context.Context, req DisconnectMcpOAuthRequest) (engine.Record, error) {
+	record, err := h.engine.DisconnectMcpOAuth(ctx, req.Path.Organization, req.Path.ID)
+	return record, mcpServerError(err)
 }

@@ -154,8 +154,16 @@ func (e *Engine) Draining() DrainState {
 // runs. A session that waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on,
 // so a cancel still releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
+	e.TurnOnDrain()
+	return e.WaitForDrain(ctx)
+}
+
+// TurnOnDrain holds each new Worker in the queue and asks each chat to close. It gives a Record with no chat when the
+// drain was already on.
+func (e *Engine) TurnOnDrain() Record {
 	d := &e.drain
 	d.mu.Lock()
+	wasOn := d.on
 	d.on = true
 	state := DrainState{d.on, d.running}
 	d.mu.Unlock()
@@ -164,6 +172,15 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	e.pausesChanged.notify()
 	e.closeChats()
 	e.publish(Change{Drain: &state})
+	if wasOn {
+		return Record{}
+	}
+	return e.organizationRecord("You turned on the drain.")
+}
+
+// WaitForDrain waits until no session and no npm upgrade runs, or until a cancel.
+func (e *Engine) WaitForDrain(ctx context.Context) (DrainEnd, error) {
+	d := &e.drain
 	for {
 		changed := d.changed.wait()
 		state := e.Draining()
@@ -182,15 +199,16 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 }
 
 // CancelDrain ends the drain: the held Workers take their slots, and the waiting events go to the Leads. It does
-// nothing to a sealed drain.
-func (e *Engine) CancelDrain() {
+// nothing to a sealed drain. It gives a Record with no chat when it ended no drain.
+func (e *Engine) CancelDrain() Record {
 	d := &e.drain
 	d.mu.Lock()
 	sealed := d.sealed
 	d.mu.Unlock()
-	if !sealed {
-		e.releaseDrain()
+	if sealed || !e.releaseDrain() {
+		return Record{}
 	}
+	return e.organizationRecord("You turned off the drain.")
 }
 
 // seal closes a completed drain for the restart: no session and no npm upgrade starts and a cancel does nothing, until
@@ -241,12 +259,12 @@ func (e *Engine) abortDrain() {
 	e.releaseDrain()
 }
 
-func (e *Engine) releaseDrain() {
+func (e *Engine) releaseDrain() bool {
 	d := &e.drain
 	d.mu.Lock()
 	if !d.on {
 		d.mu.Unlock()
-		return
+		return false
 	}
 	d.on = false
 	d.mu.Unlock()
@@ -260,4 +278,5 @@ func (e *Engine) releaseDrain() {
 	if err := e.wakeAllEvents(context.Background()); err != nil {
 		log.Printf("give the waiting events to the Leads after the drain: %v", err)
 	}
+	return true
 }

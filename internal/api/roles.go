@@ -130,21 +130,23 @@ type RoleResponse struct {
 
 // SetRole sets the values of a Role. The next session of the Role uses them. It returns 422 with the reason when the
 // values fail a check.
-func (h *handlers) SetRole(ctx context.Context, req SetRoleRequest) (*RoleResponse, error) {
+func (h *handlers) SetRole(ctx context.Context, req SetRoleRequest) (*RoleResponse, engine.Record, error) {
 	binding := config.RoleBinding{Harness: config.Harness(req.Body.Harness), Model: req.Body.Model, Effort: req.Body.Effort, Context: req.Body.Context, Max: req.Body.Max}
-	if err := h.engine.SetRole(ctx, req.Path.Role, binding); err != nil {
-		return nil, roleError(err)
+	record, err := h.engine.SetRole(ctx, req.Path.Role, binding)
+	if err != nil {
+		return nil, engine.Record{}, roleError(err)
 	}
-	return h.role(ctx, req.Path.Role)
+	return h.roleWith(ctx, req.Path.Role, record)
 }
 
 // ResetRole removes the UI values of a Role, so it uses config.toml again. It returns 422 with the reason when the
 // values of config.toml fail a check with the UI values of the other Roles.
-func (h *handlers) ResetRole(ctx context.Context, req ResetRoleRequest) (*RoleResponse, error) {
-	if err := h.engine.ResetRole(ctx, req.Path.Role); err != nil {
-		return nil, roleError(err)
+func (h *handlers) ResetRole(ctx context.Context, req ResetRoleRequest) (*RoleResponse, engine.Record, error) {
+	record, err := h.engine.ResetRole(ctx, req.Path.Role)
+	if err != nil {
+		return nil, engine.Record{}, roleError(err)
 	}
-	return h.role(ctx, req.Path.Role)
+	return h.roleWith(ctx, req.Path.Role, record)
 }
 
 // BindingBody is the body of AddImplementerBinding and SetImplementerBinding.
@@ -189,42 +191,46 @@ type RemoveImplementerBindingRequest struct {
 
 // AddImplementerBinding adds an Implementer binding at the end of the list. It returns 422 with the reason when the
 // values fail a check.
-func (h *handlers) AddImplementerBinding(ctx context.Context, req AddImplementerBindingRequest) (*RoleResponse, error) {
-	if _, err := h.engine.AddImplementerBinding(ctx, req.Body.binding()); err != nil {
-		return nil, roleError(err)
+func (h *handlers) AddImplementerBinding(ctx context.Context, req AddImplementerBindingRequest) (*RoleResponse, engine.Record, error) {
+	_, record, err := h.engine.AddImplementerBinding(ctx, req.Body.binding())
+	if err != nil {
+		return nil, engine.Record{}, roleError(err)
 	}
-	return h.role(ctx, "implementer")
+	return h.roleWith(ctx, "implementer", record)
 }
 
 // SetImplementerBinding changes an Implementer binding after the first binding. It returns 404 for an unknown id and
 // 422 with the reason when the values fail a check.
-func (h *handlers) SetImplementerBinding(ctx context.Context, req SetImplementerBindingRequest) (*RoleResponse, error) {
-	if err := h.engine.SetImplementerBinding(ctx, req.Path.ID, req.Body.binding()); err != nil {
-		return nil, roleError(err)
+func (h *handlers) SetImplementerBinding(ctx context.Context, req SetImplementerBindingRequest) (*RoleResponse, engine.Record, error) {
+	record, err := h.engine.SetImplementerBinding(ctx, req.Path.ID, req.Body.binding())
+	if err != nil {
+		return nil, engine.Record{}, roleError(err)
 	}
-	return h.role(ctx, "implementer")
+	return h.roleWith(ctx, "implementer", record)
 }
 
 // RemoveImplementerBinding removes an Implementer binding. The id 0 is the first binding, which the second binding
 // replaces. It returns 404 for an unknown id and 422 with the reason when the removal fails a check.
-func (h *handlers) RemoveImplementerBinding(ctx context.Context, req RemoveImplementerBindingRequest) (*RoleResponse, error) {
-	if err := h.engine.RemoveImplementerBinding(ctx, req.Path.ID); err != nil {
-		return nil, roleError(err)
+func (h *handlers) RemoveImplementerBinding(ctx context.Context, req RemoveImplementerBindingRequest) (*RoleResponse, engine.Record, error) {
+	record, err := h.engine.RemoveImplementerBinding(ctx, req.Path.ID)
+	if err != nil {
+		return nil, engine.Record{}, roleError(err)
 	}
-	return h.role(ctx, "implementer")
+	return h.roleWith(ctx, "implementer", record)
 }
 
-func (h *handlers) role(ctx context.Context, name string) (*RoleResponse, error) {
+// roleWith gives the response with the Role name, and record after a change that succeeded.
+func (h *handlers) roleWith(ctx context.Context, name string, record engine.Record) (*RoleResponse, engine.Record, error) {
 	settings, err := h.engine.Roles(ctx)
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
 	for _, setting := range settings {
 		if setting.Role == name {
-			return &RoleResponse{Body: Envelope[Role]{Data: role(setting)}}, nil
+			return &RoleResponse{Body: Envelope[Role]{Data: role(setting)}}, record, nil
 		}
 	}
-	return nil, api.NewHTTPError(http.StatusNotFound, "The Role "+name+" does not exist.")
+	return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Role "+name+" does not exist.")
 }
 
 func roleError(err error) error {

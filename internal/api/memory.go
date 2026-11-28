@@ -165,23 +165,23 @@ type SaveMemoryRequest struct {
 // nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, or when it
 // has no file with that name, 409 when a newer version exists than the base version, and 422 when the text has more than
 // 200 lines or is above the byte limit of the file.
-func (h *handlers) SaveMemory(ctx context.Context, req SaveMemoryRequest) error {
+func (h *handlers) SaveMemory(ctx context.Context, req SaveMemoryRequest) (engine.Record, error) {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
-		return err
+		return engine.Record{}, err
 	}
 	file := req.Path.File
 	if err := knownMemoryFile(file); err != nil {
-		return err
+		return engine.Record{}, err
 	}
-	err := h.engine.EditMemory(ctx, repository, file, req.Body.BaseVersion, req.Body.Text)
+	record, err := h.engine.EditMemory(ctx, repository, file, req.Body.BaseVersion, req.Body.Text)
 	if errors.Is(err, engine.ErrMemoryTooLong) {
-		return api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusUnprocessableEntity, err.Error())
 	}
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // RevertMemoryRequest is the request of RevertMemory.
@@ -203,23 +203,23 @@ type RevertMemoryRequest struct {
 // with that name, or when the version does not exist or belongs to another repository or file. It returns 409 when a
 // later version changed the part, when the revert changes nothing, or when the result has more than 200 lines or is above
 // the byte limit of the file.
-func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) error {
+func (h *handlers) RevertMemory(ctx context.Context, req RevertMemoryRequest) (engine.Record, error) {
 	repository := req.Path.Owner + "/" + req.Path.Name
 	if err := h.knownRepository(repository); err != nil {
-		return err
+		return engine.Record{}, err
 	}
 	file := req.Path.File
 	if err := knownMemoryFile(file); err != nil {
-		return err
+		return engine.Record{}, err
 	}
-	err := h.engine.RevertMemory(ctx, repository, file, req.Path.ID)
+	record, err := h.engine.RevertMemory(ctx, repository, file, req.Path.ID)
 	if errors.Is(err, engine.ErrNoMemoryVersion) {
-		return api.NewHTTPError(http.StatusNotFound, "The memory file has no such version.")
+		return engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The memory file has no such version.")
 	}
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // knownRepository gives a 404 error when Mobius has no repository with the full name.

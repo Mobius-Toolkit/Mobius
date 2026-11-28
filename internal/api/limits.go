@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 // Pause is the usage-limit pause of a Harness.
@@ -86,6 +88,6 @@ type ResumeRequest struct {
 
 // Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. A Harness with
 // no pause is no error.
-func (h *handlers) Resume(ctx context.Context, req ResumeRequest) error {
+func (h *handlers) Resume(ctx context.Context, req ResumeRequest) (engine.Record, error) {
 	return h.engine.Resume(ctx, req.Path.Harness)
 }

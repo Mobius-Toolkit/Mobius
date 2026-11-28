@@ -808,22 +808,22 @@ var ErrIssueRepositoryInConfig = errors.New("config.toml sets the issue reposito
 // SetIssueRepository stores the choice of the Owner for the issue repository of the organization. It gives
 // ErrIssueRepositoryInConfig when the config has the key, and a refusal when repository is not a repository of the
 // organization that the Mobius App sees.
-func (e *Engine) SetIssueRepository(ctx context.Context, organization, repository string) (string, error) {
+func (e *Engine) SetIssueRepository(ctx context.Context, organization, repository string) (string, Record, error) {
 	if e.config.Organizations[organization].IssueRepository != "" {
-		return "", fmt.Errorf("%w with organizations.%s.issue_repository. Change the key in config.toml to change the issue repository", ErrIssueRepositoryInConfig, organization)
+		return "", Record{}, fmt.Errorf("%w with organizations.%s.issue_repository. Change the key in config.toml to change the issue repository", ErrIssueRepositoryInConfig, organization)
 	}
 	found, err := e.organizationRepository(organization, repository)
 	if err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	err = e.queries.SetIssueRepositoryChoice(ctx, store.SetIssueRepositoryChoiceParams{Organization: organization, Repository: found.FullName})
 	if err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	if err := e.syncMissingWorkstreams(ctx, false); err != nil {
 		log.Printf("check the missing Workstreams: %v", err)
 	}
-	return found.FullName, nil
+	return found.FullName, recordIn(fmt.Sprintf("You set the issue repository of %s to %s.", organization, found.FullName), ChatKey{Organization: organization}), nil
 }
 
 type noInput struct{}

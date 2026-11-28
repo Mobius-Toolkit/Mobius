@@ -152,12 +152,12 @@ type AddMcpServerResponse struct {
 
 // AddMcpServer adds an MCP server to the organization. It returns 422 with the reason when a field fails a check, and
 // 409 when another server of the organization has the name.
-func (h *handlers) AddMcpServer(ctx context.Context, req AddMcpServerRequest) (*AddMcpServerResponse, error) {
-	server, err := h.engine.AddMcpServer(ctx, req.Path.Organization, mcpServerInput(req.Body))
+func (h *handlers) AddMcpServer(ctx context.Context, req AddMcpServerRequest) (*AddMcpServerResponse, engine.Record, error) {
+	server, record, err := h.engine.AddMcpServer(ctx, req.Path.Organization, mcpServerInput(req.Body))
 	if err != nil {
-		return nil, mcpServerError(err)
+		return nil, engine.Record{}, mcpServerError(err)
 	}
-	return &AddMcpServerResponse{Body: Envelope[McpServer]{Data: mcpServerOf(server)}}, nil
+	return &AddMcpServerResponse{Body: Envelope[McpServer]{Data: mcpServerOf(server)}}, record, nil
 }
 
 // ChangeMcpServerRequest is the request of ChangeMcpServer.
@@ -179,12 +179,12 @@ type ChangeMcpServerResponse struct {
 // ChangeMcpServer replaces an MCP server of the organization. A header or an environment variable with an empty value
 // keeps the stored value of the same name. It returns 404 for an id that is not a server of the organization, 422 with
 // the reason when a field fails a check, and 409 when another server of the organization has the name.
-func (h *handlers) ChangeMcpServer(ctx context.Context, req ChangeMcpServerRequest) (*ChangeMcpServerResponse, error) {
-	server, err := h.engine.UpdateMcpServer(ctx, req.Path.Organization, req.Path.ID, mcpServerInput(req.Body))
+func (h *handlers) ChangeMcpServer(ctx context.Context, req ChangeMcpServerRequest) (*ChangeMcpServerResponse, engine.Record, error) {
+	server, record, err := h.engine.UpdateMcpServer(ctx, req.Path.Organization, req.Path.ID, mcpServerInput(req.Body))
 	if err != nil {
-		return nil, mcpServerError(err)
+		return nil, engine.Record{}, mcpServerError(err)
 	}
-	return &ChangeMcpServerResponse{Body: Envelope[McpServer]{Data: mcpServerOf(server)}}, nil
+	return &ChangeMcpServerResponse{Body: Envelope[McpServer]{Data: mcpServerOf(server)}}, record, nil
 }
 
 // DeleteMcpServerRequest is the request of DeleteMcpServer.
@@ -199,8 +199,9 @@ type DeleteMcpServerRequest struct {
 
 // DeleteMcpServer deletes an MCP server of the organization and removes it from the selection of each Workstream. It
 // returns 404 for an id that is not a server of the organization.
-func (h *handlers) DeleteMcpServer(ctx context.Context, req DeleteMcpServerRequest) error {
-	return mcpServerError(h.engine.DeleteMcpServer(ctx, req.Path.Organization, req.Path.ID))
+func (h *handlers) DeleteMcpServer(ctx context.Context, req DeleteMcpServerRequest) (engine.Record, error) {
+	record, err := h.engine.DeleteMcpServer(ctx, req.Path.Organization, req.Path.ID)
+	return record, mcpServerError(err)
 }
 
 // SetWorkstreamMcpServersRequest is the request of SetWorkstreamMcpServers.

@@ -78,18 +78,22 @@ func (e *Engine) startCheck(session int64, own loadWait) (float64, bool, error) 
 
 // StartCheckNow ends the wait for a low load of the check of the session, so the check starts at once with no regard
 // for the load and for checkGap. The check keeps its check slot.
-func (e *Engine) StartCheckNow(_ context.Context, session int64) error {
+func (e *Engine) StartCheckNow(ctx context.Context, session int64) (Record, error) {
 	e.loadWaitsMu.Lock()
 	defer e.loadWaitsMu.Unlock()
 	wait, ok := e.loadWaits[session]
 	if !ok {
-		return refuse("The check of session %d does not wait for a low load.", session)
+		return Record{}, refuse("The check of session %d does not wait for a low load.", session)
+	}
+	row, err := e.queries.GetSession(ctx, session)
+	if err != nil {
+		return Record{}, err
 	}
 	select {
 	case wait.now <- struct{}{}:
 	default:
 	}
-	return nil
+	return recordIn(fmt.Sprintf("You started the check of session %d now.", session), ChatKey{Organization: row.Organization}), nil
 }
 
 // waitForLowLoad holds until startCheck lets the check of a start, or until StartCheckNow. The check of a CI fix task

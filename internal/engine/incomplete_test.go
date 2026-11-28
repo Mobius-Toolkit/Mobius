@@ -145,7 +145,7 @@ func TestAnAntigravityLimitReplyWithAnIncompleteStopReasonStaysOnTheUsageLimitPa
 		err := server.DB.QueryRow("SELECT count(*) FROM harness_pauses WHERE harness = 'antigravity'").Scan(&count)
 		return err == nil && count == 1
 	})
-	if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {

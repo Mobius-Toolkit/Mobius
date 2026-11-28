@@ -20,7 +20,7 @@ func firstSlots(slots int) func(*config.Config) {
 // addBinding adds a binding of the Implementer and gives its id.
 func addBinding(t *testing.T, server *testserver.Server, harness config.Harness, model, effort string, slots int) int64 {
 	t.Helper()
-	id, err := server.Engine.AddImplementerBinding(t.Context(), config.RoleBinding{Harness: harness, Model: model, Effort: effort, Max: slots})
+	id, _, err := server.Engine.AddImplementerBinding(t.Context(), config.RoleBinding{Harness: harness, Model: model, Effort: effort, Max: slots})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAPauseOfTheHarnessOfTheFirstBindingMovesTheNextSessionToTheSecondBindin
 		t.Errorf("waiting session = %+v, want the pause of the first binding", waiting)
 	}
 	end(t, paused, "stopped")
-	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+	if _, err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	agent := awaitWithin(t, third)
@@ -210,7 +210,7 @@ func TestARemovalOfTheBindingOfAKeptSessionClosesTheKeptSession(t *testing.T) {
 	task := liveTask(t, server, 41)
 	kept := server.Engine.KeptSession(task.ID)
 
-	if err := server.Engine.RemoveImplementerBinding(t.Context(), id); err != nil {
+	if _, err := server.Engine.RemoveImplementerBinding(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +258,7 @@ func TestARemovalOfTheFirstBindingKeepsTheCountOfTheRunningSessionsOfTheMovedBin
 	defer end(t, moved, "done")
 	end(t, removed, "done")
 
-	if err := server.Engine.RemoveImplementerBinding(t.Context(), 0); err != nil {
+	if _, err := server.Engine.RemoveImplementerBinding(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	waiting := startLater(t.Context(), server, implementerSpec(t, server, fake, 45))

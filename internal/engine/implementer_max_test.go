@@ -33,7 +33,7 @@ func twoBindings(t *testing.T, fake *testkit.FakeGitHub, kind string) (*testserv
 		testkit.WaitFor(t, func() bool { _, found := harnessPause(t, server, "antigravity"); return found })
 		addBinding(t, server, config.Antigravity, "gemini-3-pro", "", 4)
 		return server, func() {
-			if err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
+			if _, err := server.Engine.Resume(t.Context(), "antigravity"); err != nil {
 				t.Fatal(err)
 			}
 		}
