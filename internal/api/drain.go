@@ -61,8 +61,8 @@ type DrainEndResponse struct {
 // StartDrain holds each new Worker in the queue, and returns when no agent runs or when the Owner cancels the drain.
 func (h *handlers) StartDrain(ctx context.Context, _ StartDrainRequest) (*DrainEndResponse, error) {
 	// The wait can end after the cancel, and the Record of the cancel must come after this Record.
-	h.engine.AddRecord(ctx, h.engine.DrainOnRecord())
-	end, err := h.engine.Drain(ctx)
+	h.engine.AddRecord(ctx, h.engine.TurnOnDrain())
+	end, err := h.engine.WaitForDrain(ctx)
 	if err != nil {
 		return nil, err
 	}

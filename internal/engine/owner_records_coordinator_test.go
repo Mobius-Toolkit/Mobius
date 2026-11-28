@@ -44,8 +44,10 @@ func TestTheDrainOfTheOwnerAddsOneRecordToTheCoordinatorChatOfEachOrganization(t
 	otherChat := engine.ChatKey{Organization: "other"}
 	t.Cleanup(func() { server.Engine.CancelDrain() })
 
-	if status, text := send(t, server, http.MethodPost, "/api/drain", ""); status != http.StatusOK {
-		t.Fatalf("POST: status %d: %s", status, text)
+	for range 2 {
+		if status, text := send(t, server, http.MethodPost, "/api/drain", ""); status != http.StatusOK {
+			t.Fatalf("POST: status %d: %s", status, text)
+		}
 	}
 	for _, key := range []engine.ChatKey{coordinatorChat, otherChat} {
 		if got, want := records(t, server, key), []string{"You turned on the drain."}; !reflect.DeepEqual(got, want) {

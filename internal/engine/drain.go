@@ -154,8 +154,16 @@ func (e *Engine) Draining() DrainState {
 // runs. A session that waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on,
 // so a cancel still releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
+	e.TurnOnDrain()
+	return e.WaitForDrain(ctx)
+}
+
+// TurnOnDrain holds each new Worker in the queue and asks each chat to close. It gives a Record with no chat when the
+// drain was already on.
+func (e *Engine) TurnOnDrain() Record {
 	d := &e.drain
 	d.mu.Lock()
+	wasOn := d.on
 	d.on = true
 	state := DrainState{d.on, d.running}
 	d.mu.Unlock()
@@ -164,6 +172,15 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	e.pausesChanged.notify()
 	e.closeChats()
 	e.publish(Change{Drain: &state})
+	if wasOn {
+		return Record{}
+	}
+	return e.organizationRecord("You turned on the drain.")
+}
+
+// WaitForDrain waits until no session and no npm upgrade runs, or until a cancel.
+func (e *Engine) WaitForDrain(ctx context.Context) (DrainEnd, error) {
+	d := &e.drain
 	for {
 		changed := d.changed.wait()
 		state := e.Draining()
@@ -179,11 +196,6 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 		case <-changed:
 		}
 	}
-}
-
-// DrainOnRecord is the Record of the start of the drain by the Owner.
-func (e *Engine) DrainOnRecord() Record {
-	return e.organizationRecord("You turned on the drain.")
 }
 
 // CancelDrain ends the drain: the held Workers take their slots, and the waiting events go to the Leads. It does
