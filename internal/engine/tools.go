@@ -154,7 +154,7 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			withOptional(tool(e, c, "start_operator",
-				"Start an Operator that does work outside code for this Workstream, with the MCP servers and the web tools of its session. The Operator sees only the Brief, its memory file, and your text. It changes no code and no repository. The tool returns the id of the Operator at once, and the report arrives later as an Operator message.",
+				"Start an Operator that does work outside code for this Workstream, with the MCP servers and the web tools of its session. The Operator sees only the Brief, its memory file, your text, and the directory of the recurring task when you give recurring_task. It changes no code and no repository. The tool returns the id of the Operator at once, and the report arrives later as an Operator message.",
 				map[string]any{
 					"text":           map[string]any{"type": "string", "minLength": 1, "description": "The work for the Operator, with the context that it needs."},
 					"recurring_task": map[string]any{"type": "integer", "minimum": 1, "description": "Optional. The id of a recurring task of this Workstream. Give it for work of a run of that recurring task. The Operator then gets the directory of the recurring task and the rules for scripts."},
