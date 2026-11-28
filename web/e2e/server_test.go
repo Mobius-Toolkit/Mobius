@@ -309,6 +309,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
 // DELETE /e2e/ready/plants/garden/{issue} clears the waiting Start (and any mobius:ready label) of an issue of the Workstream plants/garden#19 and waits
 // until the task list shows the issue as open.
+// DELETE /e2e/records removes the Record messages of the chat of the query repository and workstream that have the query
+// text.
 // PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
 // claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
@@ -568,6 +570,12 @@ func TestServer(t *testing.T) {
 		}
 		if kind == "question" && repository != "" && issue != 0 && slices.Contains(github.Labels(repository, issue), "mobius:question") {
 			github.RemoveLabel(repository, issue, "mobius:question", "owner")
+		}
+	})
+	server.Mux.HandleFunc("DELETE /e2e/records", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND repository = ? AND workstream = ? AND text = ?", query.Get("repository"), query.Get("workstream"), query.Get("text")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {

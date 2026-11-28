@@ -205,6 +205,11 @@ const fixRecordTimes = async (page: Page) => {
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);
 };
 
+const deleteRecords = async (page: Page, repository: string, workstream: number, text: string) => {
+  const query = new URLSearchParams({ repository, workstream: String(workstream), text });
+  expect((await page.request.delete(`/e2e/records?${query}`)).ok()).toBe(true);
+};
+
 // The sheet reads the Harness choices after it opens, and Save waits for them.
 const settingSheetReady = (sheet: Locator) =>
   expect(sheet.getByRole("button", { name: "Save" })).toBeEnabled();
@@ -2021,6 +2026,7 @@ test("screenshots", async ({ page }) => {
     await addMcpServer(page, "plants", { name: "search", kind: "stdio", command: "search-mcp" }),
   ];
   await selectMcpServers(page, "plants/garden/19", [mcpServerIds[0]]);
+  await fixRecordTimes(page);
   await screenshot(
     page,
     "chat-details-mcp",
@@ -2047,6 +2053,12 @@ test("screenshots", async ({ page }) => {
     () => page.keyboard.press("Escape"),
   );
   await deleteMcpServers(page, "plants", mcpServerIds);
+  await deleteRecords(
+    page,
+    "plants/garden",
+    19,
+    "You set the MCP servers of the Workstream to makeadir.",
+  );
   await setWorkstreamImplementer();
   await screenshot(
     page,
