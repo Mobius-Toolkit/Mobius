@@ -121,6 +121,24 @@ func TestTheReadyLabelOfAPersonAddsOneRecordToTheLeadChat(t *testing.T) {
 	}
 }
 
+func TestTheReadyLabelOfAClosedIssueThatHasNoRowAddsNoRecord(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 50, "Fix the footer")
+	fake.CloseIssue(shop, 50)
+	server := startCopiedWithLead(t, fake)
+
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 50), "mobius:ready") })
+	waitForPolls(t, fake)
+	for _, key := range []engine.ChatKey{leadChat, coordinatorChat} {
+		if got := records(t, server, key); len(got) != 0 {
+			t.Errorf("records of %+v = %q", key, got)
+		}
+	}
+}
+
 func TestTheReadyLabelOfAnIssueInNoWorkstreamAddsOneRecordToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

@@ -2102,7 +2102,7 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		}
 		return fmt.Sprintf("Continued the task of %s#%d.", repository.FullName, input.N), nil
 	}
-	if err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
+	if _, err := e.requestStart(ctx, repository, input.N, "lead"); err != nil {
 		return "", err
 	}
 	e.wakeDispatch()
@@ -2393,7 +2393,7 @@ func (e *Engine) moveIssue(ctx context.Context, c caller, workstreams github.Rep
 	if err := e.moveTreeNodeToWorkstream(ctx, repository.FullName, input.N, workstreams.FullName, input.Workstream, issue); err != nil {
 		return "", err
 	}
-	if err := e.requestStart(ctx, repository, input.N, "coordinator"); err != nil {
+	if _, err := e.requestStart(ctx, repository, input.N, "coordinator"); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream %s.", input.N, target), nil

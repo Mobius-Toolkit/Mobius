@@ -528,7 +528,8 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, number int64, actor, what string) (Record, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := e.requestStart(ctx, repository, number, actor); err != nil {
+		started, err := e.requestStart(ctx, repository, number, actor)
+		if err != nil {
 			return Record{}, err
 		}
 		if err := e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind); err != nil {
@@ -540,6 +541,9 @@ func (e *Engine) resumeIssue(ctx context.Context, repository github.Repository, 
 		}
 		if err := e.sendNow(ctx, repository, change); err != nil {
 			return Record{}, err
+		}
+		if !started {
+			return Record{}, nil
 		}
 		return e.issueRecord(ctx, repository, number, what), nil
 	}
@@ -661,9 +665,13 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 	if _, err := e.setTriage(ctx, repository, number, false); err != nil {
 		return Record{}, err
 	}
-	if err := e.requestStart(ctx, repository, number, "ui"); err != nil {
+	started, err := e.requestStart(ctx, repository, number, "ui")
+	if err != nil {
 		return Record{}, err
 	}
 	e.wakeDispatch()
+	if !started {
+		return Record{}, nil
+	}
 	return e.issueRecord(ctx, repository, number, "You started"), nil
 }

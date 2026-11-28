@@ -20,20 +20,21 @@ type startMetadata struct {
 }
 
 // requestStart sets start_requested_at and start_requested_by of the issue number in issues. An issue with no row gets a
-// row with no Workstream.
-func (e *Engine) requestStart(ctx context.Context, repository github.Repository, number int64, by string) error {
+// row with no Workstream. It gives false, and stores nothing, for an issue with no row that GitHub does not give or gives
+// closed.
+func (e *Engine) requestStart(ctx context.Context, repository github.Repository, number int64, by string) (bool, error) {
 	_, err := e.queries.GetIssueStart(ctx, store.GetIssueStartParams{Repository: repository.FullName, Number: number})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	var found *gh.Issue
 	var metadata string
 	if err != nil {
 		if found, err = repository.Issue(ctx, number); err != nil || found == nil || found.GetState() != "open" {
-			return err
+			return false, err
 		}
 		if metadata, err = githubMetadata(found, 0); err != nil {
-			return err
+			return false, err
 		}
 	}
 	requestedAt := now()
@@ -61,10 +62,11 @@ func (e *Engine) requestStart(ctx context.Context, repository github.Repository,
 		})
 	})
 	e.copyWrite.Unlock()
-	if err == nil {
-		e.publish(Change{Workstreams: true})
+	if err != nil {
+		return false, err
 	}
-	return err
+	e.publish(Change{Workstreams: true})
+	return true, nil
 }
 
 // clearStart clears start_requested_at and start_requested_by of the issue number in issues.
@@ -157,8 +159,8 @@ func isStartEvent(event *gh.IssueEvent) bool {
 
 // applyStartChange requests a Start for an add of mobius:ready by a trusted user, and adds an outgoing change that
 // removes mobius:ready as an own write. An upgrade event also accepts the Mobius App, because an open mobius:ready
-// from before the upgrade can have the App as its actor. A removal of mobius:ready changes nothing. After the Start of a
-// trusted person and the write back, it adds the Record "@actor started #N" for the chat of the issue.
+// from before the upgrade can have the App as its actor. A removal of mobius:ready changes nothing. After the stored Start of
+// a trusted person and the write back, it adds the Record "@actor started #N" for the chat of the issue.
 func (e *Engine) applyStartChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	if change.Change != labeledChange {
 		return nil
@@ -173,12 +175,14 @@ func (e *Engine) applyStartChange(ctx context.Context, repository github.Reposit
 	if meta.Upgrade {
 		trusted = e.TrustedAuthor(repository.AppSlug, change.Actor)
 	}
+	started := false
 	if trusted {
-		if err := e.requestStart(ctx, repository, change.Number, change.Actor); err != nil {
+		var err error
+		if started, err = e.requestStart(ctx, repository, change.Number, change.Actor); err != nil {
 			return err
 		}
 	}
-	if err := e.writeBack(ctx, repository, change); err != nil || !person {
+	if err := e.writeBack(ctx, repository, change); err != nil || !person || !started {
 		return err
 	}
 	e.AddRecord(ctx, e.issueRecord(ctx, repository, change.Number, "@"+change.Actor+" started"))
