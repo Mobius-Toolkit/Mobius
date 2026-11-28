@@ -110,6 +110,9 @@ type FakeGitHub struct {
 	commentsAfterList []listedComment
 	// afterIssueListReads holds the functions that run once after the next issue list read of a repository.
 	afterIssueListReads map[string]func()
+	// afterIssueEventsReads holds the functions that run once after the next event list read of an issue. The answer
+	// of that read has only the events from before the function runs.
+	afterIssueEventsReads map[issueKey]func()
 	// The comment ids of all issues are different, as on GitHub.
 	lastCommentID int64
 	lastReviewID  int64
@@ -383,6 +386,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		workflowStates:          map[workflowKey]string{},
 		workflowNotFound:        map[workflowKey]bool{},
 		afterIssueListReads:     map[string]func(){},
+		afterIssueEventsReads:   map[issueKey]func(){},
 	}
 	server := httptest.NewServer(g.logging(g.hanging(g.routes())))
 	t.Cleanup(server.Close)
