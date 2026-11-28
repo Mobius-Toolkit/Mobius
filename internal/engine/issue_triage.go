@@ -186,8 +186,10 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 }
 
 // triageWrittenLater tells if the Mobius App wrote the label mobius:triage of the issue of the incoming change after
-// the event of the change. The poll can store the event of a person before it reads the event of a write of the App, so
-// when it has no later event of the App, the function reads the events of the issue from GitHub.
+// the event of the change, or is about to write it. A pending outgoing change of the triage has not reached GitHub, so
+// each event on GitHub is older than it, and its send writes the state of the row. The poll can also store the event
+// of a person before it reads the event of a write of the App, so when it has no later event of the App, the function
+// reads the events of the issue from GitHub. An issue that GitHub does not have has no write of the App.
 func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
 	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
 	if err != nil {
@@ -203,7 +205,19 @@ func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repos
 	if later || err != nil {
 		return later, err
 	}
+	pending, err := e.queries.ListPendingOutgoingChanges(ctx, change.Repository)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(pending, func(outgoing store.OutgoingChange) bool {
+		return outgoing.Field == triageField && outgoing.Number.Int64 == change.Number
+	}) {
+		return true, nil
+	}
 	events, err := repository.IssueEvents(ctx, change.Number)
+	if github.NotFound(err) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

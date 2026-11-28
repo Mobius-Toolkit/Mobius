@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -209,6 +210,19 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheCopyOfTheTreeAddsItsRowBeforeThePoll
 
 func TestAnAcceptedIssueStaysAcceptedWhenTheAcceptComesAfterThePollReadTheLabelEventAndBeforeThePollReadsTheRemoval(t *testing.T) {
 	t.Parallel()
+	acceptBetweenTheReadAndTheApplyOfTheLabelEvent(t, false)
+}
+
+func TestAnAcceptedIssueStaysAcceptedWhenTheRemovalOfTheLabelIsPendingAtTheApplyOfTheLabelEvent(t *testing.T) {
+	t.Parallel()
+	acceptBetweenTheReadAndTheApplyOfTheLabelEvent(t, true)
+}
+
+// acceptBetweenTheReadAndTheApplyOfTheLabelEvent runs accept_issue while the poll waits for the answer of its read of
+// the label event of the owner. With failRemoval, the first read of the issue fails, so the send of the removal of the
+// label stays pending.
+func acceptBetweenTheReadAndTheApplyOfTheLabelEvent(t *testing.T, failRemoval bool) {
+	t.Helper()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 30, "Add plan price")
 	fake.AddIssue(shop, 31, "Rename plans")
@@ -238,7 +252,14 @@ func TestAnAcceptedIssueStaysAcceptedWhenTheAcceptComesAfterThePollReadTheLabelE
 		})
 	})
 	release()
-	<-read
+	select {
+	case <-read:
+	case <-time.After(time.Minute):
+		t.Fatal("the poll did not read the label event")
+	}
+	if failRemoval {
+		fake.FailIssueReads(shop, 30, 1)
+	}
 
 	session := run(t, server, leadSpec(t), "1. ")
 	if got := reply(t, server, session); got != "Accepted owner/shop#30." {
