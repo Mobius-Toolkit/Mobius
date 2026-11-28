@@ -4457,6 +4457,33 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 	return i, err
 }
 
+const getLiveTaskMerging = `-- name: GetLiveTaskMerging :one
+SELECT tasks.state, coalesce(m.merging, 0) AS merging
+FROM tasks
+LEFT JOIN inbox_items m ON m.id = (
+  SELECT max(id) FROM inbox_items
+  WHERE kind = 'ready for review' AND repository = tasks.repository AND issue = tasks.issue AND pull_request = tasks.pull_request
+)
+WHERE tasks.repository = ? AND tasks.issue = ? AND tasks.state <> 'ended'
+`
+
+type GetLiveTaskMergingParams struct {
+	Repository string
+	Issue      int64
+}
+
+type GetLiveTaskMergingRow struct {
+	State   string
+	Merging int64
+}
+
+func (q *Queries) GetLiveTaskMerging(ctx context.Context, arg GetLiveTaskMergingParams) (GetLiveTaskMergingRow, error) {
+	row := q.db.QueryRowContext(ctx, getLiveTaskMerging, arg.Repository, arg.Issue)
+	var i GetLiveTaskMergingRow
+	err := row.Scan(&i.State, &i.Merging)
+	return i, err
+}
+
 const getMaintenanceWorkstream = `-- name: GetMaintenanceWorkstream :one
 SELECT CAST(w.number AS INTEGER) AS number FROM workstreams w
 WHERE w.state = 'open' AND w.number IS NOT NULL AND w.maintenance AND w.repository = ?

@@ -13,6 +13,7 @@ import {
 const line = (overrides: Partial<TaskLine>): TaskLine => ({
   blockedBy: [],
   startWait: "",
+  merging: false,
   depth: 0,
   evergreen: false,
   implementer: null,
@@ -45,6 +46,10 @@ describe("a task line with a wait", () => {
 
   it("gives the text of its wait as the reason of its Inbox item", () => {
     expect(taskItem(line({ state: "working", wait: "ci" })).reason).toBe("waits for CI");
+  });
+
+  it("gives approved as the reason of a review line that merges and has no wait", () => {
+    expect(taskItem(line({ state: "review", merging: true })).reason).toBe("approved");
   });
 });
 

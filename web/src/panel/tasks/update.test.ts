@@ -45,6 +45,7 @@ const workstream = { owner: "owner", name: "shop", number: 12 };
 const line = (number: number, overrides: Partial<TaskLine> = {}): TaskLine => ({
   blockedBy: [],
   startWait: "",
+  merging: false,
   depth: 0,
   evergreen: false,
   implementer: null,

@@ -2491,6 +2491,7 @@ export const ListTasksResponse = S.Struct({
   "model": S.String.annotate({ description: 'Model is the model' })
 }).annotate({ description: 'IssueSetting is the Harness, the model and the effort that the Owner sets for the sessions of a Role in a task or a Workstream.' }), S.Null]).annotate({ description: 'Implementer is the own Implementer setting of the task, or null when the task has none' }),
   "kind": S.Literals(['task', 'project']).annotate({ description: 'Kind is task for a task issue, and project for a Project of the Workstream' }),
+  "merging": S.Boolean.annotate({ description: 'Merging is true when the task is in ready_for_review and the Owner started its merge' }),
   "number": S.Number.annotate({ description: 'Number is the number of the task issue' }),
   "otherRepository": S.Boolean.annotate({ description: 'OtherRepository is true for a task in another repository than the Workstream' }),
   "pausedUntil": S.NullOr(S.String.check(S.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/))).annotate({ description: 'PausedUntil is the end of the pause of the Harness when wait is paused, or null' }),

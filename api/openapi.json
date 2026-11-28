@@ -12456,6 +12456,10 @@
               "project"
             ]
           },
+          "merging": {
+            "type": "boolean",
+            "description": "Merging is true when the task is in ready_for_review and the Owner started its merge"
+          },
           "number": {
             "type": "integer",
             "description": "Number is the number of the task issue"
@@ -12529,7 +12533,8 @@
           "blockedBy",
           "implementer",
           "wait",
-          "pausedUntil"
+          "pausedUntil",
+          "merging"
         ],
         "description": "TaskLine is a task of a Workstream."
       },
