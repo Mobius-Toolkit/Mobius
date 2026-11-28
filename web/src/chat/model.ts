@@ -10,14 +10,12 @@ import type { Flags } from "./flags";
 import {
   ChatMessage,
   type DraftInboxItem,
-  DraftVoice,
   Failure,
   InboxItem,
   Panel,
   Selection,
   TodoListTarget,
   TrayRunning,
-  VoiceState,
   Waiting,
   Workstream,
 } from "./schemas";
@@ -49,6 +47,12 @@ export function itemReference(item: InboxItem) {
   };
 }
 
+// The owner of the selection Watch of a part of the dialog of an item, and of the text of a question card or an action
+// card. A message gives its id as the owner.
+export const dialogOwner = (part: string) => `dialog:${part}`;
+
+export const cardOwner = (kind: "question" | "action", messageId: number) => `${kind}:${messageId}`;
+
 export const isMissingWorkstream = (item: InboxItem) =>
   item.kind === InboxItemKind.missing_maintenance || item.kind === InboxItemKind.missing_skills;
 
@@ -61,6 +65,15 @@ export const hasNote = (item: InboxItem) =>
 export function draftInboxItem(item: InboxItem): DraftInboxItem {
   const { reference, link } = itemReference(item);
   return { id: item.id, reference, title: item.title, reason: item.reason, link };
+}
+
+// The label of the popover of a selection. A quote from the dialog of an item with a field goes into that field.
+export function quoteLabel(model: Model) {
+  const panel = model.activePanel;
+  if (!model.selection?.owner.startsWith("dialog:") || panel?.type !== "answer") {
+    return "Add to chat";
+  }
+  return panel.item.action || hasNote(panel.item) ? "Add to the note" : "Add to the answer";
 }
 
 export type { Failure, Waiting } from "./schemas";
@@ -137,17 +150,12 @@ const ChatModelSchema = Schema.Struct({
   composer: Composer.Model,
   selection: TextSelection,
   workstreamSetup: WorkstreamSetup.Model,
-  voice: VoiceState,
-  now: Schema.Number,
   stopReady: Schema.Boolean,
   closedPanel: Schema.NullOr(Panel),
   activePanel: Schema.NullOr(Panel),
   selectedOptions: Selection,
-  answerText: Schema.String,
-  answerVoice: Schema.NullOr(DraftVoice),
-  answerLoaded: Schema.Boolean,
-  answerError: Schema.String,
-  answerErrorId: Schema.Number,
+  // The field of the open answer panel. A request error stays in its sendError.
+  answerComposer: Schema.NullOr(Composer.Model),
   answerErrorAwaitsRow: Schema.Boolean,
   requesting: Schema.Array(Schema.Number),
   showRemovedText: Schema.Boolean,
@@ -216,6 +224,7 @@ export function initialModel(flags: Flags): Model {
     composer: Composer.initialModel({
       draftKey: chatDraftKey(flags.organization, flags.repository, flags.workstream),
       instance: "chat",
+      sends: "outbox",
       label: `Message to the ${flags.agent}`,
       placeholder: `Write to the ${flags.agent}`,
       organization: flags.organization,
@@ -224,17 +233,11 @@ export function initialModel(flags: Flags): Model {
     }),
     selection: null,
     workstreamSetup: WorkstreamSetup.initialModel(flags.organization),
-    voice: { recording: false, key: "", startedAt: 0, live: "", notice: { key: "", text: "" } },
-    now: 0,
     stopReady: false,
     closedPanel: null,
     activePanel: null,
     selectedOptions: {},
-    answerText: "",
-    answerVoice: null,
-    answerLoaded: false,
-    answerError: "",
-    answerErrorId: 0,
+    answerComposer: null,
     answerErrorAwaitsRow: false,
     requesting: [],
     showRemovedText: false,

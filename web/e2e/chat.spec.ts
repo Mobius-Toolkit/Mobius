@@ -2732,6 +2732,7 @@ test("the chat shows one separator before the first message of each day", async 
       question: null,
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       images: 0,
       inboxItems: [],
       selections: [],
@@ -2791,6 +2792,7 @@ test.describe("a time zone east of UTC", () => {
           question: null,
           stoppedAt: null,
           voice: false,
+          voiceSeconds: 0,
           images: 0,
           inboxItems: [],
           selections: [],
@@ -2829,6 +2831,7 @@ async function longHistory(page: Page) {
       question: null,
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       images: 0,
       inboxItems: [],
       selections: [],
@@ -3065,6 +3068,7 @@ test.describe("the state of an Owner message", () => {
           deliveredAt: state.deliveredAt,
           stoppedAt: state.stoppedAt,
           voice: false,
+          voiceSeconds: 0,
           failedAt: state.failedAt,
           cancelledAt: state.cancelledAt,
           images: 0,
@@ -3086,6 +3090,7 @@ test.describe("the state of an Owner message", () => {
           deliveredAt: null,
           stoppedAt: null,
           voice: false,
+          voiceSeconds: 0,
           failedAt: null,
           cancelledAt: null,
           images: 0,
@@ -3183,6 +3188,7 @@ test.describe("the state of an Owner message", () => {
                 deliveredAt,
                 stoppedAt: null,
                 voice: false,
+                voiceSeconds: 0,
                 failedAt: null,
                 cancelledAt: null,
                 images: 0,
@@ -3221,6 +3227,7 @@ test.describe("the state of an Owner message", () => {
       deliveredAt: null,
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       failedAt: "2026-10-15T08:45:00Z",
       cancelledAt: null,
       images: 0,
@@ -3552,6 +3559,7 @@ test.describe("the records of the actions of the Owner", () => {
       deliveredAt: null,
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       failedAt: null,
       cancelledAt: null,
       images: 0,
@@ -3572,14 +3580,14 @@ test.describe("the records of the actions of the Owner", () => {
   });
 });
 
-const voiceCard = (scope: Locator) => scope.getByRole("img", { name: "Voice" });
+const voiceCard = (scope: Locator) => scope.getByRole("group", { name: "Voice recording" });
 
 test("a message that the server stores with the voice mark shows the voice card in its bubble", async ({
   page,
 }) => {
   await page.goto(shop);
   await expect(page.locator("[data-message]").first()).toBeVisible();
-  const send = (text: string, voice: boolean) =>
+  const send = (text: string, voice: boolean, seconds: number) =>
     page.evaluate(`(() => {
       const form = new FormData()
       form.append('organization', 'owner')
@@ -3588,18 +3596,26 @@ test("a message that the server stores with the voice mark shows the voice card 
       form.append('id', crypto.randomUUID())
       form.append('text', ${JSON.stringify(text)})
       form.append('voice', '${voice}')
+      form.append('voiceSeconds', '${seconds}')
       return fetch('/api/chat/messages', { method: 'POST', body: form })
     })()`);
-  await send("Spoken words for the voice card", true);
-  await send("Typed words for the voice card", false);
+  await send("Spoken words for the voice card", true, 75);
+  await send("Spoken words of an older message", true, 0);
+  await send("Typed words for the voice card", false, 0);
   const spoken = page.locator("[data-message]", { hasText: "Spoken words for the voice card" });
+  const older = page.locator("[data-message]", { hasText: "Spoken words of an older message" });
   const typed = page.locator("[data-message]", { hasText: "Typed words for the voice card" });
   await expect(voiceCard(spoken)).toBeVisible();
+  await expect(voiceCard(spoken)).toContainText("Voice 1:15");
+  await expect(voiceCard(spoken)).toContainText("Spoken words for the voice card");
+  await expect(voiceCard(older)).toBeVisible();
+  await expect(voiceCard(older)).not.toContainText(/Voice \d/);
   await expect(typed).toBeVisible();
   await expect(voiceCard(typed)).toHaveCount(0);
 
   await page.reload();
-  await expect(voiceCard(spoken)).toBeVisible();
+  await expect(voiceCard(spoken)).toContainText("Voice 1:15");
+  await expect(voiceCard(older)).toBeVisible();
   await expect(voiceCard(typed)).toHaveCount(0);
 });
 
@@ -3639,8 +3655,10 @@ test("a queued message with the voice mark shows the voice card before the serve
   try {
     await page.reload();
     await expect(queued(page)).toHaveCount(1);
-    await expect(queued(page).getByText("Queued spoken words")).toBeVisible();
+    await expect(queued(page).getByRole("paragraph")).toHaveText("Queued spoken words");
     await expect(voiceCard(queued(page))).toBeVisible();
+    await expect(voiceCard(queued(page))).toContainText("Queued spoken words");
+    await expect(voiceCard(queued(page))).not.toContainText(/Voice \d/);
   } finally {
     await Promise.all(held.map((route) => route.abort()));
     await page.evaluate(`new Promise((resolve, reject) => {
@@ -3713,6 +3731,7 @@ test.describe("the Chat button of a task row", () => {
           repository: "plants/garden",
           stoppedAt: null,
           voice: false,
+          voiceSeconds: 0,
           text,
           time: "2026-10-15T12:00:00Z",
           workstream: 19,
@@ -4140,6 +4159,7 @@ async function routeTaskCards(page: Page) {
         repository: url.searchParams.get("repository") ?? "",
         stoppedAt: null,
         voice: false,
+        voiceSeconds: 0,
         text: cardsText,
         time: "2026-10-15T12:00:00Z",
         workstream: Number(url.searchParams.get("workstream") ?? 0),

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -68,6 +69,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 				continue
 			}
 			if err := e.resume(ctx, repository, issue, task, row.StartRequestedBy); err != nil {
+				if skipFailedRead(err, repository.FullName, row.Number) {
+					continue
+				}
 				return err
 			}
 			continue
@@ -87,7 +91,8 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if pendingParent {
 			_, ws, err := e.workstreamOf(ctx, repository, row.Number)
 			if err != nil {
-				return err
+				skipFailedRead(readFailure{err}, repository.FullName, row.Number)
+				continue
 			}
 			if ws == 0 {
 				continue
@@ -98,6 +103,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		if !live {
 			earlier, found, err := e.endedTaskToContinue(ctx, repository, row.Number)
+			if skipFailedRead(err, repository.FullName, row.Number) {
+				continue
+			}
 			if err != nil {
 				return err
 			}
@@ -110,6 +118,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 					continue
 				}
 				if err := e.continueEndedTask(ctx, repository, issue, earlier, row.StartRequestedBy); err != nil {
+					if skipFailedRead(err, repository.FullName, row.Number) {
+						continue
+					}
 					return err
 				}
 				continue
@@ -153,12 +164,62 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	return nil
 }
 
+// readFailure marks the error of a GitHub read of one issue, so that dispatchReady skips only that issue.
+type readFailure struct{ error }
+
+func (f readFailure) Unwrap() error { return f.error }
+
+// skipFailedRead logs err and tells true when err is a readFailure.
+func skipFailedRead(err error, repository string, number int64) bool {
+	var failure readFailure
+	if !errors.As(err, &failure) {
+		return false
+	}
+	log.Printf("read GitHub for the dispatch of %s#%d: %v", repository, number, err)
+	return true
+}
+
+// dispatchSteps runs dispatchReady and then startAutopilot. It holds dispatchMu, so the dispatch loop does not dispatch
+// an issue that startAutopilot is about to dispatch.
+func (e *Engine) dispatchSteps(ctx context.Context, repository github.Repository) error {
+	e.dispatchMu.Lock()
+	defer e.dispatchMu.Unlock()
+	if err := e.dispatchReady(ctx, repository); err != nil {
+		return err
+	}
+	return e.startAutopilot(ctx, repository)
+}
+
+// dispatchAll runs dispatchReady for each repository. A failed repository does not stop the next one.
+func (e *Engine) dispatchAll(ctx context.Context) {
+	for _, repository := range e.github.Repositories() {
+		e.copyStepsMu.Lock()
+		e.dispatchMu.Lock()
+		err := e.dispatchReady(ctx, repository)
+		e.dispatchMu.Unlock()
+		e.copyStepsMu.Unlock()
+		if err != nil {
+			log.Printf("dispatch the ready issues of %s: %v", repository.FullName, err)
+		}
+	}
+}
+
+// wakeDispatch makes the dispatch loop run now.
+func (e *Engine) wakeDispatch() {
+	select {
+	case e.dispatchWake <- struct{}{}:
+	default:
+	}
+}
+
 // dispatchIssue reads the issue number from GitHub when dispatchReady acts on it, refuses pull requests and
-// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call.
+// structural issues, and stores a non-open state in the row so later polls skip it with no GitHub call. A failed
+// GitHub read gives no issue and no error, so dispatchReady skips only this issue and the Start stays.
 func (e *Engine) dispatchIssue(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, bool, error) {
 	issue, err := repository.Issue(ctx, number)
 	if err != nil {
-		return nil, false, err
+		log.Printf("read %s#%d for the dispatch: %v", repository.FullName, number, err)
+		return nil, false, nil
 	}
 	if issue == nil || issue.IsPullRequest() || hasLabel(issue, bucketLabel) || hasLabel(issue, workstreamLabel) {
 		return nil, false, nil
@@ -1136,7 +1197,11 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		if err != nil {
 			return false, err
 		}
-		if active >= int64(e.implementerMax()) {
+		limit, err := e.implementerMax(ctx)
+		if err != nil {
+			return false, err
+		}
+		if active >= int64(limit) {
 			return true, nil
 		}
 		current, err := source.Issue(ctx, number)
@@ -1173,7 +1238,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if task.PullRequest.Valid {
 		var pullRequest *gh.PullRequest
 		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
-			return err
+			return readFailure{err}
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
@@ -1239,7 +1304,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	if !conflict {
 		head := pullRequest.GetHead().GetSHA()
 		if ci, err = ciItems(ctx, repository, head); err != nil {
-			return false, err
+			return false, readFailure{err}
 		}
 		if ci != "" {
 			diagnosis, err := e.endedDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
@@ -1294,7 +1359,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	threads, err := repository.ReviewThreads(ctx, int64(number))
 	if err != nil {
-		return "", err
+		return "", readFailure{err}
 	}
 	if err := e.sendFollowUps(ctx, repository, task, title, number, threads, appLogin(repository.AppSlug), trusted); err != nil {
 		return "", err
@@ -1306,11 +1371,14 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 		}
 	}
 	items, err := fixThreads(ctx, repository, int64(number), open, trusted)
+	if err != nil {
+		return "", readFailure{err}
+	}
 	items += ci
-	if items == "" && err == nil {
+	if items == "" {
 		return finishTheIssue, nil
 	}
-	return items, err
+	return items, nil
 }
 
 // openThread tells if the review thread is open: it is not resolved, a trusted author started it, and its last trusted

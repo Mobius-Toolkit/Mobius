@@ -7,8 +7,17 @@ import type { DraftInboxItem, DraftSelection, DraftVoice } from "@/lib/draft";
 import { voiceSupported } from "@/lib/voice";
 import { buttonClass } from "@/ui/button";
 import { arrowUpIcon, micIcon, paperclipIcon, spinnerIcon, squareIcon, xIcon } from "@/ui/icons";
-import { renderSelectionCard } from "@/ui/selection";
+import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
+import { selectionCardFields } from "@/ui/selection";
 import { textareaClass } from "@/ui/textarea";
+import {
+  formatDuration,
+  voiceBodyClass,
+  voiceCardFields,
+  voiceCardLabel,
+  voiceHeader,
+  voiceIcon,
+} from "@/ui/voice";
 import { Message } from "./message";
 import { inputId, isEmptyDraft, type Model, pickerId, voiceBusy } from "./model";
 
@@ -157,46 +166,6 @@ export const ComposerBehavior = Mount.defineStream("ComposerBehavior", {
     ),
 });
 
-function attachedInboxItem<Msg>(
-  h: HtmlBuilder<Msg>,
-  item: DraftInboxItem,
-  onRemove?: (id: number | string) => Msg,
-): Html {
-  const name = item.reference || item.title;
-  return h.div(
-    [
-      h.Key(`inbox-${item.id}`),
-      h.Class(
-        "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm relative w-56 max-w-full pr-9",
-      ),
-    ],
-    [
-      item.reference
-        ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-        : h.empty,
-      h.span([h.Class("truncate font-medium")], [item.title]),
-      h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
-      h.button(
-        [
-          h.Type("button"),
-          h.AriaLabel(`Remove ${name}`),
-          h.Attribute("title", `Remove ${name}`),
-          h.DataAttribute("keep-focus", ""),
-          h.Class(
-            buttonClass({
-              variant: "secondary",
-              size: "icon-sm",
-              className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-            }),
-          ),
-          ...(onRemove ? [h.OnClick(onRemove(item.id))] : []),
-        ],
-        [xIcon(h)],
-      ),
-    ],
-  );
-}
-
 function thumbnail<Msg>(
   h: HtmlBuilder<Msg>,
   files: File[],
@@ -274,12 +243,11 @@ export const ScrollToEnd = Mount.define("ScrollToEnd", {
 });
 
 function elapsed(voiceState: { startedAt: number }, now: number) {
-  const seconds = Math.max(0, Math.floor((now - voiceState.startedAt) / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return formatDuration(Math.max(0, Math.floor((now - voiceState.startedAt) / 1000)));
 }
 
-// The card of the voice in the draft of a field: the recording with its live text, the conversion, the failure, or the
-// converted voice.
+// The card of the voice in the draft of a field: the recording with its live text, the conversion with the last live
+// text, the failure, or the converted voice.
 function voiceCard<Msg>(
   h: HtmlBuilder<Msg>,
   voiceState: { recording: boolean; key: string; startedAt: number; live: string },
@@ -292,6 +260,15 @@ function voiceCard<Msg>(
   if (!recording && !card) {
     return h.empty;
   }
+  const live = voiceState.key === box.key ? voiceState.live : "";
+  const liveText = h.span(
+    [
+      h.Key(`live-${live}`),
+      h.OnMount(Mount.mapMessage(ScrollToEnd(), toParent)),
+      h.Class(voiceBodyClass),
+    ],
+    [live],
+  );
   const small = (label: string, msg: Msg) =>
     h.button(
       [
@@ -302,83 +279,43 @@ function voiceCard<Msg>(
       ],
       [label],
     );
-  return h.div(
-    [
-      h.Role("group"),
-      h.AriaLabel("Voice recording"),
-      h.Class(
-        "flex w-72 max-w-full min-w-0 items-start gap-2 rounded-lg border bg-card px-2 py-1.5 text-sm",
-      ),
-    ],
-    [
-      micIcon(
-        h,
-        cn("mt-0.5 size-4 shrink-0 text-muted-foreground", recording && "text-destructive"),
-      ),
-      recording
-        ? h.div(
-            [h.Class("grid min-w-0 flex-1 gap-0.5")],
-            [
-              h.span(
-                [h.Class("font-medium")],
-                ["Recording ", h.span([], [elapsed(voiceState, now)])],
-              ),
-              h.p(
-                [
-                  h.Key(`live-${voiceState.live}`),
-                  h.OnMount(Mount.mapMessage(ScrollToEnd(), toParent)),
-                  h.Class(
-                    "max-h-10 min-h-10 overflow-hidden text-xs/5 wrap-anywhere text-muted-foreground",
-                  ),
-                ],
-                [voiceState.live],
-              ),
-            ],
-          )
-        : card?.state === "failed"
-          ? h.div(
-              [h.Class("grid min-w-0 flex-1 gap-1.5")],
+  const fields =
+    recording || !card
+      ? {
+          icon: voiceIcon(h, true),
+          header: `Recording ${elapsed(voiceState, now)}`,
+          body: liveText,
+        }
+      : card.state === "failed"
+        ? {
+            icon: voiceIcon(h),
+            header: h.span(
+              [h.Role("alert"), h.Attribute("title", card.error), h.Class("text-destructive")],
+              [card.error],
+            ),
+            body: h.span(
+              [h.Class(cn(voiceBodyClass, "flex items-center gap-2"))],
               [
-                h.p([h.Role("alert"), h.Class("text-destructive wrap-anywhere")], [card.error]),
-                h.div(
-                  [h.Class("flex gap-2")],
-                  [
-                    small("Send again", box.onVoiceResendClick),
-                    small("Discard", box.onVoiceRemoveClick),
-                  ],
-                ),
-              ],
-            )
-          : h.div(
-              [h.Class("contents")],
-              [
-                h.span(
-                  [h.Class("min-w-0 flex-1 font-medium")],
-                  [card?.state === "converting" ? "Converting" : "Voice"],
-                ),
-                card?.state === "ready"
-                  ? h.button(
-                      [
-                        h.Type("button"),
-                        h.AriaLabel("Remove voice"),
-                        h.Attribute("title", "Remove voice"),
-                        h.DataAttribute("keep-focus", ""),
-                        h.Class(
-                          buttonClass({
-                            variant: "secondary",
-                            size: "icon-sm",
-                            className: "-my-0.5 -mr-1 rounded-full max-md:size-8",
-                          }),
-                        ),
-                        h.OnClick(box.onVoiceRemoveClick),
-                      ],
-                      [xIcon(h)],
-                    )
-                  : h.empty,
+                small("Send again", box.onVoiceResendClick),
+                small("Discard", box.onVoiceRemoveClick),
               ],
             ),
-    ],
-  );
+          }
+        : card.state === "converting"
+          ? {
+              icon: voiceIcon(h),
+              header: voiceHeader("Converting", card.seconds),
+              body: liveText,
+            }
+          : { ...voiceCardFields(h, card), onRemove: box.onVoiceRemoveClick };
+  return renderAttachmentCard(h, {
+    kind: "voice",
+    key: "voice",
+    label: voiceCardLabel,
+    removeLabel: "Remove voice",
+    fixedWidth: true,
+    ...fields,
+  });
 }
 
 function voiceButton<Msg>(
@@ -488,12 +425,22 @@ export function composerBox<Msg>(
                 [
                   voiceCard(h, voiceState, now, box, toParent),
                   ...box.inboxItems.map((item) =>
-                    attachedInboxItem(h, item, box.onInboxItemRemoveClick),
+                    renderAttachmentCard(h, {
+                      kind: "inbox-item",
+                      key: `inbox-${item.id}`,
+                      ...inboxItemFields(h, item),
+                      onRemove: box.onInboxItemRemoveClick?.(item.id),
+                    }),
                   ),
                   ...box.selections.map((selection) =>
-                    renderSelectionCard(h, selection, {
+                    renderAttachmentCard(h, {
+                      kind: "selection",
                       key: `selection-${selection.id}`,
-                      time: box.selectionTime?.(selection.messageId),
+                      ...selectionCardFields(
+                        h,
+                        selection,
+                        box.selectionTime?.(selection.messageId),
+                      ),
                       onRemove: box.onSelectionRemoveClick?.(selection.id),
                     }),
                   ),
@@ -556,15 +503,56 @@ export function composerBox<Msg>(
   );
 }
 
+// The Send button of a field. The parent of a field with its own buttons builds the same button with its own builder.
+export function sendButton<Msg>(
+  h: HtmlBuilder<Msg>,
+  options: {
+    label: string;
+    disabled: boolean;
+    muted: boolean;
+    voiceBusy: boolean;
+    className?: string;
+    onClick?: Msg;
+    content: Html[];
+  },
+): Html {
+  return h.button(
+    [
+      // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
+      // A Stop button of type submit sends nothing, because the draft is empty then.
+      h.Type("submit"),
+      h.AriaLabel(options.label),
+      h.Attribute("title", options.label),
+      h.DataAttribute("keep-focus", ""),
+      h.Disabled(options.disabled),
+      ...(options.voiceBusy ? [h.DataAttribute("voice-busy", "")] : []),
+      h.Class(
+        cn(
+          buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
+          options.className,
+          options.muted && "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+        ),
+      ),
+      ...(options.onClick ? [h.OnClick(options.onClick)] : []),
+    ],
+    options.content,
+  );
+}
+
+// actions builds the buttons of the parent, and null gives the Send or Stop button. A Submodel runs a function of its
+// view inputs in the boundary of the parent, so the buttons send Messages of the parent.
 export type ViewInputs = {
   stoppable: boolean;
   stopping: boolean;
   stopReady: boolean;
+  locked: boolean;
+  autoFocus: boolean;
   selectionTime: (messageId: number) => string | undefined;
+  actions: (() => Html[]) | null;
 };
 
 export const view = defineView<Model, Message, ViewInputs>(
-  (model, { stoppable, stopping, stopReady, selectionTime }, h) => {
+  (model, { stoppable, stopping, stopReady, locked, autoFocus, selectionTime, actions }, h) => {
     const images = model.draftImages;
     const inboxItems = model.draftInboxItems;
     const empty = isEmptyDraft(model);
@@ -586,11 +574,11 @@ export const view = defineView<Model, Message, ViewInputs>(
         label: model.label,
         placeholder: model.placeholder,
         text: model.draftText,
-        readOnly: !model.draftLoaded,
+        readOnly: !model.draftLoaded || locked,
         onInput: (text) => Message.DraftTextChanged({ text }),
         submit: Message.SendSubmitted(),
         enter: "send",
-        autoFocus: true,
+        autoFocus,
         images,
         inboxItems,
         selections: model.draftSelections,
@@ -604,36 +592,24 @@ export const view = defineView<Model, Message, ViewInputs>(
         onInboxItemRemoveClick: (id) => Message.DraftInboxItemRemoved({ id }),
         onSelectionRemoveClick: (id) => Message.DraftSelectionRemoved({ id }),
         onImagesChosen: (files) => Message.ImagesChosen({ files }),
-        actions: [
-          h.button(
-            [
-              // Foldkit renders in the next frame, so a tap right after the input can still see the old button.
-              // A Stop button of type submit sends nothing, because the draft is empty then.
-              h.Type("submit"),
-              h.AriaLabel(sendLabel),
-              h.Attribute("title", sendLabel),
-              h.DataAttribute("keep-focus", ""),
-              h.Disabled(sendDisabled),
-              ...(voiceBusy(model.draftVoice) ? [h.DataAttribute("voice-busy", "")] : []),
-              h.Class(
-                cn(
-                  buttonClass({ size: "icon", className: "rounded-full max-md:size-11" }),
-                  showStop &&
-                    !stopReady &&
-                    !buttonPending &&
-                    "disabled:pointer-events-auto disabled:opacity-100",
-                  cannotSend &&
-                    !showStop &&
-                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-                ),
-              ),
-              ...(showStop ? [h.OnClick(Message.StopClicked())] : []),
+        actions: actions
+          ? actions()
+          : [
+              sendButton(h, {
+                label: sendLabel,
+                disabled: sendDisabled,
+                muted: cannotSend && !showStop,
+                voiceBusy: voiceBusy(model.draftVoice),
+                className:
+                  showStop && !stopReady && !buttonPending
+                    ? "disabled:pointer-events-auto disabled:opacity-100"
+                    : "",
+                ...(showStop ? { onClick: Message.StopClicked() } : {}),
+                content: buttonPending
+                  ? [spinnerIcon(h)]
+                  : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
+              }),
             ],
-            buttonPending
-              ? [spinnerIcon(h)]
-              : [showStop ? squareIcon(h, "size-3 fill-current") : arrowUpIcon(h)],
-          ),
-        ],
       },
       (message) => message,
     );

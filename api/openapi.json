@@ -7,7 +7,7 @@
   "paths": {
     "/api/actions/{id}/approve": {
       "post": {
-        "description": "ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.",
+        "description": "ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.",
         "operationId": "ApproveAction",
         "parameters": [
           {
@@ -22,7 +22,15 @@
         ],
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
+              "encoding": {
+                "inboxItems": {
+                  "contentType": "application/json"
+                },
+                "selections": {
+                  "contentType": "application/json"
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/ApproveActionBody"
               }
@@ -169,7 +177,7 @@
     },
     "/api/actions/{id}/reject": {
       "post": {
-        "description": "RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.",
+        "description": "RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.",
         "operationId": "RejectAction",
         "parameters": [
           {
@@ -184,7 +192,15 @@
         ],
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
+              "encoding": {
+                "inboxItems": {
+                  "contentType": "application/json"
+                },
+                "selections": {
+                  "contentType": "application/json"
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/RejectActionBody"
               }
@@ -1849,7 +1865,7 @@
     },
     "/api/inbox/{id}/answer": {
       "post": {
-        "description": "AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. For a question of the Coordinator, it instead adds the text to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the steps when the Owner did not authorize the App.",
+        "description": "AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. The comment has the Inbox items and the selections of the request as Markdown before the text. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. GitHub has no image in a comment, so the images go to the chat of the item in a message of the Owner with the URL of the comment. For a question of the Coordinator, it instead adds the text with all parts to the Coordinator chat as a message of the Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue, for an empty text with no image, no Inbox item and no selection, and for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP, and 409 with the steps when the Owner did not authorize the App.",
         "operationId": "AnswerInboxItem",
         "parameters": [
           {
@@ -1864,7 +1880,15 @@
         ],
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
+              "encoding": {
+                "inboxItems": {
+                  "contentType": "application/json"
+                },
+                "selections": {
+                  "contentType": "application/json"
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/AnswerInboxItemBody"
               }
@@ -1994,7 +2018,7 @@
     },
     "/api/inbox/{id}/done": {
       "post": {
-        "description": "DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action.",
+        "description": "DoneInboxItem marks the todo of an open todo Inbox item as done, with the note, and removes the item from the Inbox. When the todo was the last blocking todo of a task, Mobius makes the pull request ready for review, and with a merge level of Autopilot it approves the pull request for the merge. For an open owner action item, it marks the action of the Owner as done, and Mobius reviews the head of the pull request of the task again. It returns the changed item. It returns 404 for an unknown item and 409 for an item that is not an open todo or an open owner action item, and for an owner action item whose task does not wait for the action, and 400 for a request that has more than 4 images or an image that is not PNG, JPEG, GIF or WebP. A note with an image, an Inbox item or a selection goes to the chat of the item in a message of the Owner that the agent gets.",
         "operationId": "DoneInboxItem",
         "parameters": [
           {
@@ -2009,7 +2033,15 @@
         ],
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
+              "encoding": {
+                "inboxItems": {
+                  "contentType": "application/json"
+                },
+                "selections": {
+                  "contentType": "application/json"
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/DoneInboxItemBody"
               }
@@ -7896,9 +7928,42 @@
         "type": "object",
         "title": "AnswerInboxItemBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the answer, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items of the answer. The request has one part inboxItems for each item, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections of the answer. The request has one part selections for each selection, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
           "text": {
             "type": "string",
-            "description": "Text is the answer of the Owner"
+            "description": "Text is the answer of the Owner. It can be empty when the answer has an image, an Inbox item or a selection"
+          },
+          "voice": {
+            "type": "boolean",
+            "description": "Voice is true when the answer came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -7920,9 +7985,42 @@
         "type": "object",
         "title": "ApproveActionBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
           "message": {
             "type": "string",
             "description": "Message is the message of the Owner for the agent. It can be empty"
+          },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
+          "voice": {
+            "type": "boolean",
+            "description": "Voice is true when the message came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -8385,6 +8483,10 @@
             "type": "boolean",
             "description": "Voice is true when the message came from a voice recording"
           },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds, or 0 when it is unknown"
+          },
           "workstream": {
             "type": "integer",
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
@@ -8402,6 +8504,7 @@
           "inboxItems",
           "selections",
           "voice",
+          "voiceSeconds",
           "displayOnly",
           "browserId",
           "deliveredAt",
@@ -8423,7 +8526,7 @@
           },
           "link": {
             "type": "string",
-            "description": "Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, or empty for message"
+            "description": "Link is the GitHub URL of the task issue for task, the GitHub URL of the Workstream issue for brief, the GitHub URL of the Inbox item or empty for inbox, or empty for message"
           },
           "messageAuthor": {
             "type": "string",
@@ -8435,11 +8538,11 @@
           },
           "part": {
             "type": "string",
-            "description": "Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, or empty for message"
+            "description": "Part is the part of the view for task, the heading of the Brief section of the selection (or empty above the first heading) for brief, the part of the Inbox item for inbox (the argument name of an action, for example brief, or question, or todo), or empty for message"
           },
           "reference": {
             "type": "string",
-            "description": "Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, or empty for message"
+            "description": "Reference is the reference of the task (#N, or owner/name#N for a task in another repository) for task, the reference of the Workstream (#N) for brief, the reference of the Inbox item (#N or PR #N, as ChatInboxItem.Reference, or empty) for inbox, or empty for message"
           },
           "source": {
             "type": "string",
@@ -8447,7 +8550,8 @@
             "enum": [
               "task",
               "message",
-              "brief"
+              "brief",
+              "inbox"
             ]
           },
           "text": {
@@ -8744,9 +8848,42 @@
         "type": "object",
         "title": "DoneInboxItemBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the note, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items of the note. The request has one part inboxItems for each item, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
           "note": {
             "type": "string",
             "description": "Note is the note of the Owner, or empty"
+          },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections of the note. The request has one part selections for each selection, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
+          "voice": {
+            "type": "boolean",
+            "description": "Voice is true when the note came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -11645,9 +11782,42 @@
         "type": "object",
         "title": "RejectActionBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
           "message": {
             "type": "string",
             "description": "Message is the message of the Owner for the agent. It can be empty"
+          },
+          "selections": {
+            "type": "array",
+            "title": "[]ChatSelection",
+            "description": "Selections are the text selections of the message. The request has one part selections for each selection, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatSelection"
+            }
+          },
+          "voice": {
+            "type": "boolean",
+            "description": "Voice is true when the message came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           }
         }
       },
@@ -11858,6 +12028,11 @@
           "voice": {
             "type": "boolean",
             "description": "Voice is true when the message came from a voice recording"
+          },
+          "voiceSeconds": {
+            "type": "integer",
+            "description": "VoiceSeconds is the length of the voice recording in seconds",
+            "minimum": 0
           },
           "workstream": {
             "type": "integer",

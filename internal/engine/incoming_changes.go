@@ -356,7 +356,7 @@ func (e *Engine) addWorkstreamFromChange(ctx context.Context, repository github.
 	}
 	copyFailed, err := e.addWorkstreamFromEvent(ctx, repository, issue, change.Actor, e.copied[repository.FullName])
 	if copyFailed {
-		delete(e.copied, repository.FullName)
+		e.breakCopy(ctx, repository.FullName)
 	}
 	return err
 }
@@ -370,7 +370,7 @@ func (e *Engine) reopenWorkstreamFromChange(ctx context.Context, repository gith
 	}
 	copyFailed, err := e.reopenWorkstream(ctx, repository, issue, change.Actor, e.copied[repository.FullName])
 	if copyFailed {
-		delete(e.copied, repository.FullName)
+		e.breakCopy(ctx, repository.FullName)
 	}
 	return err
 }

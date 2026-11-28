@@ -143,17 +143,22 @@ func (e *Engine) setTitle(ctx context.Context, repository github.Repository, num
 // When the row is already closed and no earlier closeWorkstream failed, it stops.
 func (e *Engine) handleWorkstreamClose(ctx context.Context, repository github.Repository, number int64, reason string) error {
 	var changeID int64
+	var recurring []int64
 	closed, err := e.closeWorkstreamRow(ctx, repository.FullName, number, reason, func(q *store.Queries) error {
-		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+		var err error
+		recurring, err = deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number)
+		if err != nil {
 			return err
 		}
 		if err := q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number}); err != nil {
 			return err
 		}
-		var err error
 		changeID, err = addFieldChange(ctx, q, repository.FullName, number, stateField)
 		return err
 	})
+	if closed {
+		e.removeRecurringDirs(recurring...)
+	}
 	if err != nil {
 		return err
 	}
@@ -445,6 +450,7 @@ func (e *Engine) addWorkstreamFromEvent(ctx context.Context, repository github.R
 // rebuilds blocked Workstreams, and stops its live work.
 func (e *Engine) removeWorkstream(ctx context.Context, repository github.Repository, number int64) error {
 	deleted := false
+	var recurring []int64
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		if err := removeTree(ctx, q, repository.FullName, number); err != nil {
 			return err
@@ -454,7 +460,8 @@ func (e *Engine) removeWorkstream(ctx context.Context, repository github.Reposit
 			return err
 		}
 		deleted = true
-		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+		recurring, err = deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number)
+		if err != nil {
 			return err
 		}
 		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
@@ -463,6 +470,7 @@ func (e *Engine) removeWorkstream(ctx context.Context, repository github.Reposit
 		return err
 	}
 	if deleted {
+		e.removeRecurringDirs(recurring...)
 		e.publish(Change{Workstreams: true})
 		if err := e.recopyAfterRemoval(ctx, repository, number); err != nil {
 			log.Printf("copy the trees after the removal of the Workstream %s#%d: %v", repository.FullName, number, err)

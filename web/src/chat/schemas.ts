@@ -31,6 +31,8 @@ export const DraftVoice = Schema.Struct({
   audio: Schema.NullOr(Schema.instanceOf(Blob)),
   conversion: Schema.String,
   error: Schema.String,
+  seconds: Schema.Number,
+  text: Schema.String,
 });
 export const Draft = Schema.Struct({
   text: Schema.String,
@@ -49,14 +51,16 @@ export const Queued = Schema.Struct({
   inboxItems: Schema.mutable(Schema.Array(ChatInboxItem)),
   selections: Schema.mutable(Schema.Array(ChatSelection)),
   voice: Schema.Boolean,
+  voiceSeconds: Schema.Number,
   time: Schema.String,
 });
-// A record of the outbox that an older version stored has no inboxItems, no selections and no voice.
+// A record of the outbox that an older version stored has no inboxItems, no selections, no voice and no voiceSeconds.
 export const StoredQueued = Schema.Struct({
   ...Queued.fields,
   inboxItems: Schema.optional(Queued.fields.inboxItems),
   selections: Schema.optional(Queued.fields.selections),
   voice: Schema.optional(Queued.fields.voice),
+  voiceSeconds: Schema.optional(Queued.fields.voiceSeconds),
 });
 export const Waiting = Schema.Struct({ ...Queued.fields, sent: Schema.optional(Schema.Boolean) });
 export const Failure = Schema.Struct({

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { formFields } from "./forms.js";
 import {
   addHistory,
   addHistoryTable,
@@ -40,7 +41,9 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { buttonNames } from "./buttons.js";
+import { png } from "./images.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
+import { selectionBottom, selectionIsEmpty, selectText } from "./selection.js";
 import { routeInboxItems, longWordQuestionItem, longWordTitle } from "./stops.js";
 import { cancelDrain } from "./upgrade.js";
 
@@ -312,9 +315,9 @@ test("a failed action keeps the panel with its error and its note, and a second 
   await reject(page).click();
   await expect(panel(page)).toBeHidden();
   await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
-  expect(approvals).toEqual([
-    JSON.stringify({ message: "Go ahead." }),
-    JSON.stringify({ message: "Go ahead." }),
+  expect(approvals.map(formFields)).toEqual([
+    { message: "Go ahead.", voice: "false", voiceSeconds: "0" },
+    { message: "Go ahead.", voice: "false", voiceSeconds: "0" },
   ]);
 });
 
@@ -328,7 +331,7 @@ test("a decision with an empty note goes out one time and hides the row while th
     gate.open = resolve;
   });
   await page.route("**/api/actions/*/approve", async (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     await held;
     await route.continue();
   });
@@ -345,10 +348,10 @@ test("a decision with an empty note goes out one time and hides the row while th
 
   await expect(waiting(page, 1)).toBeHidden();
   expect((await answered).ok()).toBe(true);
-  expect(bodies).toEqual([{ message: "" }]);
+  expect(bodies).toEqual([{ message: "", voice: "false", voiceSeconds: "0" }]);
 });
 
-test("the panel has the microphone button and no attach button", async ({ page }) => {
+test("the panel has the microphone button and the attach button", async ({ page }) => {
   await page.addInitScript(fakeMicrophone);
   await openChat(page);
   await ask(page, keepPrices);
@@ -357,7 +360,7 @@ test("the panel has the microphone button and no attach button", async ({ page }
   await answer(page, leadTitle);
 
   await expect(panel(page).getByRole("button", { name: "Start voice input" })).toBeVisible();
-  await expect(panel(page).getByRole("button", { name: "Attach images" })).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: "Attach images" })).toBeVisible();
   await expect(panel(page).getByRole("button", { name: "Send" })).toHaveCount(0);
 });
 
@@ -1024,6 +1027,46 @@ test("the read-only dialog of a done edit_brief action shows the changes, and th
   }
 });
 
+test("the Owner approves an edit_brief action with an image, and the request carries it", async ({
+  page,
+}) => {
+  await openLeadChat(page);
+  const bodies: string[] = [];
+  await page.route("**/api/actions/*/approve", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.continue();
+  });
+  await sendToLead(page, editBrief);
+  await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+  await answer(page, briefTitle);
+
+  try {
+    await panel(page)
+      .locator("input[type=file]")
+      .setInputFiles({
+        name: "plan.png",
+        mimeType: "image/png",
+        buffer: await png(page, 40, 30, "red"),
+      });
+    await expect(panel(page).getByRole("img", { name: "Image 1" })).toBeVisible();
+    await panel(page).getByRole("textbox", { name: "Note for the Lead" }).fill("See the plan.");
+    const answered = approved(page);
+    await approve(page).click();
+    expect((await answered).ok()).toBe(true);
+
+    await expect(panel(page)).toBeHidden();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toContain('name="images"; filename="');
+    expect(formFields(bodies[0])).toEqual({
+      message: "See the plan.",
+      voice: "false",
+      voiceSeconds: "0",
+    });
+  } finally {
+    await restoreBrief(page);
+  }
+});
+
 const rejected = (page: Page) =>
   page.waitForResponse(
     (response) =>
@@ -1184,3 +1227,105 @@ test("the question card of a Lead shows the role Lead, the Answer button and the
   await expect(card.getByText("Two months.")).toBeVisible();
   await expect(card.getByRole("button")).toHaveText(["Details"]);
 });
+
+for (const [device, viewport] of [
+  ["desktop", { width: 1280, height: 800 }],
+  ["phone", { width: 390, height: 844 }],
+] as const) {
+  test.describe(`a quote of an Inbox item on a ${device}`, () => {
+    test.use({ viewport });
+
+    test("a selection in the changes of an edit_brief action goes into the note field of its dialog", async ({
+      page,
+    }) => {
+      await openLeadChat(page);
+      await sendToLead(page, editBrief);
+      await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+      await answer(page, briefTitle);
+      const dialog = panel(page);
+      const popover = page.getByRole("button", { name: "Add to the note" });
+      await expect(dialog.getByRole("textbox", { name: "Note for the Lead" })).toBeEditable();
+      await expect(popover).toHaveCount(0);
+
+      await selectText(addedText(dialog).first(), "two months");
+      await expect(popover).toBeVisible();
+      await expect(page.getByRole("button", { name: "Add to chat" })).toHaveCount(0);
+      const bottom = await selectionBottom(page);
+      const box = await popover.boundingBox();
+      expect(box?.y).toBeGreaterThanOrEqual(bottom);
+      expect(box?.x).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width);
+
+      await popover.click();
+      const card = dialog.locator("[data-attachment-card='selection']");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("Inbox item");
+      await expect(card).toContainText("· brief");
+      await expect(card).toContainText("two months");
+      await expect(popover).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      expect(await selectionIsEmpty(page)).toBe(true);
+      await expect(page.locator("main form [data-attachment-card='selection']")).toHaveCount(0);
+
+      const decided = rejected(page);
+      await reject(page).click();
+      expect((await decided).ok()).toBe(true);
+      await expect(dialog).toBeHidden();
+    });
+
+    test("a selection in the changes of an edit_brief action on the Inbox screen goes into the note field", async ({
+      page,
+    }) => {
+      await openLeadChat(page);
+      await sendToLead(page, editBrief);
+      await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+      await link(page, "/inbox").click();
+      await answer(page, briefTitle);
+      const dialog = panel(page);
+      const popover = page.getByRole("button", { name: "Add to the note" });
+      await expect(dialog.getByRole("textbox", { name: "Note for the Lead" })).toBeEditable();
+
+      await selectText(addedText(dialog).first(), "two months");
+      await expect(popover).toBeVisible();
+      await popover.click();
+      const card = dialog.locator("[data-attachment-card='selection']");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("· brief");
+      await expect(card).toContainText("two months");
+      await expect(popover).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+
+      const decided = rejected(page);
+      await reject(page).click();
+      expect((await decided).ok()).toBe(true);
+      await expect(dialog).toBeHidden();
+    });
+
+    test("a selection in a question card of the chat goes into the chat composer", async ({
+      page,
+    }) => {
+      await openChat(page);
+      await ask(page, askDraft);
+      await expect(waiting(page, 1)).toBeVisible(agentTimeout);
+      const card = questionCard(page, draftQuestion);
+      const popover = page.getByRole("button", { name: "Add to chat" });
+      await expect(popover).toHaveCount(0);
+
+      await selectText(card, "draft the Workstream");
+      await expect(popover).toBeVisible();
+      await popover.click();
+      const quoted = page.locator("main form [data-attachment-card='selection']");
+      await expect(quoted).toHaveCount(1);
+      await expect(quoted).toContainText("Inbox item");
+      await expect(quoted).toContainText("· question");
+      await expect(quoted).toContainText("draft the Workstream");
+      await expect(popover).toHaveCount(0);
+      expect(await selectionIsEmpty(page)).toBe(true);
+
+      await page.getByRole("button", { name: "Remove the selection" }).click();
+      await expect(quoted).toHaveCount(0);
+      await ask(page, withdrawDraft);
+      await expect(waiting(page, 1)).toBeHidden(agentTimeout);
+    });
+  });
+}

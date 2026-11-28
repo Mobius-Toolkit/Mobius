@@ -110,6 +110,9 @@ type FakeGitHub struct {
 	commentsAfterList []listedComment
 	// afterIssueListReads holds the functions that run once after the next issue list read of a repository.
 	afterIssueListReads map[string]func()
+	// afterIssueEventsReads holds the functions that run once after the next event list read of an issue. The answer
+	// of that read has only the events from before the function runs.
+	afterIssueEventsReads map[issueKey]func()
 	// The comment ids of all issues are different, as on GitHub.
 	lastCommentID int64
 	lastReviewID  int64
@@ -133,6 +136,7 @@ type FakeGitHub struct {
 	goneIssues                                 map[issueKey]bool
 	forbiddenIssues                            map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
+	subIssueReads                              map[issueKey]int
 	hiddenFromIssueList                        map[issueKey]bool
 	hiddenFromSubIssues                        map[issueKey]bool
 	failedParents                              map[issueKey]bool
@@ -147,6 +151,7 @@ type FakeGitHub struct {
 	lostIssueCreateAnswers                     int
 	refusedNextComments                        map[issueKey]int
 	refusedNextCommentLists                    map[issueKey]int
+	refusedCommentLists                        map[issueKey]int
 	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
@@ -163,6 +168,7 @@ type FakeGitHub struct {
 	// limitedResolves is true when a resolve of a review thread gives the GraphQL error RATE_LIMITED.
 	limitedResolves   bool
 	failPullReads     bool
+	failReviewReads   bool
 	failMarkReady     bool
 	failCheckUpdates  bool
 	failBodyWrites    bool
@@ -337,6 +343,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		goneIssues:              map[issueKey]bool{},
 		forbiddenIssues:         map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
+		subIssueReads:           map[issueKey]int{},
 		hiddenFromIssueList:     map[issueKey]bool{},
 		hiddenFromSubIssues:     map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
@@ -346,6 +353,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		lostCommentAnswers:      map[issueKey]bool{},
 		refusedNextComments:     map[issueKey]int{},
 		refusedNextCommentLists: map[issueKey]int{},
+		refusedCommentLists:     map[issueKey]int{},
 		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
@@ -378,6 +386,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		workflowStates:          map[workflowKey]string{},
 		workflowNotFound:        map[workflowKey]bool{},
 		afterIssueListReads:     map[string]func(){},
+		afterIssueEventsReads:   map[issueKey]func(){},
 	}
 	server := httptest.NewServer(g.logging(g.hanging(g.routes())))
 	t.Cleanup(server.Close)

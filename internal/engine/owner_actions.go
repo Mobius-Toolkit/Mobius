@@ -170,7 +170,7 @@ func (e *Engine) cleanAfterPause(ctx context.Context, task store.Task) error {
 // doneOwnerAction starts the next step of the task of the open owner action Inbox item. The task gets zero round
 // counters. Only after the step started does it close the action, dismiss the item and add the note. A
 // failed step leaves the task in owner_action and the item open.
-func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note string) (store.InboxItem, Record, error) {
+func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note string, attachments Attachments) (store.InboxItem, Record, error) {
 	action, err := e.queries.GetOwnerActionOfItem(ctx, item.ID)
 	if err != nil {
 		return store.InboxItem{}, Record{}, err
@@ -186,7 +186,7 @@ func (e *Engine) doneOwnerAction(ctx context.Context, item store.InboxItem, note
 	if err := e.startAfterOwnerAction(ctx, task, action, note); err != nil {
 		return store.InboxItem{}, Record{}, err
 	}
-	done, err := e.closeOwnerAction(ctx, item, action, note)
+	done, err := e.closeOwnerAction(ctx, item, action, note, attachments)
 	if err != nil {
 		return store.InboxItem{}, Record{}, err
 	}
@@ -218,7 +218,7 @@ func (e *Engine) clearOwnerAction(ctx context.Context, c caller, repository gith
 	if err := e.startAfterOwnerAction(ctx, task, action, ""); err != nil {
 		return "", err
 	}
-	if _, err := e.closeOwnerAction(ctx, item, action, ""); err != nil {
+	if _, err := e.closeOwnerAction(ctx, item, action, "", Attachments{}); err != nil {
 		return "", err
 	}
 	e.AddRecord(ctx, recordIn(fmt.Sprintf("The Lead cleared the action \"%s\" of %s.", action.Action, ownerActionSubject(item)), inboxChat(item)))
@@ -234,14 +234,14 @@ func ownerActionSubject(item store.InboxItem) string {
 }
 
 // closeOwnerAction sets done_at on the action after its step started, dismisses its item and adds the Owner message.
-func (e *Engine) closeOwnerAction(ctx context.Context, item store.InboxItem, action store.OwnerAction, note string) (store.InboxItem, error) {
+func (e *Engine) closeOwnerAction(ctx context.Context, item store.InboxItem, action store.OwnerAction, note string, attachments Attachments) (store.InboxItem, error) {
 	if err := e.queries.SetOwnerActionDone(ctx, store.SetOwnerActionDoneParams{DoneAt: sql.NullString{String: now(), Valid: true}, ID: action.ID}); err != nil {
 		return store.InboxItem{}, err
 	}
 	if err := e.Dismiss(ctx, item.ID); err != nil {
 		return store.InboxItem{}, err
 	}
-	e.addInboxOwnerMessage(ctx, item, note)
+	e.addInboxOwnerNote(ctx, item, note, attachments)
 	return e.queries.GetInboxItem(ctx, item.ID)
 }
 

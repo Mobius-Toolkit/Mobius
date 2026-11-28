@@ -26,6 +26,7 @@ import {
   withdrawDraft,
 } from "./actions.js";
 import { routeLongNameOfPaused } from "./agents.js";
+import { answerDraftKeyOf, attachToPanel } from "./drafts.js";
 import { waitForEvergreen } from "./evergreen.js";
 import {
   checkupRoute,
@@ -249,6 +250,65 @@ const clearDrafts = `new Promise((resolve) => {
   };
 })`;
 
+// The audio of a recording has no fixed length, so the screens of a voice card with a duration start from a stored
+// card or a stored message.
+const spokenText =
+  "Show the prices of the roses first. Then the tulips and the lilies, and then the Lead creates the task issues for the plan.";
+
+const voiceDraft = (state: "ready" | "converting") => `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("drafts", "readwrite");
+    transaction.objectStore("drafts").put({
+      key: "chatDraft:owner/owner/shop/12",
+      text: ${JSON.stringify(state === "ready" ? spokenText : "")},
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: {
+        state: "${state}",
+        audio: ${state === "ready" ? "null" : 'new Blob(["audio"])'},
+        conversion: ${state === "ready" ? '""' : '"c2"'},
+        error: "",
+        seconds: 12,
+        text: ${JSON.stringify(state === "ready" ? spokenText : "")},
+      },
+    });
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
+const queuedVoiceMessage = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("outbox", "readwrite");
+    transaction.objectStore("outbox").put({
+      id: "voice-queued",
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+      text: ${JSON.stringify(spokenText)},
+      images: [],
+      inboxItems: [],
+      selections: [],
+      voice: true,
+      voiceSeconds: 12,
+      time: "2026-10-15T12:00:00.000Z",
+      chat: ["owner", "owner/shop", 12],
+    });
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
+const removeQueuedVoiceMessage = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const transaction = open.result.transaction("outbox", "readwrite");
+    transaction.objectStore("outbox").delete("voice-queued");
+    transaction.oncomplete = () => resolve(undefined);
+  };
+})`;
+
 const removedText = (scope: Locator) => scope.locator("del");
 const removedSwitch = (scope: Locator) => scope.getByRole("switch", { name: "Show removed text" });
 const addedText = (scope: Locator) => scope.locator("ins");
@@ -402,6 +462,22 @@ test("screenshots", async ({ page }) => {
     main.getByRole("img", { name: "Autopilot: Start and merge" }),
   ]);
   await page.unroute(levelsRoute);
+  const unavailableRoute = "**/api/workstreams";
+  await page.route(unavailableRoute, (route) =>
+    route.fulfill({
+      status: 502,
+      contentType: "text/html",
+      body: "<html><body>Bad Gateway</body></html>",
+    }),
+  );
+  await screenshot(page, "workstreams-unavailable", "/workstreams", (device) => [
+    chatCount,
+    ...(device === "desktop" ? [drain] : []),
+    page.getByLabel("Work in another organization").filter({ visible: true }),
+    page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
+    main.getByText("The server is not available (502)."),
+  ]);
+  await page.unroute(unavailableRoute);
   await routeTasks(page, boardTasks);
   await screenshot(
     page,
@@ -846,14 +922,16 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-voice-ready",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), main.getByRole("button", { name: "Remove voice" }), chatEnd],
+    (device) => [
+      ...chatReady(device),
+      voiceCard.getByText("Voice 0:12", { exact: true }),
+      main.getByRole("button", { name: "Remove voice" }),
+      chatEnd,
+    ],
     async () => {
-      await main.getByRole("button", { name: "Start voice input" }).click();
-      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
-      await main.getByRole("button", { name: "Stop voice input" }).click();
-      await expect(main.getByLabel("Message to the Lead")).toHaveValue(
-        "Show the prices of the roses first.",
-      );
+      await page.evaluate(voiceDraft("ready"));
+      await page.reload();
+      await expect(main.getByLabel("Message to the Lead")).toHaveValue(spokenText);
     },
     async () => {
       await main.getByRole("button", { name: "Remove voice" }).click();
@@ -861,26 +939,47 @@ test("screenshots", async ({ page }) => {
       await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
     },
   );
+  // The message waits in the queue, because its request has no answer.
+  await page.route("**/api/chat/messages", () => {});
+  await screenshot(
+    page,
+    "chat-voice-queued",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.locator("[data-queued]").getByRole("group", { name: "Voice recording" }),
+      main.getByLabel("Not sent yet"),
+    ],
+    async () => {
+      await page.evaluate(queuedVoiceMessage);
+      await page.reload();
+      await expect(main.locator("[data-queued]")).toContainText("Voice 0:12");
+      await showChatEnd(page);
+    },
+    () => page.evaluate(removeQueuedVoiceMessage),
+  );
+  await page.unroute("**/api/chat/messages");
   await page.unroute("**/api/voice/recordings");
   await page.unroute("**/api/voice/recordings/r1/chunks?*");
   await page.unroute("**/api/voice/recordings/r1/finish");
   await page.unroute("**/api/voice/conversions/c1");
-  await page.route("**/api/voice/transcriptions", (route) => route.fulfill(pending("c2")));
   await page.route("**/api/voice/conversions/c2", () => {});
   await screenshot(
     page,
     "chat-converting",
     "/workstreams/owner/shop/12",
-    (device) => [...chatReady(device), voiceCard.getByText("Converting", { exact: true }), chatEnd],
+    (device) => [
+      ...chatReady(device),
+      voiceCard.getByText("Converting 0:12", { exact: true }),
+      chatEnd,
+    ],
     async () => {
-      await main.getByRole("button", { name: "Start voice input" }).click();
-      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
-      await main.getByRole("button", { name: "Stop voice input" }).click();
+      await page.evaluate(voiceDraft("converting"));
+      await page.reload();
     },
     // A card that converts has no button to remove it. The next page load would convert it again.
     () => page.evaluate(clearDrafts),
   );
-  await page.unroute("**/api/voice/transcriptions");
   await page.unroute("**/api/voice/conversions/c2");
   await page.route("**/api/voice/recordings", (route) =>
     route.fulfill({ status: 500, json: { error: "failed" } }),
@@ -1028,6 +1127,7 @@ test("screenshots", async ({ page }) => {
       repository: "owner/shop",
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       workstream: 12,
     };
     body.data.messages.push(
@@ -1133,6 +1233,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
+      composer.locator("[data-attachment-card='inbox-item']"),
       composer.getByText("Add plan model"),
       composer.getByText("The agent asked a question"),
       composer.getByRole("button", { name: "Remove #41" }),
@@ -1194,6 +1295,7 @@ test("screenshots", async ({ page }) => {
       repository: "owner/shop",
       stoppedAt: null,
       voice: false,
+      voiceSeconds: 0,
       workstream: 12,
       time: "2026-10-15T12:00:00Z",
     };
@@ -1238,17 +1340,17 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      composer.locator("[data-selection-card]").first(),
-      composer.locator("[data-selection-card]").last(),
+      composer.locator("[data-attachment-card='selection']").first(),
+      composer.locator("[data-attachment-card='selection']").last(),
     ],
     async () => {
       await expect(main.getByLabel("Message to the Lead")).toBeEditable();
       await selectQuote("in the morning");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
       await selectQuote("Sort the white roses");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(2);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(2);
     },
     clearComposer,
   );
@@ -1280,7 +1382,7 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, drain, {}, "3"),
       main.getByText("#42 and #45 wait for your decision."),
-      composer.locator("[data-selection-card]"),
+      composer.locator("[data-attachment-card='selection']"),
       chatEnd,
     ],
     async () => {
@@ -1288,7 +1390,7 @@ test("screenshots", async ({ page }) => {
       const tab = await showBrief(page);
       await selectText(tab, "Points on every order");
       await quotePopover.click();
-      await expect(composer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(composer.locator("[data-attachment-card='selection']")).toHaveCount(1);
     },
     clearComposer,
   );
@@ -1300,8 +1402,8 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      main.locator("[data-message='1000101'] [data-selection-card]").first(),
-      main.locator("[data-message='1000101'] [data-selection-card]").last(),
+      main.locator("[data-message='1000101'] [data-attachment-card='selection']").first(),
+      main.locator("[data-message='1000101'] [data-attachment-card='selection']").last(),
     ],
     () => showChatEnd(page),
   );
@@ -2231,6 +2333,7 @@ test("screenshots", async ({ page }) => {
         repository: "plants/garden",
         stoppedAt: null,
         voice: false,
+        voiceSeconds: 0,
         text: "Is this task ready?",
         time: "2026-10-15T12:00:00Z",
         workstream: 19,
@@ -2240,7 +2343,7 @@ test("screenshots", async ({ page }) => {
   });
   const taskCard = main
     .locator("[data-message]", { hasText: "Is this task ready?" })
-    .getByRole("button", { name: /Spread the bark/ });
+    .locator("button[data-attachment-card='inbox-item']");
   await screenshot(
     page,
     "chat-task-card-detail",
@@ -2303,11 +2406,11 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-task-selection-composer",
     "/workstreams/plants/garden/19",
-    (device) => [...taskFrame(device), taskComposer.locator("[data-selection-card]")],
+    (device) => [...taskFrame(device), taskComposer.locator("[data-attachment-card='selection']")],
     async (device) => {
       await openTaskView(device);
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await expect(taskComposer.locator("[data-selection-card]")).toHaveCount(1);
+      await expect(taskComposer.locator("[data-attachment-card='selection']")).toHaveCount(1);
     },
     async () => {
       await page.evaluate(clearDrafts);
@@ -3010,6 +3113,27 @@ test("screenshots", async ({ page }) => {
     async (device) => {
       await openPanel("Answer", 0)(device);
       await page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }).click();
+    },
+  );
+  const questionKey = await answerDraftKeyOf(page, (item) => item.kind === "question");
+  await screenshot(
+    page,
+    "inbox-answer-attachments",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }),
+      page.getByRole("dialog").locator("[data-attachment-card='inbox-item']"),
+      page.getByRole("dialog").locator("[data-attachment-card='selection']"),
+      page.getByRole("dialog").getByRole("img", { name: "Image 1" }),
+      page.getByRole("dialog").getByRole("button", { name: "Send" }),
+    ],
+    async (device) => {
+      await attachToPanel(page, questionKey, () => openPanel("Answer", 0)(device));
+    },
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+      await page.reload();
     },
   );
   const readyRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
@@ -4922,6 +5046,66 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  const briefKey = await answerDraftKeyOf(
+    page,
+    (item) => item.action?.tool === "edit_brief" && item.action.state === "pending",
+  );
+  await screenshot(
+    page,
+    "action-brief-attachments",
+    "/workstreams/owner/shop/14",
+    (device) => [
+      ...approvalReady(device, "2"),
+      addedText(panel).first(),
+      panel.locator("[data-attachment-card='inbox-item']"),
+      panel.locator("[data-attachment-card='selection']"),
+      panel.getByRole("img", { name: "Image 1" }),
+      panel.getByRole("button", { name: "Approve" }),
+    ],
+    async () => {
+      await attachToPanel(page, briefKey, openBrief);
+    },
+    // The page keeps the draft in memory, so it loads again. Else the approval below sends the attachments.
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+      await page.reload();
+    },
+  );
+  const quoteInBrief = async () => {
+    await openBrief();
+    await addedText(panel).first().scrollIntoViewIfNeeded();
+    await selectText(addedText(panel).first(), "two months");
+  };
+  const briefQuotePopover = page.getByRole("button", { name: "Add to the note" });
+  await screenshot(
+    page,
+    "action-brief-quote-popover",
+    "/workstreams/owner/shop/14",
+    () => [addedText(panel).first(), briefQuotePopover],
+    quoteInBrief,
+    () => page.keyboard.press("Escape"),
+  );
+  await screenshot(
+    page,
+    "action-brief-quote",
+    "/workstreams/owner/shop/14",
+    () => [
+      addedText(panel).first(),
+      panel.locator("[data-attachment-card='selection']").filter({ hasText: "two months" }),
+    ],
+    async () => {
+      await quoteInBrief();
+      await expect(briefQuotePopover).toBeVisible();
+      await briefQuotePopover.click();
+    },
+    // The page keeps the draft in memory, so it loads again. Else the approval below sends the quote.
+    async () => {
+      await page.keyboard.press("Escape");
+      await page.evaluate(clearDrafts);
+      await page.reload();
+    },
+  );
   await row(briefTitle).getByRole("button", { name: "Answer" }).click();
   await decide(page, panel, "approve");
   await expect(panel).toBeHidden();
@@ -5207,6 +5391,7 @@ test("screenshots", async ({ page }) => {
       ...(device === "desktop"
         ? [release, page.getByLabel("Work in another organization")]
         : [page.getByLabel("Upgrade available")]),
+      withCard.locator("[data-attachment-card='inbox-item']"),
       withCard.getByRole("link", { name: /Integrate loyalty plans/ }),
       withCard.getByText("PR #44 is ready to merge"),
     ],
@@ -5272,6 +5457,7 @@ test("screenshots", async ({ page }) => {
         images: 0,
         inboxItems: [],
         voice: true,
+        voiceSeconds: 75,
         deliveredAt: last.time,
         failedAt: null,
         cancelledAt: null,
@@ -5287,10 +5473,13 @@ test("screenshots", async ({ page }) => {
     page,
     "chat-history-voice",
     "/workstreams/plants/garden/25",
-    (device) => [...plantsFrame(device, 25), voiceMessage.getByRole("img", { name: "Voice" })],
+    (device) => [
+      ...plantsFrame(device, 25),
+      voiceMessage.getByRole("group", { name: "Voice recording" }).getByText("Voice 1:15"),
+    ],
     async () => {
       await showChatEnd(page);
-      await expect(voiceMessage.getByRole("img", { name: "Voice" })).toBeInViewport();
+      await expect(voiceMessage.getByRole("group", { name: "Voice recording" })).toBeInViewport();
     },
   );
   await page.unroute("**/api/chat?*");

@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { buttonNames } from "./buttons.js";
+import { attachToPanel, planItem, quotedPart } from "./drafts.js";
+import { formFields } from "./forms.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -302,6 +304,66 @@ test("a failed answer keeps the panel and the text, and shows the error", async 
   await expect(input).toHaveValue("Ten seats.");
 });
 
+// Opens the panel of the question #45 with an image, an Inbox item and a selection in its field.
+async function attachToAnswer(page: Page) {
+  await page.goto("/inbox");
+  const panel = await attachToPanel(page, "answerDraft:1", () =>
+    page.getByRole("main").getByRole("button", { name: "Answer" }).first().click(),
+  );
+  await panel.getByRole("textbox", { name: "Your answer" }).fill("Ten seats.");
+  return panel;
+}
+
+test("the field of the answer sends the image, the Inbox item and the selection with the text", async ({
+  page,
+}) => {
+  const bodies: string[] = [];
+  await routeInbox(page, items);
+  await page.route("**/api/inbox/1/answer", (route) => {
+    bodies.push(route.request().postData() ?? "");
+    return route.fulfill({ json: { data: { url: `${link}/issues/45#issuecomment-1` } } });
+  });
+  const panel = await attachToAnswer(page);
+
+  const response = page.waitForResponse("**/api/inbox/1/answer");
+  await panel.getByRole("button", { name: "Send" }).click();
+  await response;
+
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toContain('name="images"; filename="');
+  const fields = formFields(bodies[0]);
+  expect(fields.text).toBe("Ten seats.");
+  expect(fields.voice).toBe("false");
+  expect(JSON.parse(fields.inboxItems)).toEqual({
+    reference: planItem.reference,
+    title: planItem.title,
+    reason: planItem.reason,
+    link: planItem.link,
+  });
+  expect(JSON.parse(fields.selections)).toEqual(quotedPart);
+  await expect(panel).toHaveCount(0);
+});
+
+test("a failed answer puts the image, the Inbox item, the selection and the text back in the field", async ({
+  page,
+}) => {
+  await routeInbox(page, items);
+  await page.route("**/api/inbox/1/answer", (route) =>
+    route.fulfill({ status: 409, json: { error: "The Owner must authorize the Mobius App." } }),
+  );
+  const panel = await attachToAnswer(page);
+
+  await panel.getByRole("button", { name: "Send" }).click();
+
+  await expect(panel.getByRole("alert")).toHaveText("The Owner must authorize the Mobius App.");
+  await expect(panel.getByRole("textbox", { name: "Your answer" })).toHaveValue("Ten seats.");
+  await expect(panel.getByRole("img", { name: "Image 1" })).toBeVisible();
+  await expect(panel.locator("[data-attachment-card='inbox-item']")).toContainText(
+    "Add plan model",
+  );
+  await expect(panel.locator("[data-attachment-card='selection']")).toContainText("works on #41");
+});
+
 test("each item keeps its own draft of the answer", async ({ page }) => {
   await routeInbox(page, items);
   await page.goto("/inbox");
@@ -402,7 +464,7 @@ test("Resume opens a panel with the stop reason, and a send with a note answers 
     return route.fulfill({ status: 204 });
   });
   await page.route("**/api/inbox/2/answer", (route) => {
-    answers.push(route.request().postDataJSON());
+    answers.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { url: `${link}/issues/42#issuecomment-1` } } });
   });
   await page.goto("/inbox");
@@ -422,7 +484,7 @@ test("Resume opens a panel with the stop reason, and a send with a note answers 
   await panel.getByRole("button", { name: "Resume" }).click();
   await response;
 
-  expect(answers).toEqual([{ text: "Use the new limits." }]);
+  expect(answers).toEqual([{ text: "Use the new limits.", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row).toHaveCount(0);
   expect(resumed).toEqual([]);
@@ -509,7 +571,7 @@ test("Done opens a panel with the action, and the note marks the action as done"
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/8/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({
       json: { data: { ...ownerAction, dismissedAt: "2026-09-28T09:40:00Z" } },
     });
@@ -535,7 +597,7 @@ test("Done opens a panel with the action, and the note marks the action as done"
   await panel.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "Logged in." }]);
+  expect(bodies).toEqual([{ note: "Logged in.", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row).toHaveCount(0);
 });
@@ -745,7 +807,7 @@ test("a pull request shows Complete todos, opens its list on tap, and returns af
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/7/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
   });
   await routeInbox(page, [afterMergeTodo, blockedReadyItem, optionalTodo, todo]);
@@ -804,7 +866,7 @@ test("a pull request shows Complete todos, opens its list on tap, and returns af
   await dialog.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "Set in prod." }]);
+  expect(bodies).toEqual([{ note: "Set in prod.", voice: "false", voiceSeconds: "0" }]);
   await expect(dialog.getByRole("heading", { name: "Todos of PR #44" })).toBeVisible();
   await expect
     .poll(async () => (await buttonNames(dialog)).filter((name) => name !== "Close"))
@@ -985,7 +1047,7 @@ test("a todo with an empty note is marked as done and closes the list when no to
 }) => {
   const bodies: unknown[] = [];
   await page.route("**/api/inbox/7/done", (route) => {
-    bodies.push(route.request().postDataJSON());
+    bodies.push(formFields(route.request().postData() ?? ""));
     return route.fulfill({ json: { data: { ...todo, dismissedAt: "2026-09-28T09:40:00Z" } } });
   });
   const { row, panel } = await openTodo(page);
@@ -998,7 +1060,7 @@ test("a todo with an empty note is marked as done and closes the list when no to
   await panel.getByRole("button", { name: "Send" }).click();
   await response;
 
-  expect(bodies).toEqual([{ note: "" }]);
+  expect(bodies).toEqual([{ note: "", voice: "false", voiceSeconds: "0" }]);
   await expect(panel).toHaveCount(0);
   await expect(row.getByRole("button", { name: /Complete todos/ })).toHaveCount(0);
 });

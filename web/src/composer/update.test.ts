@@ -11,7 +11,7 @@ import {
   StopVoice,
   ToggleVoice,
 } from "./commands";
-import { Message } from "./message";
+import { Message, OutMessage } from "./message";
 import { initialModel, type Model } from "./model";
 import type { Draft, Queued } from "@/chat/schemas";
 import { update } from "./update";
@@ -49,6 +49,7 @@ function createTestModel(overrides: Partial<Model> = {}): Model {
   const base = initialModel({
     draftKey: "chatDraft:test-org/test-repo/1428",
     instance: "chat",
+    sends: "outbox",
     label: "Message to the Lead",
     placeholder: "Write to the Lead",
     organization: "test-org",
@@ -72,6 +73,7 @@ function createQueuedItem(id: string, text: string): Queued {
     inboxItems: [],
     selections: [],
     voice: false,
+    voiceSeconds: 0,
     time: "2026-11-04T08:00:00Z",
   };
 }
@@ -81,7 +83,7 @@ describe("composer update story tests", () => {
     const image = new File(["x"], "a.png", { type: "image/png" });
     const draft = createDraft("Hello", {
       images: [image],
-      voice: { state: "ready", audio: null, conversion: "", error: "" },
+      voice: { state: "ready", audio: null, conversion: "", error: "", seconds: 0, text: "" },
     });
 
     const result = update(createTestModel(), Message.ReceivedDraft({ draft }));
@@ -113,7 +115,14 @@ describe("composer update story tests", () => {
   it("sends the draft of the chat with the voice mark when the card is ready, and clears the draft", () => {
     const base = createTestModel({
       draftText: "Show the prices.",
-      draftVoice: { state: "ready", audio: null, conversion: "", error: "" },
+      draftVoice: {
+        state: "ready",
+        audio: null,
+        conversion: "",
+        error: "",
+        seconds: 12,
+        text: "Show the prices.",
+      },
       sendError: "Old error.",
     });
 
@@ -137,6 +146,7 @@ describe("composer update story tests", () => {
           inboxItems: [],
           selections: [],
           voice: true,
+          voiceSeconds: 12,
         }),
       ),
       StoryCommand.resolve(
@@ -177,7 +187,7 @@ describe("composer update story tests", () => {
     for (const state of ["converting", "failed"] as const) {
       const base = createTestModel({
         draftText: "Text.",
-        draftVoice: { state, audio: null, conversion: "", error: "" },
+        draftVoice: { state, audio: null, conversion: "", error: "", seconds: 0, text: "" },
       });
       const result = update(base, Message.SendSubmitted());
       expect(result.model).toBe(base);
@@ -197,6 +207,48 @@ describe("composer update story tests", () => {
     const chatResult = update(chat, Message.SendSubmitted());
     expect(chatResult.model).toBe(chat);
     expect(described(chatResult.commands)).toEqual(described([StopVoice()]));
+  });
+
+  it("gives the draft of a field with its own request to the parent and keeps the draft", () => {
+    const image = new File(["x"], "a.png", { type: "image/png" });
+    const base = createTestModel({
+      sends: "parent",
+      draftText: "Ten seats.",
+      draftImages: [image],
+      draftSelections: [createSelection("a")],
+      draftInboxItems: [{ id: 7, reference: "#7", title: "Question", reason: "", link: "" }],
+      sendError: "Old error.",
+    });
+
+    const result = update(base, Message.SendSubmitted());
+    expect(result.model).toBe(base);
+    expect(result.commands ?? []).toEqual([]);
+    expect(result.outMessage).toEqual(OutMessage.DraftSubmitted());
+  });
+
+  it("leaves the check of an empty draft to the parent of a field with its own request", () => {
+    const result = update(createTestModel({ sends: "parent" }), Message.SendSubmitted());
+    expect(result.outMessage).toEqual(OutMessage.DraftSubmitted());
+  });
+
+  it("gives nothing to the parent while the voice runs, converts or has failed", () => {
+    const recording = createTestModel({
+      sends: "parent",
+      draftText: "Text.",
+      voice: { recording: true, key: "x", startedAt: 1, live: "", notice: { key: "", text: "" } },
+    });
+    const stopped = update(recording, Message.SendSubmitted());
+    expect(stopped.outMessage).toBeUndefined();
+    expect(described(stopped.commands)).toEqual(described([StopVoice()]));
+
+    for (const state of ["converting", "failed"] as const) {
+      const busy = createTestModel({
+        sends: "parent",
+        draftText: "Text.",
+        draftVoice: { state, audio: null, conversion: "", error: "", seconds: 0, text: "" },
+      });
+      expect(update(busy, Message.SendSubmitted()).outMessage).toBeUndefined();
+    }
   });
 
   it("starts the voice of the composer field", () => {

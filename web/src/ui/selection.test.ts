@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
-import { selectionContext, selectionPart } from "./selection";
+import type { ChatSelection } from "@/api/api.gen";
+import { selectionContext, selectionPart, sourceLine } from "./selection";
 
 function rangeOf(from: Node, fromOffset: number, to: Node, toOffset: number) {
   const range = document.createRange();
@@ -132,5 +133,29 @@ describe("selectionPart", () => {
 
   it("gives the section of the start of a selection that spans more than one section", () => {
     expect(selectionPart(root, rangeOf(textOf("#goal"), 0, textOf("#scope"), 3))).toBe("Goal");
+  });
+});
+
+describe("sourceLine", () => {
+  const inbox: ChatSelection = {
+    source: "inbox",
+    text: "Cents.",
+    context: "Prices are in cents.",
+    reference: "#41",
+    link: "https://github.com/owner/shop/issues/41",
+    part: "question",
+    messageId: 0,
+    messageAuthor: "",
+  };
+
+  it("names the Inbox item, its reference and its part", () => {
+    expect(sourceLine(inbox, undefined)).toBe("Inbox item #41 · question");
+    expect(sourceLine({ ...inbox, reference: "PR #34", part: "brief" }, undefined)).toBe(
+      "Inbox item PR #34 · brief",
+    );
+  });
+
+  it("leaves out the reference and the part that the item does not have", () => {
+    expect(sourceLine({ ...inbox, reference: "", part: "" }, undefined)).toBe("Inbox item");
   });
 });

@@ -5,7 +5,6 @@ import type { Return as UpdateReturn } from "foldkit/update";
 import * as Composer from "@/composer";
 import { OutMessage as ComposerOutMessage } from "@/composer/message";
 import {
-  AddSelection,
   AnswerInboxItem,
   ApproveAction,
   DoneInboxItem,
@@ -18,30 +17,26 @@ import {
   PostQueued,
   RejectAction,
   RemoveQueued,
-  RemoveVoice,
   RequestLogin,
-  ResendVoice,
   RunTrayAction,
   ResumeIssue,
   ResumeStoppedItem,
-  SaveDraftText,
   SaveTrayState,
   SeeChat,
   StopChat,
-  StopVoice,
-  ToggleVoice,
   WaitToRetry,
 } from "./commands";
-import { InboxItemKind } from "@/api/api.gen";
-import { answerDraftKey } from "@/lib/draft";
+import { StopVoice } from "@/composer/commands";
+import { InboxItemKind, type ChatSelection } from "@/api/api.gen";
 import { issueRef } from "@/lib/notice";
-import { answerInputId } from "./composer";
+import { newAnswerComposer } from "./composer";
 import * as Selection from "@/ui/selection";
 import { FetchCheckup } from "@/workstreamSetup/commands";
 import { update as updateWorkstreamSetup } from "@/workstreamSetup/update";
 import {
   Message,
   OutMessage,
+  toGotAnswerComposerMessage,
   toGotComposerMessage,
   toGotSelectionMessage,
   toGotWorkstreamSetupMessage,
@@ -52,6 +47,7 @@ import {
   countsAsUnread,
   hasNote,
   isMissingWorkstream,
+  itemReference,
   retryDelays,
   todoRowOf,
   upsert,
@@ -102,29 +98,75 @@ const foldComposer = Update.foldChild({
         ({ item }) =>
         (model) =>
           enqueue(model, item),
+      DraftSubmitted: () => (model) => ({ model }),
     }),
 });
 
+const quote = (key: string, selection: ChatSelection) =>
+  Command.mapMessage(Selection.AddSelection({ key, selection }), toGotSelectionMessage);
+
+function inboxSelection(
+  item: InboxItem | undefined,
+  part: string,
+  text: string,
+  context: string,
+): ChatSelection {
+  return {
+    source: "inbox",
+    text,
+    context,
+    ...(item ? itemReference(item) : { reference: "", link: "" }),
+    part,
+    messageId: 0,
+    messageAuthor: "",
+  };
+}
+
 function addSelection(model: Model, owner: string, text: string, context: string) {
-  const message = model.messages.find((other) => String(other.id) === owner);
+  if (owner.startsWith("dialog:")) {
+    const panel = model.activePanel;
+    if (!panel) {
+      return { model };
+    }
+    const key =
+      panel.type === "answer" && model.answerComposer
+        ? model.answerComposer.draftKey
+        : model.composer.draftKey;
+    return {
+      model,
+      commands: [
+        quote(key, inboxSelection(panel.item, owner.slice("dialog:".length), text, context)),
+      ],
+    };
+  }
+  const card = /^(question|action):(\d+)$/.exec(owner);
+  const message = model.messages.find((other) =>
+    card ? other.id === Number(card[2]) : String(other.id) === owner,
+  );
   if (!message) {
     return { model };
+  }
+  if (card) {
+    const item = message.question
+      ? message.question
+      : model.trayItems.find((row) => row.action?.id === message.action?.id);
+    return {
+      model,
+      commands: [quote(model.composer.draftKey, inboxSelection(item, card[1], text, context))],
+    };
   }
   return {
     model,
     commands: [
-      AddSelection({
-        key: model.composer.draftKey,
-        selection: {
-          source: "message",
-          text,
-          context,
-          reference: "",
-          link: "",
-          part: "",
-          messageId: message.id,
-          messageAuthor: authorLabel(message),
-        },
+      quote(model.composer.draftKey, {
+        source: "message",
+        text,
+        context,
+        reference: "",
+        link: "",
+        part: "",
+        messageId: message.id,
+        messageAuthor: authorLabel(message),
       }),
     ],
   };
@@ -169,11 +211,19 @@ const foldAddInboxItem = Update.foldChild({
   toParentMessage: toGotComposerMessage,
 });
 
-// The draft key and the element id of the field of the open answer panel.
-function answerField(model: Model) {
-  return model.activePanel
-    ? { key: answerDraftKey(model.activePanel.item.id), fieldId: answerInputId }
-    : null;
+function withSendError(composer: Composer.Model | null, error: string) {
+  return composer === null ? null : { ...composer, sendError: error };
+}
+
+// The parts of the draft of the answer field that go with the text.
+function partsOf(composer: Composer.Model) {
+  return {
+    images: composer.draftImages,
+    inboxItems: composer.draftInboxItems,
+    selections: composer.draftSelections,
+    voice: composer.draftVoice?.state === "ready",
+    voiceSeconds: composer.draftVoice?.seconds ?? 0,
+  };
 }
 
 function hasSelection(model: Model) {
@@ -196,32 +246,36 @@ function selectionText(selected: Record<number, number[]>, item: InboxItem, note
 function answerCommands(
   model: Model,
   item: InboxItem,
-  text: string,
+  composer: Composer.Model,
   selected: Record<number, number[]>,
 ) {
+  const text = composer.draftText;
+  const parts = partsOf(composer);
   const target = {
     id: item.id,
     repository: item.repository || model.repository,
     issue: item.issue,
-    voice: model.answerVoice?.state === "ready",
   };
   if (item.todo) {
     return [
       DoneInboxItem({
         ...target,
+        ...parts,
         notice: `Marked the todo ${item.todo.name || item.title} as done`,
         note: text,
       }),
     ];
   }
   if (item.kind === InboxItemKind.owner_action) {
-    return [DoneInboxItem({ ...target, notice: "Marked the action as done", note: text })];
+    return [
+      DoneInboxItem({ ...target, ...parts, notice: "Marked the action as done", note: text }),
+    ];
   }
   if (item.kind === InboxItemKind.stopped) {
     const notice = `Resumed ${issueRef(target.repository, item.issue, item.workstreamRepository)}`;
     return [
-      text.trim()
-        ? AnswerInboxItem({ ...target, answer: text, notice })
+      text.trim() || Composer.hasAttachments(composer)
+        ? AnswerInboxItem({ ...target, ...parts, answer: text, notice })
         : ResumeStoppedItem({
             id: target.id,
             repository: target.repository,
@@ -234,6 +288,7 @@ function answerCommands(
   return [
     AnswerInboxItem({
       ...target,
+      ...parts,
       answer: selectionText(selected, item, text),
       notice:
         workstream === 0
@@ -264,29 +319,25 @@ function settleAttempt(model: Model, queue: Waiting[]) {
   };
 }
 
-// The request of the item ends. Only the panel of that item changes: a success closes it, and a failure opens it again
-// with the error. The panel of another item that the Owner opened in the meantime stays as it is.
-function finishRequest(model: Model, id: number, error: string): Model {
+// The request of the item ends. Only the panel of that item changes: a success closes it, and a failure opens it again.
+// The panel of another item that the Owner opened in the meantime stays as it is.
+function finishRequest(model: Model, id: number): Model {
   const ownActive = model.activePanel?.item.id === id;
   const ownClosed = model.closedPanel?.item.id === id;
-  if (!error) {
-    return {
-      ...model,
-      activePanel: ownActive ? null : model.activePanel,
-      closedPanel: ownClosed ? null : model.closedPanel,
-      todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
-      answerError: model.answerErrorId === id ? "" : model.answerError,
-      answerErrorId: model.answerErrorId === id ? 0 : model.answerErrorId,
-    };
-  }
-  const reopen = !model.activePanel && ownClosed;
+  return {
+    ...model,
+    activePanel: ownActive ? null : model.activePanel,
+    closedPanel: ownClosed ? null : model.closedPanel,
+    todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
+  };
+}
+
+function failRequest(model: Model, id: number): Model {
+  const reopen = !model.activePanel && model.closedPanel?.item.id === id;
   return {
     ...model,
     activePanel: reopen ? model.closedPanel : model.activePanel,
     closedPanel: reopen ? null : model.closedPanel,
-    answerError: error,
-    answerErrorId: id,
-    answerErrorAwaitsRow: true,
   };
 }
 
@@ -298,23 +349,72 @@ function without(model: Model, id: number) {
   return requestingOf(model).filter((other) => other !== id);
 }
 
-// A panel that opens again reads the draft of its own item: the Subscription of the answer draft starts again. The note
-// of another panel that the Owner used in the meantime is not its note.
-function reopened(before: Model, after: Model) {
-  if (before.activePanel !== null || after.activePanel === null) {
-    return { model: after, commands: noCommands };
+// A request of the item failed. The field of the open panel of the item shows the error. A panel that opens again gets
+// a new field, which reads the draft of its own item: the note of another panel that the Owner used in the meantime
+// is not its note.
+function showError(before: Model, after: Model, id: number, error: string, awaitsRow: boolean) {
+  const panel = after.activePanel;
+  if (panel?.type !== "answer" || panel.item.id !== id) {
+    return after;
+  }
+  const opensAgain = before.activePanel === null;
+  return {
+    ...after,
+    answerComposer: opensAgain
+      ? newAnswerComposer(after, panel.item, error)
+      : withSendError(after.answerComposer, error),
+    selectedOptions: opensAgain ? {} : after.selectedOptions,
+    answerErrorAwaitsRow: awaitsRow,
+  };
+}
+
+// The request of the item ended with the result of the server.
+function endRequest(model: Model, id: number, error: string) {
+  const ended = {
+    ...(error ? failRequest(model, id) : finishRequest(model, id)),
+    requesting: without(model, id),
+  };
+  return error ? showError(model, ended, id, error, true) : ended;
+}
+
+// The Send button and Enter of the field. The panel sends the draft of the field with the request of its item.
+const submitAnswer: Update.Step<Model, Message> = (model) => {
+  const panel = model.activePanel;
+  const composer = model.answerComposer;
+  if (
+    !panel ||
+    panel.type !== "answer" ||
+    !composer ||
+    requestingOf(model).includes(panel.item.id)
+  ) {
+    return { model };
+  }
+  const empty = Composer.isEmptyDraft(composer) && !hasSelection(model) && !hasNote(panel.item);
+  if (empty || panel.item.action) {
+    return { model };
   }
   return {
     model: {
-      ...after,
-      answerText: "",
-      answerVoice: null,
-      answerLoaded: false,
-      selectedOptions: {},
+      ...model,
+      requesting: [...requestingOf(model), panel.item.id],
+      answerComposer: withSendError(composer, ""),
     },
-    commands: noCommands,
+    commands: answerCommands(model, panel.item, composer, model.selectedOptions),
   };
-}
+};
+
+const foldAnswerComposer = Update.foldChild({
+  update: Composer.update,
+  read: (model: Model) => Option.fromNullishOr(model.answerComposer),
+  write: (model, answerComposer) => ({ ...model, answerComposer }),
+  toParentMessage: toGotAnswerComposerMessage,
+  foldOutMessage: (outMessage) =>
+    ComposerOutMessage.match<Update.Step<Model, Message>>(outMessage, {
+      StopClicked: () => (model) => ({ model }),
+      MessageEnqueued: () => (model) => ({ model }),
+      DraftSubmitted: () => submitAnswer,
+    }),
+});
 
 function newestMessage(model: Model) {
   const messages = model.messages;
@@ -341,8 +441,16 @@ function seesChat(model: Model) {
 
 type StepReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
+// The field of the answer panel goes away with the panel.
+function closeAnswerComposer(result: StepReturn): StepReturn {
+  const { model } = result;
+  return model.activePanel?.type !== "answer" && model.answerComposer !== null
+    ? { ...result, model: { ...model, answerComposer: null } }
+    : result;
+}
+
 export function update(model: Model, message: Message): StepReturn {
-  const result = step(model, message);
+  const result = closeAnswerComposer(step(model, message));
   const next = result.model;
   const seen = lastAgentMessage(next);
   if (!seesChat(next) || seen === undefined || seen <= next.seenMessage) {
@@ -410,11 +518,11 @@ function step(model: Model, message: Message): StepReturn {
       // Only the panel of a tray row goes away with the row. The Details panel of a card stays.
       // A panel that shows the error of its request stays until a read shows its row again: the Port can come before
       // the row is back. After that read, a list without the row closes the panel.
-      const awaitsRow =
-        panel !== null &&
+      const showsError =
         model.answerErrorAwaitsRow &&
-        model.answerErrorId === panel.item.id &&
-        model.answerError !== "";
+        model.answerComposer !== null &&
+        model.answerComposer.sendError !== "";
+      const awaitsRow = panel !== null && showsError;
       const gone =
         panel !== null &&
         panel.item.id !== 0 &&
@@ -433,11 +541,7 @@ function step(model: Model, message: Message): StepReturn {
         Object.fromEntries(Object.entries(record).filter(([id]) => kept(Number(id))));
       const pendingTodo = (panel ?? model.closedPanel)?.item;
       const keepsTodoList =
-        pendingTodo?.todo != null &&
-        (model.requesting.includes(pendingTodo.id) ||
-          (model.answerErrorAwaitsRow &&
-            model.answerErrorId === pendingTodo.id &&
-            model.answerError !== ""));
+        pendingTodo?.todo != null && (model.requesting.includes(pendingTodo.id) || showsError);
       return {
         model: {
           ...model,
@@ -445,7 +549,9 @@ function step(model: Model, message: Message): StepReturn {
           trayMerging: keepKnown(model.trayMerging),
           trayRefusals: keepKnown(model.trayRefusals),
           answerErrorAwaitsRow:
-            model.answerErrorAwaitsRow && !rows.some((row) => row.id === model.answerErrorId),
+            model.answerErrorAwaitsRow &&
+            panel !== null &&
+            !rows.some((row) => row.id === panel.item.id),
           activePanel: gone ? null : model.activePanel,
           closedPanel: gone ? panel : model.closedPanel,
           todoList: keepsTodoList || todoRowOf(items, model.todoList) ? model.todoList : null,
@@ -802,15 +908,11 @@ function step(model: Model, message: Message): StepReturn {
       ],
     }),
 
-    CompletedStopVoice: () => ({ model }),
-
     CompletedSaveDraft: () => ({ model }),
 
     GotSelectionMessage: ({ message: selectionMsg }) => foldSelection(model, selectionMsg),
 
     GotWorkstreamSetupMessage: ({ message: setupMsg }) => foldWorkstreamSetup(model, setupMsg),
-
-    CompletedAddSelection: () => ({ model }),
 
     StopReadyChanged: ({ ready }) => ({ model: { ...model, stopReady: ready } }),
 
@@ -845,8 +947,8 @@ function step(model: Model, message: Message): StepReturn {
 
     CompletedSaveTrayState: () => ({ model }),
 
-    // The Subscription of the answer draft reads the draft of the panel when the panel opens. A panel that is open
-    // already has its draft.
+    // The new field of the panel reads the draft of the item when the panel opens. A panel that is open already has
+    // its field.
     OpenAnswerPanel: ({ item: inboxItem, workstreamTitle }) => {
       const sameAnswerPanel =
         model.activePanel?.type === "answer" && model.activePanel.item.id === inboxItem.id;
@@ -862,11 +964,11 @@ function step(model: Model, message: Message): StepReturn {
             item: inboxItem,
             workstreamTitle,
           },
-          ...(sameAnswerPanel
-            ? {}
-            : { answerText: "", answerVoice: null, answerLoaded: false, selectedOptions: {} }),
-          answerError: model.answerErrorId === inboxItem.id ? "" : model.answerError,
-          answerErrorId: model.answerErrorId === inboxItem.id ? 0 : model.answerErrorId,
+          selectedOptions: sameAnswerPanel ? model.selectedOptions : {},
+          answerComposer: sameAnswerPanel
+            ? withSendError(model.answerComposer, "")
+            : newAnswerComposer(model, inboxItem),
+          answerErrorAwaitsRow: false,
           showRemovedText: false,
           briefActionBrief: "",
         },
@@ -899,8 +1001,7 @@ function step(model: Model, message: Message): StepReturn {
     ClosePanel: () => ({
       model: {
         ...model,
-        answerError: model.answerErrorId === model.activePanel?.item.id ? "" : model.answerError,
-        answerErrorId: model.answerErrorId === model.activePanel?.item.id ? 0 : model.answerErrorId,
+        answerErrorAwaitsRow: false,
         activePanel: null,
         todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
         showRemovedText: false,
@@ -968,8 +1069,7 @@ function step(model: Model, message: Message): StepReturn {
           ...model,
           trayRunning: { ...model.trayRunning, [item.id]: running },
           trayRefusals: withoutKey(model.trayRefusals, item.id),
-          answerError: inPanel ? "" : model.answerError,
-          answerErrorId: inPanel ? 0 : model.answerErrorId,
+          answerComposer: inPanel ? withSendError(model.answerComposer, "") : model.answerComposer,
         },
         commands: [RunTrayAction({ item, kind })],
       };
@@ -991,17 +1091,14 @@ function step(model: Model, message: Message): StepReturn {
       const ownClosed = model.closedPanel?.item.id === id;
       if (kind === "dismiss" && (ownActive || ownClosed)) {
         if (error) {
-          const reopen = !model.activePanel && ownClosed;
           return {
-            model: {
-              ...model,
-              trayRunning: withoutKey(running, id),
-              activePanel: reopen ? model.closedPanel : model.activePanel,
-              closedPanel: reopen ? null : model.closedPanel,
-              answerError: error,
-              answerErrorId: id,
-              answerErrorAwaitsRow: false,
-            },
+            model: showError(
+              model,
+              { ...failRequest(model, id), trayRunning: withoutKey(running, id) },
+              id,
+              error,
+              false,
+            ),
           };
         }
         return {
@@ -1011,8 +1108,6 @@ function step(model: Model, message: Message): StepReturn {
             activePanel: ownActive ? null : model.activePanel,
             closedPanel: ownClosed ? null : model.closedPanel,
             todoList: todoRowOf(model.trayItems, model.todoList) ? model.todoList : null,
-            answerError: model.answerErrorId === id ? "" : model.answerError,
-            answerErrorId: model.answerErrorId === id ? 0 : model.answerErrorId,
             showRemovedText: ownActive ? false : model.showRemovedText,
             briefActionBrief: ownActive ? "" : model.briefActionBrief,
           },
@@ -1048,102 +1143,46 @@ function step(model: Model, message: Message): StepReturn {
       };
     },
 
-    AnswerTextChanged: ({ text }) => ({
-      model: { ...model, answerText: text },
-      commands: model.activePanel
-        ? [SaveDraftText({ key: answerDraftKey(model.activePanel.item.id), text })]
-        : [],
-    }),
+    GotAnswerComposerMessage: ({ message: composerMsg }) => foldAnswerComposer(model, composerMsg),
 
-    ReceivedAnswerDraft: ({ id, draft }) =>
-      model.activePanel?.type === "answer" && model.activePanel.item.id === id
-        ? {
-            model: {
-              ...model,
-              answerLoaded: true,
-              answerText: draft.text,
-              answerVoice: draft.voice,
-            },
-          }
-        : { model },
-
-    // The Send button and Enter stop a voice run and send nothing.
-    AnswerSubmitted: () => {
-      const panel = model.activePanel;
-      if (!panel || panel.type !== "answer" || requestingOf(model).includes(panel.item.id)) {
-        return { model };
-      }
-      if (model.voice.recording) {
-        return { model, commands: [StopVoice()] };
-      }
-      const empty = !model.answerText.trim() && !hasSelection(model) && !hasNote(panel.item);
-      if (empty || panel.item.action || Composer.voiceBusy(model.answerVoice)) {
-        return { model };
-      }
-      return {
-        model: {
-          ...model,
-          requesting: [...requestingOf(model), panel.item.id],
-          answerError: "",
-          answerErrorId: 0,
-        },
-        commands: answerCommands(model, panel.item, model.answerText, model.selectedOptions),
-      };
-    },
-
-    AnswerCompleted: ({ id, error }) => {
-      return reopened(model, {
-        ...finishRequest(model, id, error),
-        requesting: without(model, id),
-      });
-    },
+    AnswerCompleted: ({ id, error }) => ({ model: endRequest(model, id, error) }),
 
     ActionDecided: ({ decision }) => {
       const panel = model.activePanel;
+      const composer = model.answerComposer;
       if (
         !panel ||
+        !composer ||
         requestingOf(model).includes(panel.item.id) ||
-        Composer.voiceBusy(model.answerVoice)
+        Composer.voiceBusy(composer.draftVoice)
       ) {
         return { model };
       }
-      const text = model.answerText;
       const item = panel.item;
-      const actionId = item.action ? item.action.id : item.id;
-      const inboxItemId = item.action ? item.id : 0;
-      const title = item.title || item.reason;
-      const cmd =
-        decision === "approve"
-          ? ApproveAction({
-              actionId,
-              inboxItemId,
-              repository: item.repository || model.repository,
-              issue: item.issue,
-              title,
-              text,
-            })
-          : RejectAction({
-              actionId,
-              inboxItemId,
-              repository: item.repository || model.repository,
-              issue: item.issue,
-              title,
-              text,
-            });
+      const args = {
+        actionId: item.action ? item.action.id : item.id,
+        inboxItemId: item.action ? item.id : 0,
+        repository: item.repository || model.repository,
+        issue: item.issue,
+        title: item.title || item.reason,
+        text: composer.draftText,
+        ...partsOf(composer),
+      };
       return {
         model: {
           ...model,
           requesting: [...requestingOf(model), panel.item.id],
-          answerError: "",
-          answerErrorId: 0,
+          answerComposer: withSendError(composer, ""),
         },
-        commands: [StopVoice(), cmd],
+        commands: [
+          Command.mapMessage(StopVoice(), toGotAnswerComposerMessage),
+          decision === "approve" ? ApproveAction(args) : RejectAction(args),
+        ],
       };
     },
 
     // The request failed, so the list does not change. The panel of the item opens again with the error and the note.
-    ActionFailed: ({ id, error }) =>
-      reopened(model, { ...finishRequest(model, id, error), requesting: without(model, id) }),
+    ActionFailed: ({ id, error }) => ({ model: endRequest(model, id, error) }),
 
     ActionCompleted: ({ id, action }) => {
       const isPending = action.state === "pending";
@@ -1160,44 +1199,20 @@ function step(model: Model, message: Message): StepReturn {
         panel && panel.item.id === id && err
           ? { ...panel, item: { ...panel.item, action: { ...panel.item.action, ...action } } }
           : panel;
-      return reopened(model, {
-        ...finishRequest(
+      return {
+        model: endRequest(
           {
             ...model,
             activePanel: withAction(model.activePanel),
             closedPanel: withAction(model.closedPanel),
+            messages: updatedMessages,
+            trayItems: updatedTrayItems,
           },
           id,
           err,
         ),
-        messages: updatedMessages,
-        trayItems: updatedTrayItems,
-        requesting: without(model, id),
-      });
+      };
     },
-
-    VoiceButtonClicked: () => {
-      const field = answerField(model);
-      return field === null
-        ? { model }
-        : { model, commands: [ToggleVoice({ key: field.key, fieldId: field.fieldId })] };
-    },
-
-    VoiceResendClicked: () => {
-      const field = answerField(model);
-      return field === null
-        ? { model }
-        : { model, commands: [ResendVoice({ key: field.key, fieldId: field.fieldId })] };
-    },
-
-    VoiceRemoveClicked: () => {
-      const field = answerField(model);
-      return field === null ? { model } : { model, commands: [RemoveVoice({ key: field.key })] };
-    },
-
-    VoiceChanged: ({ voice }) => ({ model: { ...model, voice } }),
-
-    VoiceTicked: ({ now }) => ({ model: { ...model, now } }),
 
     OpenTodoList: ({ repository, pullRequest }) => {
       const target = { repository, pullRequest };
@@ -1222,12 +1237,7 @@ function step(model: Model, message: Message): StepReturn {
     }),
 
     CompletedFocusPanel: () => ({ model }),
-    CompletedShowFile: () => ({ model }),
     CompletedNavigate: () => ({ model }),
-    CompletedToggleVoice: () => ({ model }),
-    CompletedResendVoice: () => ({ model }),
-    CompletedRemoveVoice: () => ({ model }),
-    CompletedScrollLive: () => ({ model }),
     CompletedOpenChat: () => ({ model }),
     ClickedTaskCard: ({ repository, number }) => ({
       model,

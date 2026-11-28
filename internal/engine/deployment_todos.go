@@ -200,8 +200,9 @@ func (e *Engine) clearBlockReason(ctx context.Context, task store.Task) error {
 // gives the changed item. Before it dismisses the item, it runs closeTodoStep and sends the open ready for review Inbox
 // items of the task to the listeners again. Thus the Owner can mark the todo as done
 // again after an error. For an open owner action item it runs doneOwnerAction: the next step of the action starts.
-// It returns a refusal when the item is not an open todo or an open owner action item.
-func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (store.InboxItem, Record, error) {
+// It returns a refusal when the item is not an open todo or an open owner action item. A note with an image, an Inbox
+// item or a selection goes to the chat of the item as a message of the Owner that the agent gets (addInboxOwnerNote).
+func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string, attachments Attachments) (store.InboxItem, Record, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return store.InboxItem{}, Record{}, ErrNoInboxItem
@@ -213,7 +214,7 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 		return store.InboxItem{}, Record{}, refuse("This item is not an open todo or an open action of the Owner.")
 	}
 	if item.Kind == ownerActionKind {
-		return e.doneOwnerAction(ctx, item, note)
+		return e.doneOwnerAction(ctx, item, note, attachments)
 	}
 	todo, err := e.queries.GetDeploymentTodoOfItem(ctx, id)
 	if err != nil {
@@ -236,7 +237,7 @@ func (e *Engine) DoneInboxItem(ctx context.Context, id int64, note string) (stor
 		return store.InboxItem{}, Record{}, err
 	}
 	e.addTodosClosedEvent(ctx, item)
-	e.addInboxOwnerMessage(ctx, item, note)
+	e.addInboxOwnerNote(ctx, item, note, attachments)
 	done, err := e.queries.GetInboxItem(ctx, id)
 	if err != nil {
 		return store.InboxItem{}, Record{}, err

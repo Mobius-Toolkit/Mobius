@@ -14,7 +14,7 @@ import { resend, stopVoice, toggleVoice } from "@/lib/voice";
 import { Message } from "./message";
 import { DraftInboxItems, DraftSelections, Images, Queued } from "@/chat/schemas";
 
-const clearDraft = (key: string) =>
+export const clearDraft = (key: string) =>
   store(() =>
     updateDraft(key, (draft) => ({
       ...draft,
@@ -26,9 +26,31 @@ const clearDraft = (key: string) =>
     })),
   ).pipe(Effect.ignore);
 
-const readyVoice: DraftVoice = { state: "ready", audio: null, conversion: "", error: "" };
+const readyVoice = (seconds: number, text: string): DraftVoice => ({
+  state: "ready",
+  audio: null,
+  conversion: "",
+  error: "",
+  seconds,
+  text,
+});
 
-const restoreDraft = (
+export const sentInboxItems = (items: readonly DraftInboxItem[]) =>
+  items.map(({ reference, title, reason, link }) => ({ reference, title, reason, link }));
+
+export const sentSelections = (selections: readonly DraftSelection[]) =>
+  selections.map((selection) => ({
+    source: selection.source,
+    text: selection.text,
+    context: selection.context,
+    reference: selection.reference,
+    link: selection.link,
+    part: selection.part,
+    messageId: selection.messageId,
+    messageAuthor: selection.messageAuthor,
+  }));
+
+export const restoreDraft = (
   key: string,
   sent: {
     text: string;
@@ -36,6 +58,7 @@ const restoreDraft = (
     inboxItems: DraftInboxItem[];
     selections: DraftSelection[];
     voice: boolean;
+    voiceSeconds: number;
   },
 ) =>
   store(() =>
@@ -53,7 +76,7 @@ const restoreDraft = (
           (selection) => !sent.selections.some(({ id }) => id === selection.id),
         ),
       ],
-      voice: draft.voice ?? (sent.voice ? readyVoice : null),
+      voice: draft.voice ?? (sent.voice ? readyVoice(sent.voiceSeconds, sent.text) : null),
     })),
   ).pipe(Effect.ignore);
 
@@ -171,6 +194,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     inboxItems: DraftInboxItems,
     selections: DraftSelections,
     voice: Schema.Boolean,
+    voiceSeconds: Schema.Number,
   },
   messages: [Message.MessageQueued, Message.MessageRefused],
   execute: ({
@@ -183,6 +207,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
     inboxItems,
     selections,
     voice,
+    voiceSeconds,
   }) =>
     Effect.gen(function* () {
       const item: Queued = {
@@ -192,23 +217,10 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
         workstream,
         text,
         images,
-        inboxItems: inboxItems.map(({ reference, title, reason, link }) => ({
-          reference,
-          title,
-          reason,
-          link,
-        })),
-        selections: selections.map((selection) => ({
-          source: selection.source,
-          text: selection.text,
-          context: selection.context,
-          reference: selection.reference,
-          link: selection.link,
-          part: selection.part,
-          messageId: selection.messageId,
-          messageAuthor: selection.messageAuthor,
-        })),
+        inboxItems: sentInboxItems(inboxItems),
+        selections: sentSelections(selections),
         voice,
+        voiceSeconds,
         time: new Date().toISOString(),
       };
       yield* clearDraft(key);
@@ -216,7 +228,7 @@ export const EnqueueMessage = Command.define("EnqueueMessage", {
       return Message.MessageQueued({ item });
     }).pipe(
       Effect.catchTag("StoreFailed", (error) =>
-        restoreDraft(key, { text, images, inboxItems, selections, voice }).pipe(
+        restoreDraft(key, { text, images, inboxItems, selections, voice, voiceSeconds }).pipe(
           Effect.as(Message.MessageRefused({ error: error.message })),
         ),
       ),

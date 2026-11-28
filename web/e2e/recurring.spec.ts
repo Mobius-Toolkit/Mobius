@@ -323,6 +323,7 @@ test("Chat attaches the recurring task to the draft of the Lead chat once, and t
         repository: "plants/garden",
         stoppedAt: null,
         voice: false,
+        voiceSeconds: 0,
         text,
         time: "2026-10-15T12:00:00Z",
         workstream: 50,

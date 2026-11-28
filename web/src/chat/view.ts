@@ -20,7 +20,6 @@ import {
   circleXIcon,
   clockIcon,
   messageSquareIcon,
-  micIcon,
   spinnerIcon,
   trash2Icon,
   triangleAlertIcon,
@@ -29,9 +28,11 @@ import { defineDialogMount, renderDialog } from "@/ui/dialog";
 import { defineRouterLink } from "@/ui/link";
 import { beginMarkdownRender, renderMarkdown, shieldEquals } from "@/ui/markdown";
 import * as Composer from "@/composer";
-import { fromComposerMount, renderPanelComposer } from "./composer";
+import { renderPanelComposer } from "./composer";
 import { ChatList } from "./scroll";
-import { renderSelectionCard, renderSelectionPopover, Watch } from "@/ui/selection";
+import { inboxItemFields, renderAttachmentCard } from "@/ui/attachment";
+import { renderSelectionPopover, selectionCardFields, Watch } from "@/ui/selection";
+import { voiceCardFields } from "@/ui/voice";
 import {
   Message,
   toGotComposerMessage,
@@ -41,12 +42,15 @@ import {
 import * as WorkstreamSetup from "@/workstreamSetup/view";
 import {
   authorLabel,
+  cardOwner,
   countsAsUnread,
+  dialogOwner,
   draftInboxItem,
   type Failure,
   isMissingWorkstream,
   itemReference,
   type Model,
+  quoteLabel,
   taskOfLink,
   type TaskRef,
   todoRowOf,
@@ -117,42 +121,19 @@ function renderDaySeparator(h: H, key: string, label: string): Html {
   );
 }
 
-function renderInboxItemCard(
+function renderSentInboxItem(
   h: H,
   item: { reference?: string; title: string; reason?: string; link?: string },
   tasks: readonly TaskRef[],
 ): Html {
-  const lines = [
-    item.reference
-      ? h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reference])
-      : h.empty,
-    h.span([h.Class("truncate font-medium")], [item.title]),
-    h.span([h.Class("truncate text-xs text-muted-foreground")], [item.reason ?? ""]),
-  ];
-  const cardClass = "grid min-w-0 gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm";
-  if (!item.link) {
-    return h.div([h.Class(cardClass)], lines);
-  }
-  const task = taskOfLink(item.link, tasks);
-  if (task) {
-    return h.button(
-      [
-        h.Type("button"),
-        h.Class(`${cardClass} text-left hover:bg-accent`),
-        h.OnClick(Message.ClickedTaskCard({ repository: task.repository, number: task.number })),
-      ],
-      lines,
-    );
-  }
-  return h.a(
-    [
-      h.Attribute("href", item.link),
-      h.Attribute("target", "_blank"),
-      h.Attribute("rel", "noreferrer"),
-      h.Class(`${cardClass} hover:bg-accent`),
-    ],
-    lines,
-  );
+  const task = item.link ? taskOfLink(item.link, tasks) : undefined;
+  return renderAttachmentCard(h, {
+    kind: "inbox-item",
+    ...inboxItemFields(h, item),
+    ...(task
+      ? { onClick: Message.ClickedTaskCard({ repository: task.repository, number: task.number }) }
+      : { href: item.link }),
+  });
 }
 
 const RouterLink = defineRouterLink(Message.NavigateTo);
@@ -190,6 +171,17 @@ function renderActionSender(h: H, action: PendingAction): Html {
   );
 }
 
+const watchOf = (h: H, owner: string) =>
+  h.OnMount(Mount.mapMessage(Watch({ owner }), toGotSelectionMessage));
+
+// The text of a part of the dialog. Its selection is a quote of that part.
+function renderQuotable(h: H, part: string, content: Html): Html {
+  return h.div(
+    [h.Key(`quote-${part}`), h.Class("min-w-0"), watchOf(h, dialogOwner(part))],
+    [content],
+  );
+}
+
 function renderActionCard(
   h: H,
   message: ChatMessage,
@@ -211,7 +203,10 @@ function renderActionCard(
     ],
     [
       h.div([h.Class("text-xs")], [renderActionSender(h, action)]),
-      h.p([h.Class("line-clamp-2 wrap-anywhere")], [message.text]),
+      h.p(
+        [h.Class("line-clamp-2 wrap-anywhere"), watchOf(h, cardOwner("action", message.id))],
+        [message.text],
+      ),
       h.div(
         [h.Class("flex items-center gap-2")],
         [
@@ -316,7 +311,7 @@ function renderQuestionCard(
         [h.Class("text-xs text-muted-foreground")],
         [question.repository === "" ? "Coordinator" : "Lead", " · ", clock(message.time)],
       ),
-      h.p([h.Class("truncate")], [message.text]),
+      h.p([h.Class("truncate"), watchOf(h, cardOwner("question", message.id))], [message.text]),
       h.div(
         [h.Class("flex items-center gap-2")],
         [
@@ -398,19 +393,6 @@ function renderEventBody(h: H, id: number, summary: string, body: string, open: 
   );
 }
 
-function renderVoiceCard(h: H): Html {
-  return h.div(
-    [
-      h.Role("img"),
-      h.AriaLabel("Voice"),
-      h.Class(
-        "flex size-24 items-center justify-center rounded-lg border bg-muted text-muted-foreground",
-      ),
-    ],
-    [micIcon(h, "size-8")],
-  );
-}
-
 type TimeOfMessage = (id: number) => string | undefined;
 
 function renderMessage(
@@ -475,9 +457,12 @@ function renderMessage(
           isOwner ? renderOwnerStatus(h, message) : h.empty,
         ],
       ),
-      ...(message.inboxItems || []).map((item) => renderInboxItemCard(h, item, tasks)),
+      ...(message.inboxItems || []).map((item) => renderSentInboxItem(h, item, tasks)),
       ...message.selections.map((selection) =>
-        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+        renderAttachmentCard(h, {
+          kind: "selection",
+          ...selectionCardFields(h, selection, timeOf(selection.messageId)),
+        }),
       ),
       isEvent && body
         ? renderEventBody(h, message.id, summary, body, open)
@@ -496,7 +481,14 @@ function renderMessage(
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
             [
-              ...(message.voice ? [renderVoiceCard(h)] : []),
+              ...(message.voice
+                ? [
+                    renderAttachmentCard(h, {
+                      kind: "voice",
+                      ...voiceCardFields(h, { seconds: message.voiceSeconds, text: message.text }),
+                    }),
+                  ]
+                : []),
               ...Array.from({ length: message.images }, (_, position) =>
                 h.img([
                   h.Attribute("src", getGetChatImageUrl(message.id, position)),
@@ -549,16 +541,26 @@ function renderQueuedMessage(
               ),
         ],
       ),
-      ...(item.inboxItems || []).map((inboxItem) => renderInboxItemCard(h, inboxItem, tasks)),
+      ...(item.inboxItems || []).map((inboxItem) => renderSentInboxItem(h, inboxItem, tasks)),
       ...item.selections.map((selection) =>
-        renderSelectionCard(h, selection, { time: timeOf(selection.messageId) }),
+        renderAttachmentCard(h, {
+          kind: "selection",
+          ...selectionCardFields(h, selection, timeOf(selection.messageId)),
+        }),
       ),
       item.text ? renderMarkdown(h, item.text) : h.empty,
       item.voice || item.images.length > 0
         ? h.div(
             [h.Class("flex flex-wrap gap-2")],
             [
-              ...(item.voice ? [renderVoiceCard(h)] : []),
+              ...(item.voice
+                ? [
+                    renderAttachmentCard(h, {
+                      kind: "voice",
+                      ...voiceCardFields(h, { seconds: item.voiceSeconds, text: item.text }),
+                    }),
+                  ]
+                : []),
               ...item.images.map((_, position) =>
                 Composer.renderFileImage(
                   h,
@@ -568,7 +570,7 @@ function renderQueuedMessage(
                     h.Alt(`Picture ${position + 1} of an unsent message`),
                     h.Class("max-h-48 max-w-full rounded-lg border object-contain"),
                   ],
-                  fromComposerMount,
+                  toGotComposerMessage,
                 ),
               ),
             ],
@@ -1218,7 +1220,7 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
       [h.Class("grid min-w-0 gap-0.5")],
       [
         h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-        renderMarkdown(h, marked, true),
+        renderQuotable(h, arg.name, renderMarkdown(h, marked, true)),
         renderRemovedSwitch(h, model.showRemovedText),
       ],
     );
@@ -1228,7 +1230,11 @@ function renderFullArgument(h: H, arg: ActionArgument, model: Model, action?: Pe
     [h.Class("grid min-w-0 gap-0.5")],
     [
       h.span([h.Class("text-xs text-muted-foreground")], [arg.name]),
-      isShort ? h.span([h.Class("wrap-anywhere")], [arg.value]) : renderMarkdown(h, arg.value),
+      renderQuotable(
+        h,
+        arg.name,
+        isShort ? h.span([h.Class("wrap-anywhere")], [arg.value]) : renderMarkdown(h, arg.value),
+      ),
     ],
   );
 }
@@ -1242,7 +1248,11 @@ function renderOutcome(h: H, label: string, text: string): Html {
     [h.Class("grid min-w-0 gap-0.5")],
     [
       h.span([h.Class("text-xs text-muted-foreground")], [label]),
-      h.span([h.Class("wrap-anywhere whitespace-pre-line")], [text]),
+      renderQuotable(
+        h,
+        label.toLowerCase(),
+        h.span([h.Class("wrap-anywhere whitespace-pre-line")], [text]),
+      ),
     ],
   );
 }
@@ -1411,8 +1421,17 @@ export function renderAnswerDialog(h: H, model: Model): Html {
                 [h.Class("text-muted-foreground")],
                 [`${todo.mandatory ? "Mandatory" : "Optional"} ${todo.kind.replace("_", " ")}`],
               ),
-              h.p([], [`Reason: ${todo.reason}`]),
-              h.p([], [`File: ${todo.path}:${todo.line}`]),
+              renderQuotable(
+                h,
+                "todo",
+                h.div(
+                  [h.Class("grid gap-2")],
+                  [
+                    h.p([], [`Reason: ${todo.reason}`]),
+                    h.p([], [`File: ${todo.path}:${todo.line}`]),
+                  ],
+                ),
+              ),
               renderPullRequestLine(h, item),
               h.p(
                 [],
@@ -1439,7 +1458,7 @@ export function renderAnswerDialog(h: H, model: Model): Html {
                 [h.Class("text-muted-foreground")],
                 [`${workstreamName(model, item)} · ${dayClock(item.time)}`],
               ),
-              renderMarkdown(h, item.text),
+              renderQuotable(h, "question", renderMarkdown(h, item.text)),
               ...item.questions.map((question, index) =>
                 renderOptions(h, model, question, index, input),
               ),
@@ -1467,7 +1486,16 @@ export function renderAnswerDialog(h: H, model: Model): Html {
     close: Message.ClosePanel(),
     back: fromTodoList ? Message.ClosePanel() : undefined,
     body,
-    footer: input ? renderPanelComposer(h, model, item) : h.empty,
+    footer:
+      input && model.answerComposer
+        ? renderPanelComposer(
+            h,
+            model,
+            model.answerComposer,
+            item,
+            (id) => model.messages.find((message) => message.id === id)?.time,
+          )
+        : h.empty,
   });
 }
 
@@ -1656,13 +1684,16 @@ export function view(model: Model, h: H, tasks: readonly TaskRef[]): Html {
           stoppable: model.stoppable,
           stopping: model.stopping,
           stopReady: model.stopReady,
+          locked: false,
+          autoFocus: true,
           selectionTime: timeOf,
+          actions: null,
         },
         toParentMessage: toGotComposerMessage,
       }),
       renderTodoListDialog(h, model),
       renderAnswerDialog(h, model),
-      renderSelectionPopover(h, model.selection, toGotSelectionMessage),
+      renderSelectionPopover(h, model.selection, toGotSelectionMessage, quoteLabel(model)),
     ],
   );
 }

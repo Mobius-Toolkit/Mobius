@@ -37,7 +37,7 @@ describe("the read of the Inbox", () => {
   });
 
   it("gives the items that the server answers", async () => {
-    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: [{ id: 4 }] })));
+    vi.stubGlobal("fetch", async () => Response.json({ data: [{ id: 4 }] }));
 
     await Effect.runPromise(loadInbox());
 
@@ -45,7 +45,7 @@ describe("the read of the Inbox", () => {
   });
 
   it("keeps the items when the request fails", async () => {
-    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: [{ id: 4 }] })));
+    vi.stubGlobal("fetch", async () => Response.json({ data: [{ id: 4 }] }));
     await Effect.runPromise(loadInbox());
     const before = currentInbox();
     vi.stubGlobal("fetch", () => Promise.reject(new TypeError("offline")));
@@ -57,10 +57,7 @@ describe("the read of the Inbox", () => {
 
   it("keeps the items when the server answers with an error", async () => {
     const before = currentInbox();
-    vi.stubGlobal(
-      "fetch",
-      async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }),
-    );
+    vi.stubGlobal("fetch", async () => Response.json({ error: "boom" }, { status: 500 }));
 
     await Effect.runPromise(loadInbox());
 

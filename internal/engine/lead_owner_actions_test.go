@@ -62,7 +62,7 @@ func TestTheLeadMarksAnActionOfTheOwnerOnATaskInChecksAndTheDoneStartsAFixRoundW
 		t.Errorf("Implementers = %+v", sessions)
 	}
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+	status, body := doneTodo(t, server, item.ID, "Logged in.")
 
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
@@ -107,7 +107,7 @@ func TestTheLeadMarksAnActionOnADispatchedTaskAndTheDoneGivesTheLeadADispatchEve
 		t.Errorf("active tasks = %d, %v", count, err)
 	}
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+	status, body := doneTodo(t, server, item.ID, "Logged in.")
 
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
@@ -160,7 +160,7 @@ func TestTheLeadClearsItsActionOnATaskInApprovalAndAReviewerReviewsTheHeadAgain(
 	testkit.WaitFor(t, func() bool {
 		return slices.Contains(records(t, server, leadChat), "The Lead cleared the action \""+loginAction+"\" of PR #42.")
 	})
-	if status, body := doneTodo(t, server, item.ID, `{"note":""}`); status != http.StatusConflict {
+	if status, body := doneTodo(t, server, item.ID, ""); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
@@ -191,7 +191,7 @@ func TestTheLeadClearsAnActionOfTheReviewerAndANewReviewerReviewsTheCurrentHead(
 	testkit.WaitFor(t, func() bool {
 		return slices.Contains(records(t, server, leadChat), "The Lead cleared the action \""+loginAction+"\" of PR #42.")
 	})
-	if status, body := doneTodo(t, server, item.ID, `{"note":""}`); status != http.StatusConflict {
+	if status, body := doneTodo(t, server, item.ID, ""); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
@@ -266,17 +266,18 @@ func TestMarkOwnerActionOnAStoppedTaskInNeedsHumanDismissesTheStoppedItemAndRemo
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	waitForItem(t, server, "stopped")
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") })
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") && slices.Contains(fake.Labels(shop, 42), "mobius:needs-human")
+	})
 
 	sendChat(t, server, leadChat, "Mark fix round on #41")
 
 	waitForItem(t, server, "owner action")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "owner_action" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "stopped")) == 0 })
-	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") })
-	if labels := fake.Labels(shop, 42); slices.Contains(labels, "mobius:needs-human") {
-		t.Errorf("labels of the pull request = %q", labels)
-	}
+	testkit.WaitFor(t, func() bool {
+		return !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") && !slices.Contains(fake.Labels(shop, 42), "mobius:needs-human")
+	})
 }
 
 const (
@@ -342,7 +343,7 @@ func TestACannotDoInAFixRoundAndAReviewMarkOfTheLeadGiveAReviewOfTheHeadAfterThe
 	}
 	reviewers := len(roleSessions(t, server, engine.ReviewerRole))
 
-	status, body := doneTodo(t, server, item.ID, `{"note":"Logged in."}`)
+	status, body := doneTodo(t, server, item.ID, "Logged in.")
 
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)

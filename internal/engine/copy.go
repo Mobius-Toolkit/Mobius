@@ -108,10 +108,31 @@ func issueKind(labels []string) string {
 	return "task"
 }
 
+// copyRepairEndpoint is the endpoint in the sync_cursors table of the row that tells that an update of the copy of a
+// repository failed. syncCopy removes the row after it copies the trees again, and forgetCopies removes it with the
+// copy.
+const copyRepairEndpoint = "copy_repair"
+
+// breakCopy tells that the copy of repository needs a repair after a failed update. The next poll calls syncCopy, also
+// after a restart.
+func (e *Engine) breakCopy(ctx context.Context, repository string) {
+	delete(e.copied, repository)
+	err := e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository, Endpoint: copyRepairEndpoint})
+	if err != nil {
+		log.Printf("record the failed update of the copy of %s: %v", repository, err)
+	}
+}
+
+func clearCopyRepair(ctx context.Context, q *store.Queries, repository string) error {
+	return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: repository, Endpoint: copyRepairEndpoint})
+}
+
 // syncCopy copies the trees of the open Workstreams of repository. On the first poll of repository, when
 // sync_cursors has no issues row, it also adds a row in workstreams for each open Workstream issue on GitHub.
-// When the database already holds tree issues for repository, it refreshes only their author and GitHub metadata,
-// and keeps the title, body, state, kind, parent, Workstream and blockers of each existing row unchanged.
+// When the database already holds tree issues for repository and breakCopy recorded no failed update, it reads and
+// writes nothing, because the incoming changes keep the copy current. After a failed update, it refreshes only the
+// author and GitHub metadata of the tree issues, and keeps the title, body, state, kind, parent, Workstream and
+// blockers of each existing row unchanged.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
@@ -150,7 +171,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 					return err
 				}
 			}
-			return deleteUnusedIssues(ctx, q)
+			if err := deleteUnusedIssues(ctx, q); err != nil {
+				return err
+			}
+			return clearCopyRepair(ctx, q, repository.FullName)
 		})
 		if err != nil {
 			return err
@@ -161,6 +185,14 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	hasTree, err := e.queries.HasRepositoryTreeIssues(ctx, repository.FullName)
 	if err != nil {
 		return err
+	}
+	_, err = e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: copyRepairEndpoint})
+	broken := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if hasTree && !broken {
+		return nil
 	}
 	numbers, err := e.queries.ListOpenWorkstreamNumbers(ctx, repository.FullName)
 	if err != nil {
@@ -175,7 +207,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 	}
 	if hasTree {
 		err = e.writeRead(ctx, before, trees, func(q *store.Queries) error {
-			return refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees)
+			if err := refreshCopiedTrees(ctx, q, repository.FullName, numbers, trees); err != nil {
+				return err
+			}
+			return clearCopyRepair(ctx, q, repository.FullName)
 		})
 		if err != nil {
 			return err
@@ -192,7 +227,10 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 				return err
 			}
 		}
-		return deleteUnusedIssues(ctx, q)
+		if err := deleteUnusedIssues(ctx, q); err != nil {
+			return err
+		}
+		return clearCopyRepair(ctx, q, repository.FullName)
 	})
 	if err != nil {
 		return err
@@ -258,7 +296,10 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: issuesEndpoint}); err != nil {
 				return err
 			}
-			return q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: readyUpgradeEndpoint})
+			if err := q.DeleteSyncCursor(ctx, store.DeleteSyncCursorParams{Repository: name, Endpoint: readyUpgradeEndpoint}); err != nil {
+				return err
+			}
+			return clearCopyRepair(ctx, q, name)
 		})
 		if err != nil {
 			return err
@@ -1617,12 +1658,18 @@ func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, reposit
 // servers, and publishes the Workstreams change. The creator Lead gets a close event with reason, as
 // closeWorkstreamRow gives it. The tree stays until removeClosedWorkstreamTree.
 func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64, reason string) error {
+	var recurring []int64
 	closed, err := e.closeWorkstreamRow(ctx, repository.FullName, number, reason, func(q *store.Queries) error {
-		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+		var err error
+		recurring, err = deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number)
+		if err != nil {
 			return err
 		}
 		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
 	})
+	if closed {
+		e.removeRecurringDirs(recurring...)
+	}
 	if err != nil || !closed {
 		return err
 	}

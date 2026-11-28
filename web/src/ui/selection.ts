@@ -4,10 +4,14 @@ import * as Command from "foldkit/command";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import type * as Update from "foldkit/update";
-import type { ChatSelection } from "@/api/api.gen";
+import type { ChatSelection as ChatSelectionType } from "@/api/api.gen";
+import { ChatSelection } from "@/chat/schemas";
+import { addDraftSelection } from "@/lib/draft";
+import { store } from "@/lib/effects";
+import { newMessageId } from "@/lib/outbox";
 import { clock } from "@/lib/time";
 import { buttonClass } from "./button";
-import { messageSquareQuoteIcon, xIcon } from "./icons";
+import { messageSquareQuoteIcon } from "./icons";
 
 const blockSelector = "p, li, blockquote, pre, td, h1, h2, h3, h4, h5, h6";
 
@@ -95,6 +99,7 @@ export const Message = defineMessageUnion({
   Cleared: { owner: Schema.String },
   AddClicked: {},
   CompletedClearSelection: {},
+  CompletedAddSelection: {},
 });
 
 export type Message = typeof Message.Type;
@@ -184,6 +189,17 @@ export const ClearSelection = Command.define("ClearSelection", {
   }),
 });
 
+export const AddSelection = Command.define("AddSelection", {
+  args: { key: Schema.String, selection: ChatSelection },
+  messages: [Message.CompletedAddSelection],
+  execute: ({ key, selection }) =>
+    // A draft that the store refused leaves the draft as it was.
+    store(() => addDraftSelection(key, { ...selection, id: newMessageId() })).pipe(
+      Effect.ignore,
+      Effect.as(Message.CompletedAddSelection()),
+    ),
+});
+
 type UpdateReturn = Update.ReturnWithOutMessage<Model, Message, OutMessage>;
 
 export function update(model: Model, message: Message): UpdateReturn {
@@ -206,17 +222,19 @@ export function update(model: Model, message: Message): UpdateReturn {
           }
         : { model },
     CompletedClearSelection: () => ({ model }),
+    CompletedAddSelection: () => ({ model }),
   });
 }
 
 const popoverGap = 8;
 
 // The popover is below the last line of the selection, because iOS and Android show their menu above it. The CSS
-// functions keep it inside the viewport.
+// functions keep it inside the viewport. It is above a dialog, which is z-50. label tells the field that gets the quote.
 export function renderSelectionPopover<Msg>(
   h: HtmlBuilder<Msg>,
   model: Model,
   toParent: (message: Message) => Msg,
+  label: string,
 ): Html {
   if (!model) {
     return h.empty;
@@ -226,7 +244,7 @@ export function renderSelectionPopover<Msg>(
     [
       h.Key("selection-popover"),
       h.DataAttribute("selection-popover", ""),
-      h.Class("fixed z-50 rounded-full border bg-popover p-0.5 shadow-md"),
+      h.Class("fixed z-60 rounded-full border bg-popover p-0.5 shadow-md"),
       h.Style({
         top: `clamp(0.5rem, ${rect.bottom + popoverGap}px, calc(100dvh - 3.25rem))`,
         left: `clamp(0.5rem, calc(${(rect.left + rect.right) / 2}px - 1.25rem), calc(100vw - 3.25rem))`,
@@ -236,8 +254,8 @@ export function renderSelectionPopover<Msg>(
       h.button(
         [
           h.Type("button"),
-          h.AriaLabel("Add to chat"),
-          h.Attribute("title", "Add to chat"),
+          h.AriaLabel(label),
+          h.Attribute("title", label),
           h.Class(
             buttonClass({
               variant: "ghost",
@@ -253,56 +271,32 @@ export function renderSelectionPopover<Msg>(
   );
 }
 
-function sourceLine(selection: ChatSelection, time: string | undefined) {
+export function sourceLine(selection: ChatSelectionType, time: string | undefined) {
   if (selection.source === "message") {
     return `${selection.messageAuthor} message${time ? ` · ${clock(time)}` : ""}`;
   }
   const part = selection.part ? ` · ${selection.part}` : "";
+  if (selection.source === "inbox") {
+    return `Inbox item${selection.reference ? ` ${selection.reference}` : ""}${part}`;
+  }
   return selection.source === "task"
     ? `${selection.reference}${part}`
     : `Brief of ${selection.reference}${part}`;
 }
 
-// time is the time of the quoted message, when the message is in the loaded page. onRemove adds the remove button.
-export function renderSelectionCard<Msg>(
+// time is the time of the quoted message, when the message is in the loaded page.
+export function selectionCardFields<Msg>(
   h: HtmlBuilder<Msg>,
-  selection: ChatSelection,
-  options: { key?: string; time?: string; onRemove?: Msg },
-): Html {
-  const { key, time, onRemove } = options;
-  return h.div(
-    [
-      ...(key ? [h.Key(key)] : []),
-      h.DataAttribute("selection-card", ""),
-      h.Class(
-        `relative grid min-w-0 max-w-full gap-0.5 rounded-lg border bg-card px-2 py-1.5 text-sm ${onRemove ? "w-64 pr-9" : ""}`,
-      ),
-    ],
-    [
-      h.span([h.Class("truncate text-xs text-muted-foreground")], [sourceLine(selection, time)]),
-      h.span(
-        [h.Class("line-clamp-3 border-l-2 pl-2 text-xs whitespace-pre-line wrap-anywhere")],
-        [selection.text],
-      ),
-      onRemove
-        ? h.button(
-            [
-              h.Type("button"),
-              h.AriaLabel("Remove the selection"),
-              h.Attribute("title", "Remove the selection"),
-              h.DataAttribute("keep-focus", ""),
-              h.Class(
-                buttonClass({
-                  variant: "secondary",
-                  size: "icon-sm",
-                  className: "absolute top-0.5 right-0.5 rounded-full max-md:size-8",
-                }),
-              ),
-              h.OnClick(onRemove),
-            ],
-            [xIcon(h)],
-          )
-        : h.empty,
-    ],
-  );
+  selection: ChatSelectionType,
+  time: string | undefined,
+) {
+  return {
+    icon: messageSquareQuoteIcon(h),
+    header: sourceLine(selection, time),
+    body: h.span(
+      [h.Class("line-clamp-3 border-l-2 pl-2 text-xs whitespace-pre-line wrap-anywhere")],
+      [selection.text],
+    ),
+    removeLabel: "Remove the selection",
+  };
 }

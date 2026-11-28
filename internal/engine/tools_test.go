@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -929,6 +930,43 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndRequestsAStart(t *testing.T) {
 	}
 }
 
+func TestMoveIssueOfAnIssueWithAnOpenBlockerOnGitHubStartsNoTaskBeforeThePollCopiesTheBlocker(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+call("move_issue", "{ repository = \"owner/shop\", n = 50, workstream = 12 }"))
+	first := startServer(t, fake, dataDir, "")
+	first.WaitForFirstPoll(t, shop)
+	first.Stop()
+	cfg := testserver.Config(t, dataDir)
+	cfg.PollInterval = time.Hour
+	server := testserver.StartWith(t, cfg, fake.URL)
+	testkit.WaitFor(t, server.Engine.PollEnded)
+	fake.AddIssue(shop, 49, "Add the invoice table")
+	fake.AddIssue(shop, 50, "Add invoices")
+	fake.AddBlockedBy(shop, 50, 49)
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	session := run(t, server, spec, "Move it.")
+
+	if got := reply(t, server, session); got != "Moved #50 to the Workstream #12 Integrate loyalty plans." {
+		t.Errorf("reply = %q", got)
+	}
+	// The next poll is one hour away, so it has not copied the blocker of #50. A wake of the dispatch loop by the move
+	// dispatches the issue at once.
+	for deadline := time.Now().Add(2 * time.Second); countRows(t, server, "SELECT count(*) FROM tasks WHERE issue = 50") == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := countRows(t, server, "SELECT count(*) FROM tasks WHERE repository = 'owner/shop' AND issue = 50"); got != 0 {
+		t.Errorf("tasks of #50 = %d", got)
+	}
+	if !hasStart(t, server, 50) {
+		t.Error("the Start of #50 is gone")
+	}
+}
+
 func TestMoveIssueNamesTheTitleOfTheCopiedWorkstreamInItsResult(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -972,10 +1010,16 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { repository = \"owner/shop\", n = 41 } }\n\n" + leadStarts
-	server, _ := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	server := connectDiagnoserFixing(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", "[[prompts]]\nwhen = \"You are a Diagnoser\"\nreply = [\"Waiting.\"]\nhang = true\n")
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "working" && !slices.Contains(fake.Labels(shop, 41), "mobius:ready")
+	})
+	// The dispatch loop clears the Start of an issue with a live task. A hard break of the CI with no issue holds the
+	// dispatch while its Diagnoser runs, and this Diagnoser does not end.
+	hardMainRun(fake, head(t, fake, "main"))
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ci_break != 0 AND ended_at = ''") == 1
 	})
 	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
@@ -990,6 +1034,8 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	if hasStart(t, server, 41) {
 		t.Errorf("start_requested_by = %q", startByOf(t, server, shop, 41))
 	}
+	passedMainRun(fake)
+	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_breaks WHERE ended_at = ''") == 0 })
 	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "stopped" {
 		t.Errorf("task state = %s", state)

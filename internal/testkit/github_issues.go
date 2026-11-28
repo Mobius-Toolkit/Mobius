@@ -545,6 +545,13 @@ func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
+// SubIssueReads gives the number of the reads of the sub-issues of the issue.
+func (g *FakeGitHub) SubIssueReads(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.subIssueReads[issueKey{repository, number}]
+}
+
 // FailAddSubIssue makes each new sub-issue that Mobius adds below the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -632,6 +639,13 @@ func (g *FakeGitHub) RefuseNextCommentList(repository string, number int64, stat
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.refusedNextCommentLists[issueKey{repository, number}] = status
+}
+
+// RefuseCommentLists makes each read of the comments of the issue give the status. The status 0 makes the reads work.
+func (g *FakeGitHub) RefuseCommentLists(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedCommentLists[issueKey{repository, number}] = status
 }
 
 // RefuseAddComment makes each new comment that Mobius writes on the issue give the status. The status 0 makes the
@@ -848,6 +862,14 @@ func (g *FakeGitHub) AfterNextIssueListRead(repository string, f func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.afterIssueListReads[repository] = f
+}
+
+// AfterNextIssueEventsRead makes the fake run f once, after the next event list read of the issue number. The poll gets
+// the answer after f returns, and the answer has only the events from before f runs.
+func (g *FakeGitHub) AfterNextIssueEventsRead(repository string, number int64, f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterIssueEventsReads[issueKey{repository, number}] = f
 }
 
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
@@ -1362,6 +1384,7 @@ func (g *FakeGitHub) subIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	g.subIssueReads[key]++
 	if g.failedSubIssues[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
@@ -1591,10 +1614,19 @@ func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
 		h.wait()
 	}
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	if key, ok := g.issue(w, r); ok {
-		writeJSON(w, http.StatusOK, page(w, r, g.issues[key].events))
+	key, ok := g.issue(w, r)
+	if !ok {
+		g.mu.Unlock()
+		return
 	}
+	events := page(w, r, g.issues[key].events)
+	after := g.afterIssueEventsReads[key]
+	delete(g.afterIssueEventsReads, key)
+	g.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	writeJSON(w, http.StatusOK, events)
 }
 
 func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
@@ -1602,6 +1634,10 @@ func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	g.singleCommentReads++
 	if key, ok := g.issue(w, r); ok {
+		if status := g.refusedCommentLists[key]; status != 0 {
+			message(w, status, "Internal Server Error")
+			return
+		}
 		if status := g.refusedNextCommentLists[key]; status != 0 {
 			delete(g.refusedNextCommentLists, key)
 			message(w, status, "Not Found")
@@ -1708,7 +1744,7 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		message(w, status, "Resource not accessible by integration")
 		return
 	}
-	if utf8.RuneCountInString(request.Body) > 65535 {
+	if strings.TrimSpace(request.Body) == "" || utf8.RuneCountInString(request.Body) > 65535 {
 		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}

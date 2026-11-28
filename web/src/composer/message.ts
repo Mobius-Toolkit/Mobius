@@ -43,6 +43,7 @@ export type Message = typeof Message.Type;
 export const OutMessage = defineMessageUnion({
   StopClicked: {},
   MessageEnqueued: { item: Queued },
+  DraftSubmitted: {},
 });
 
 export type OutMessage = typeof OutMessage.Type;

@@ -67,7 +67,7 @@ func TestTheFirstPromptOfALeadSessionListsTheOpenTodosOfTheWorkstreamAndNotTheDo
 	server := approvableAdjusting(t, fake, "off", true, threeNeeds, noChange)
 	sendChat(t, server, leadChat, "Approve #41")
 	todos := todoItemsByTitle(t, server, 3)
-	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	if status, body := dismissItem(t, server, todos["plan.currency"].ID); status != http.StatusNoContent {
@@ -134,7 +134,7 @@ func TestTheCloseOfTheLastTodoOfAWorkstreamWithAllTasksClosedAddsOneTodosClosedE
 	fake.CloseIssue(shop, 41)
 	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
 
-	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -155,7 +155,7 @@ func TestTheCloseOfTheLastTodoOfAWorkstreamWithAnOpenSubIssueAddsNoTodosClosedEv
 	server := approvableWith(t, fake, "off", true, twoNeeds)
 	sendChat(t, server, leadChat, "Approve #41")
 	todos := todoItemsByTitle(t, server, 2)
-	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, `{"note":""}`); status != http.StatusOK {
+	if status, body := doneTodo(t, server, todos["PLAN_API_KEY"].ID, ""); status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 

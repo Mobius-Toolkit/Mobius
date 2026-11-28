@@ -9,7 +9,7 @@ import * as Selection from "@/ui/selection";
 import * as SelectionFixture from "@/ui/selection-fixtures";
 import * as AgentsFixture from "./agents/fixtures";
 import { FetchAgents } from "./agents/commands";
-import { AddSelection, RequestLogin, ReportTab } from "./commands";
+import { RequestLogin, ReportTab } from "./commands";
 import { FetchDetails, FetchMcpServers, FetchRoles } from "./details/commands";
 import type { WorkstreamDetails } from "./details/model";
 import * as DetailsFixture from "./details/fixtures";
@@ -288,7 +288,7 @@ describe("the selection in the Brief", () => {
         expect(m.selection).toBeNull();
       }),
       StoryCommand.expectExact(
-        AddSelection({
+        Selection.AddSelection({
           key: "chatDraft:owner/owner/shop/12",
           selection: {
             source: "brief",
@@ -304,7 +304,7 @@ describe("the selection in the Brief", () => {
         Selection.ClearSelection(),
       ),
       StoryCommand.resolve(Selection.ClearSelection, SelectionFixture.clearedSelection),
-      StoryCommand.resolve(AddSelection, Message.AddedSelection()),
+      StoryCommand.resolve(Selection.AddSelection, SelectionFixture.addedSelection),
     );
   });
 

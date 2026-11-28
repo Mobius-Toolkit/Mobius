@@ -1187,7 +1187,7 @@ func addRecurringTasks(ctx context.Context, t *testing.T, server *testserver.Ser
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, nil, false); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil, nil, nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
@@ -1240,7 +1240,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 	if err := server.DB.QueryRow("SELECT COALESCE(MAX(id), 0) FROM chat_messages").Scan(&lastMessage); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SendChat(ctx, coordinator, "", "Draft the Workstream for the hourly backup.", nil, nil, nil, false); err != nil {
+	if err := server.Engine.SendChat(ctx, coordinator, "", "Draft the Workstream for the hourly backup.", nil, nil, nil, false, 0); err != nil {
 		t.Fatal(err)
 	}
 	var action int64
@@ -1251,7 +1251,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 		}
 		return err == nil
 	})
-	if _, err := server.Engine.ApproveAction(ctx, action, ""); err != nil {
+	if _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {

@@ -84,7 +84,24 @@ type ApproveActionRequest struct {
 	Body struct {
 		// Message is the message of the Owner for the agent. It can be empty
 		Message string `gork:"message"`
+		// Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB
+		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
+		// InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order,
+		// and each part is one JSON object
+		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Selections are the text selections of the message. The request has one part selections for each selection, in order,
+		// and each part is one JSON object
+		Selections []ChatSelection `gork:"selections" validate:"dive"`
+		// Voice is true when the message came from a voice recording
+		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
+}
+
+// Validate checks the type of each image.
+func (r *ApproveActionRequest) Validate() error {
+	return validateImages(r.Body.Images)
 }
 
 // ApproveActionResponse is the response of ApproveAction.
@@ -94,9 +111,12 @@ type ApproveActionResponse struct {
 
 // ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the
 // run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in
-// a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+// a chat message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no
+// image. It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not
+// PNG, JPEG, GIF or WebP, and 409 for an action that is not pending.
 func (h *handlers) ApproveAction(ctx context.Context, req ApproveActionRequest) (*ApproveActionResponse, error) {
-	action, err := h.engine.ApproveAction(ctx, req.Path.ID, req.Body.Message)
+	body := req.Body
+	action, err := h.engine.ApproveAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err
@@ -113,7 +133,24 @@ type RejectActionRequest struct {
 	Body struct {
 		// Message is the message of the Owner for the agent. It can be empty
 		Message string `gork:"message"`
+		// Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB
+		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
+		// InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order,
+		// and each part is one JSON object
+		InboxItems []ChatInboxItem `gork:"inboxItems"`
+		// Selections are the text selections of the message. The request has one part selections for each selection, in order,
+		// and each part is one JSON object
+		Selections []ChatSelection `gork:"selections" validate:"dive"`
+		// Voice is true when the message came from a voice recording
+		Voice bool `gork:"voice"`
+		// VoiceSeconds is the length of the voice recording in seconds
+		VoiceSeconds int64 `gork:"voiceSeconds" validate:"min=0"`
 	}
+}
+
+// Validate checks the type of each image.
+func (r *RejectActionRequest) Validate() error {
+	return validateImages(r.Body.Images)
 }
 
 // RejectActionResponse is the response of RejectAction.
@@ -122,9 +159,12 @@ type RejectActionResponse struct {
 }
 
 // RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat
-// message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+// message, with the images, the Inbox items and the selections of the request. For a Triager, the comment has no image.
+// It returns 404 for an unknown action, 400 for a request that has more than 4 images or an image that is not PNG,
+// JPEG, GIF or WebP, and 409 for an action that is not pending.
 func (h *handlers) RejectAction(ctx context.Context, req RejectActionRequest) (*RejectActionResponse, error) {
-	action, err := h.engine.RejectAction(ctx, req.Path.ID, req.Body.Message)
+	body := req.Body
+	action, err := h.engine.RejectAction(ctx, req.Path.ID, unixLines(body.Message), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	found, err := h.decided(ctx, action, err)
 	if err != nil {
 		return nil, err

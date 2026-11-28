@@ -15,8 +15,8 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
-// maxSendChatBody is the size of 4 images of 5 MB, and 1 MB for the text and the multipart headers.
-const maxSendChatBody = 4*5*1024*1024 + 1024*1024
+// maxMessageBody is the size of 4 images of 5 MB, and 1 MB for the text and the multipart headers.
+const maxMessageBody = 4*5*1024*1024 + 1024*1024
 
 // Routes registers the API routes below /api/ on mux.
 // Each route but POST /api/login and GET /api/mcp-oauth/client needs the cookie of a device login.
@@ -137,14 +137,17 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	return r
 }
 
-// limitBodies makes a request to SendChat, to Transcribe or to SendChunk fail when its body is larger than
-// maxSendChatBody, maxTranscriptionBody or maxChunkBody, before Gork reads the body into memory.
+// limitBodies makes a request to SendChat, to AnswerInboxItem, to DoneInboxItem, to ApproveAction, to RejectAction, to
+// Transcribe or to SendChunk fail when its body is larger than maxMessageBody, maxTranscriptionBody or maxChunkBody,
+// before Gork reads the body into memory.
 func limitBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			switch path := r.URL.Path; {
-			case path == "/api/chat/messages":
-				r.Body = http.MaxBytesReader(w, r.Body, maxSendChatBody)
+			case path == "/api/chat/messages",
+				strings.HasPrefix(path, "/api/inbox/") && (strings.HasSuffix(path, "/answer") || strings.HasSuffix(path, "/done")),
+				strings.HasPrefix(path, "/api/actions/") && (strings.HasSuffix(path, "/approve") || strings.HasSuffix(path, "/reject")):
+				r.Body = http.MaxBytesReader(w, r.Body, maxMessageBody)
 			case path == "/api/voice/transcriptions":
 				r.Body = http.MaxBytesReader(w, r.Body, maxTranscriptionBody)
 			case strings.HasPrefix(path, "/api/voice/recordings/") && strings.HasSuffix(path, "/chunks"):

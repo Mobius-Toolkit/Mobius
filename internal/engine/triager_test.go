@@ -1084,7 +1084,7 @@ func TestAPollThatReadsTheHeldTurnWhileAnApprovalRestartsTheTriagerStartsNoSecon
 	t.Cleanup(func() { *engine.AfterTriagerStop = nil })
 	approved := make(chan error, 1)
 	go func() {
-		_, err := server.Engine.ApproveAction(context.WithoutCancel(t.Context()), action.ID, "")
+		_, err := server.Engine.ApproveAction(context.WithoutCancel(t.Context()), action.ID, "", engine.Attachments{})
 		approved <- err
 	}()
 	select {
@@ -1313,7 +1313,7 @@ func TestTheCoordinatorChatRefusesAnUnknownOrganization(t *testing.T) {
 	server, _ := connectTriager(t, fake)
 	unknown := engine.ChatKey{}
 
-	err := server.Engine.SendChat(t.Context(), unknown, "", "Start a Workstream for loyalty points.", nil, nil, nil, false)
+	err := server.Engine.SendChat(t.Context(), unknown, "", "Start a Workstream for loyalty points.", nil, nil, nil, false, 0)
 
 	if !engine.Refused(err) || err.Error() != `Mobius has no repository in the organization "".` {
 		t.Errorf("err = %v", err)

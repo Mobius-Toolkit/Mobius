@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
@@ -157,7 +159,7 @@ func isTriageEvent(event *gh.IssueEvent) bool {
 // applyTriageChange sets the triage state from the incoming change of the label mobius:triage, when its actor is a
 // trusted user. For another actor, it adds an outgoing change, so the send writes the state of issues back. A change
 // changes nothing when the Mobius App wrote the label later, because the row already has that state. The poll can read
-// the event after the copy of the tree gave the row its state from the label.
+// the event after the copy of the tree gave the row its state from the label, or after accept_issue changed the state.
 func (e *Engine) applyTriageChange(ctx context.Context, repository github.Repository, change store.IncomingChange) error {
 	repository = e.changeRepository(change.Repository, repository)
 	if !e.trustedUser(change.Actor) {
@@ -183,19 +185,45 @@ func (e *Engine) applyTriageChange(ctx context.Context, repository github.Reposi
 	return err
 }
 
-// triageWrittenLater tells if the poll read a later event of the label mobius:triage from the Mobius App for the issue
-// of the incoming change.
+// triageWrittenLater tells if the Mobius App wrote the label mobius:triage of the issue of the incoming change after
+// the event of the change, or is about to write it. A pending outgoing change of the triage has not reached GitHub, so
+// each event on GitHub is older than it, and its send writes the state of the row. The poll can also store the event
+// of a person before it reads the event of a write of the App, so when it has no later event of the App, the function
+// reads the events of the issue from GitHub. An issue that GitHub does not have has no write of the App.
 func (e *Engine) triageWrittenLater(ctx context.Context, repository github.Repository, change store.IncomingChange) (bool, error) {
 	id, err := strconv.ParseInt(change.ExternalID, 10, 64)
 	if err != nil {
 		return false, err
 	}
-	return e.queries.HasLaterTriageChangeOfActor(ctx, store.HasLaterTriageChangeOfActorParams{
+	app := appLogin(repository.AppSlug)
+	later, err := e.queries.HasLaterTriageChangeOfActor(ctx, store.HasLaterTriageChangeOfActorParams{
 		Repository: change.Repository,
 		Number:     change.Number,
-		Actor:      appLogin(repository.AppSlug),
+		Actor:      app,
 		After:      id,
 	})
+	if later || err != nil {
+		return later, err
+	}
+	pending, err := e.queries.ListPendingOutgoingChanges(ctx, change.Repository)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(pending, func(outgoing store.OutgoingChange) bool {
+		return outgoing.Field == triageField && outgoing.Number.Int64 == change.Number
+	}) {
+		return true, nil
+	}
+	events, err := repository.IssueEvents(ctx, change.Number)
+	if github.NotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
+		return event.GetID() > id && isTriageEvent(event) && strings.EqualFold(event.GetActor().GetLogin(), app)
+	}), nil
 }
 
 // issueTextAt sets the title and the body of issue to the text of the time at: the body is the newest edit at or before

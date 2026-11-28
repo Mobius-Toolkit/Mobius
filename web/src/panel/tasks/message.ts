@@ -27,7 +27,6 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   GotComposerMessage: { message: Composer.Message },
   GotSelectionMessage: { message: Selection.Message },
-  AddedSelection: {},
   CompletedRestoreScroll: {},
   TaskDetailLoaded: {
     repository: Schema.String,
