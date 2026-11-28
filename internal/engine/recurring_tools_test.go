@@ -29,8 +29,8 @@ func callUpdateRecurring(when string, id int, expression, text string) string {
 	return callRecurring(when, "update_recurring_task", fmt.Sprintf("{ id = %d, cron = %q, text = %q }", id, expression, text))
 }
 
-func callDeleteRecurring(when string, id int) string {
-	return callRecurring(when, "delete_recurring_task", fmt.Sprintf("{ id = %d }", id))
+func callDeleteRecurring(when string) string {
+	return callRecurring(when, "delete_recurring_task", "{ id = 1 }")
 }
 
 // weekdayTimes gives the next 3 times of weekdays at 08:00 after friday, as the title of an approval shows them.
@@ -82,7 +82,7 @@ func TestTheLeadCallsCreateRecurringTaskAndTheTaskExistsOnlyAfterTheOwnerApprove
 func TestTheLeadChangesAndDeletesARecurringTaskAfterTheOwnerApproves(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callUpdateRecurring("Change it.", 1, weekdays, "Check the invoices.")+callDeleteRecurring("Delete it.", 1)+seenScript)
+	server, _ := connect(t, fake, approvalSeen+callUpdateRecurring("Change it.", 1, weekdays, "Check the invoices.")+callDeleteRecurring("Delete it.")+seenScript)
 	setNow(server, friday)
 	addRecurringTask(t, server, hourly, planCheck)
 
@@ -121,7 +121,7 @@ func TestTheLeadChangesAndDeletesARecurringTaskAfterTheOwnerApproves(t *testing.
 func TestTheRecurringTaskOfAnUpdateOrDeleteActionIsTheTaskNowAndTheDoneActionKeepsTheOldTextAndCron(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, approvalSeen+callUpdateRecurring("Change it.", 1, weekdays, "Check the invoices.")+callDeleteRecurring("Delete it.", 1)+seenScript)
+	server, _ := connect(t, fake, approvalSeen+callUpdateRecurring("Change it.", 1, weekdays, "Check the invoices.")+callDeleteRecurring("Delete it.")+seenScript)
 	setNow(server, friday)
 	addRecurringTask(t, server, hourly, planCheck)
 	run(t, server, leadSpec(t), "Change it.", "Delete it.")
@@ -279,8 +279,8 @@ func TestANewUpdateOrDeleteRecurringTaskCallReplacesTheWaitingActionOfTheSameToo
 		callUpdateRecurring("Change 1.", 1, weekdays, "First.") +
 		callUpdateRecurring("Change 2.", 1, weekdays, "Second.") +
 		callUpdateRecurring("Change 3.", 2, weekdays, "Third.") +
-		callDeleteRecurring("Delete 1.", 1) +
-		callDeleteRecurring("Delete 2.", 1) +
+		callDeleteRecurring("Delete 1.") +
+		callDeleteRecurring("Delete 2.") +
 		seenScript
 	server, _ := connect(t, fake, script)
 	setNow(server, friday)

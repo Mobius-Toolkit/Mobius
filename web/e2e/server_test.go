@@ -629,7 +629,9 @@ func TestServer(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprint(w, task.ID)
+		if _, err := fmt.Fprint(w, task.ID); err != nil {
+			t.Error(err)
+		}
 	})
 	server.Mux.HandleFunc("DELETE /e2e/dispatches/{owner}/{name}/{issue}", func(w http.ResponseWriter, r *http.Request) {
 		repository := r.PathValue("owner") + "/" + r.PathValue("name")
