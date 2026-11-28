@@ -611,7 +611,7 @@ func TestAFileInTheDirectoryOfARecurringTaskStaysForTheNextRun(t *testing.T) {
 	if len(events) != 2 || !strings.HasSuffix(events[1].Payload, directoryText(dataDir, task.ID)) {
 		t.Fatalf("events = %+v", events)
 	}
-	if got, err := os.ReadFile(script); err != nil || string(got) != "echo checked\n" {
+	if got, err := os.ReadFile(filepath.Clean(script)); err != nil || string(got) != "echo checked\n" {
 		t.Errorf("script = %q, %v", got, err)
 	}
 }
