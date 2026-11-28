@@ -138,10 +138,10 @@ func TestARecurringTaskToolCallWithANumberThatIsNotAnOpenProjectOfTheWorkstreamA
 func TestTheLeadEventOfARunOfARecurringTaskInAProjectNamesTheProject(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "")
+	server, dataDir := connect(t, fake, "")
 	setNow(server, friday)
 	addCopiedProject(t, server, fake, 41, "Stats display")
-	addRecurringTaskIn(t, server, "0 8 * * 1-5", planCheck, 41)
+	task := addRecurringTaskIn(t, server, "0 8 * * 1-5", planCheck, 41)
 
 	monday := time.Date(2026, 11, 16, 8, 0, 30, 0, time.Local)
 	setNow(server, monday)
@@ -150,7 +150,7 @@ func TestTheLeadEventOfARunOfARecurringTaskInAProjectNamesTheProject(t *testing.
 		events := recurringEvents(t, server)
 		return events, len(events) == 1
 	})
-	want := monday.UTC().Format("2006-01-02 15:04 UTC") + " recurring task 1 `0 8 * * 1-5` in the Project #41 Stats display:\n\n> Check the plans."
+	want := monday.UTC().Format("2006-01-02 15:04 UTC") + " recurring task 1 `0 8 * * 1-5` in the Project #41 Stats display:\n\n> Check the plans." + directoryText(dataDir, task.ID)
 	if events[0].Payload != want {
 		t.Errorf("payload = %q, want %q", events[0].Payload, want)
 	}
@@ -159,7 +159,7 @@ func TestTheLeadEventOfARunOfARecurringTaskInAProjectNamesTheProject(t *testing.
 func TestTheLeadEventOfARunNowOfARecurringTaskInAProjectNamesTheProject(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
+	server, dataDir := connect(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n")
 	setNow(server, friday)
 	addCopiedProject(t, server, fake, 41, "Stats display")
 	task := addRecurringTaskIn(t, server, weekdays, planCheck, 41)
@@ -169,7 +169,7 @@ func TestTheLeadEventOfARunNowOfARecurringTaskInAProjectNamesTheProject(t *testi
 	if status != http.StatusOK {
 		t.Fatalf("status = %d: %s", status, text)
 	}
-	want := friday.UTC().Format("2006-01-02 15:04 UTC") + " the Owner started the recurring task 1 `0 8 * * 1-5` in the Project #41 Stats display by hand:\n\n> Check the plans."
+	want := friday.UTC().Format("2006-01-02 15:04 UTC") + " the Owner started the recurring task 1 `0 8 * * 1-5` in the Project #41 Stats display by hand:\n\n> Check the plans." + directoryText(dataDir, task.ID)
 	if events := recurringEvents(t, server); len(events) != 1 || events[0].Payload != want {
 		t.Errorf("recurring events = %+v, want one with %q", events, want)
 	}

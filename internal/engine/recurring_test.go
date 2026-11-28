@@ -3,6 +3,8 @@ package engine_test
 import (
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,17 @@ const (
 	planCheck  = "Check the plans."
 	holdThenOk = "[[prompts]]\n" + holdEvent + "\n[[prompts]]\nreply = [\"Noted.\"]\n[[prompts]]\nreply = [\"Noted.\"]\n[[prompts]]\nreply = [\"Noted.\"]\n"
 )
+
+// directoryText is the end of the text of each run event of the recurring task id.
+func directoryText(dataDir string, id int64) string {
+	return "\n\nDirectory of the recurring task: " + filepath.Join(dataDir, "recurring", itoa(id)) + `
+
+Rules for each agent of the run:
+1. Read NOTES.md in the directory, and use the scripts that exist.
+2. When a step repeats from run to run, write a script for it in the directory.
+3. Fix a script that failed, and keep NOTES.md true: what each script does, how to run it, and what the last run found.
+4. Put no secret into the directory.`
+}
 
 func setNow(server *testserver.Server, t time.Time) {
 	server.Engine.SetClock(func() time.Time { return t })
@@ -127,7 +140,7 @@ func TestAWrongCronExpressionGivesAnErrorThatNamesTheExpression(t *testing.T) {
 func TestARecurringTaskGivesOneLeadEventAtItsTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "")
+	server, dataDir := connect(t, fake, "")
 	setNow(server, friday)
 	task := addRecurringTask(t, server, "0 8 * * 1-5", "Check the plans.\nTell me what changed.")
 
@@ -139,6 +152,7 @@ func TestARecurringTaskGivesOneLeadEventAtItsTime(t *testing.T) {
 		return events, len(events) == 1
 	})
 	want := monday.UTC().Format("2006-01-02 15:04 UTC") + " recurring task 1 `0 8 * * 1-5`:\n\n> Check the plans.\n> Tell me what changed."
+	want += directoryText(dataDir, task.ID)
 	if events[0].Payload != want {
 		t.Errorf("payload = %q, want %q", events[0].Payload, want)
 	}
@@ -533,6 +547,140 @@ func TestAChangeOfARecurringTaskDuringTheStepGivesNoEventAndNoRun(t *testing.T) 
 			if err := server.DB.QueryRow("SELECT count(*) FROM recurring_task_runs").Scan(&runs); err != nil || runs != 0 {
 				t.Errorf("stored runs = %d, %v", runs, err)
 			}
+		})
+	}
+}
+
+func TestAScheduledRunAndARunByHandMakeTheDirectoryOfTheRecurringTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connect(t, fake, "")
+	setNow(server, friday)
+	scheduled := addRecurringTask(t, server, hourly, planCheck)
+	manual := addRecurringTask(t, server, "0 8 * * 1", "Check the prices.")
+	for _, task := range []engine.RecurringTask{scheduled, manual} {
+		if _, err := os.Stat(filepath.Join(dataDir, "recurring", itoa(task.ID))); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("directory of task %d before a run: %v", task.ID, err)
+		}
+	}
+
+	setNow(server, friday.Add(time.Hour))
+	waitForRuns(t, server, 1)
+	if _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, 12, manual.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, task := range []engine.RecurringTask{scheduled, manual} {
+		dir := filepath.Join(dataDir, "recurring", itoa(task.ID))
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Errorf("directory of task %d: %v", task.ID, err)
+		}
+		if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+			t.Errorf("files in the directory of task %d = %v, %v", task.ID, files, err)
+		}
+	}
+	events := recurringEvents(t, server)
+	if len(events) != 2 {
+		t.Fatalf("events = %+v", events)
+	}
+	for i, task := range []engine.RecurringTask{scheduled, manual} {
+		if !strings.HasSuffix(events[i].Payload, directoryText(dataDir, task.ID)) {
+			t.Errorf("payload %d = %q, want the end %q", i, events[i].Payload, directoryText(dataDir, task.ID))
+		}
+	}
+}
+
+func TestAFileInTheDirectoryOfARecurringTaskStaysForTheNextRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connect(t, fake, "")
+	setNow(server, friday)
+	task := addRecurringTask(t, server, hourly, planCheck)
+	setNow(server, friday.Add(time.Hour))
+	waitForRuns(t, server, 1)
+	testkit.WaitFor(t, func() bool { return recurringEvents(t, server)[0].Delivered })
+	script := filepath.Join(dataDir, "recurring", itoa(task.ID), "check.sh")
+	if err := os.WriteFile(script, []byte("echo checked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	setNow(server, friday.Add(2*time.Hour))
+
+	waitForRuns(t, server, 2)
+	events := recurringEvents(t, server)
+	if len(events) != 2 || !strings.HasSuffix(events[1].Payload, directoryText(dataDir, task.ID)) {
+		t.Fatalf("events = %+v", events)
+	}
+	if got, err := os.ReadFile(filepath.Clean(script)); err != nil || string(got) != "echo checked\n" {
+		t.Errorf("script = %q, %v", got, err)
+	}
+}
+
+func makeRecurringDirs(t *testing.T, server *testserver.Server, dataDir string, workstream int64, tasks ...engine.RecurringTask) {
+	t.Helper()
+	for _, task := range tasks {
+		if _, err := server.Engine.OwnerRunRecurringTask(t.Context(), shop, workstream, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dataDir, "recurring", itoa(task.ID), "NOTES.md"), []byte("notes\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func requireDirectory(t *testing.T, dataDir string, task engine.RecurringTask, want bool) {
+	t.Helper()
+	_, err := os.Stat(filepath.Join(dataDir, "recurring", itoa(task.ID)))
+	if want && err != nil || !want && !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("directory of task %d (want %v): %v", task.ID, want, err)
+	}
+}
+
+func TestTheDeleteOfARecurringTaskDeletesItsDirectoryOnly(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connect(t, fake, "")
+	first := addRecurringTask(t, server, hourly, planCheck)
+	second := addRecurringTask(t, server, hourly, "Check the prices.")
+	makeRecurringDirs(t, server, dataDir, 12, first, second)
+
+	if err := server.Engine.OwnerDeleteRecurringTask(t.Context(), shop, 12, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	requireDirectory(t, dataDir, first, false)
+	requireDirectory(t, dataDir, second, true)
+}
+
+func TestACloseOrARemovalOfAWorkstreamDeletesTheDirectoriesOfItsRecurringTasks(t *testing.T) {
+	t.Parallel()
+	for name, end := range map[string]func(*testkit.FakeGitHub){
+		"a close":   func(fake *testkit.FakeGitHub) { fake.CloseIssue(shop, 12) },
+		"a removal": func(fake *testkit.FakeGitHub) { fake.RemoveLabel(shop, 12, "mobius:workstream", "owner") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			fake.AddIssue(shop, 13, "Other Workstream")
+			fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+			server, dataDir := connect(t, fake, "")
+			first := addRecurringTask(t, server, hourly, planCheck)
+			second := addRecurringTask(t, server, hourly, "Check the prices.")
+			other, err := server.Engine.AddRecurringTask(t.Context(), shop, 13, hourly, "Check the stock.", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			makeRecurringDirs(t, server, dataDir, 12, first, second)
+			makeRecurringDirs(t, server, dataDir, 13, other)
+
+			end(fake)
+
+			testkit.WaitFor(t, func() bool {
+				_, err := os.Stat(filepath.Join(dataDir, "recurring", itoa(second.ID)))
+				return errors.Is(err, os.ErrNotExist)
+			})
+			requireDirectory(t, dataDir, first, false)
+			requireDirectory(t, dataDir, other, true)
 		})
 	}
 }

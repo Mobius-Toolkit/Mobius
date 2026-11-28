@@ -1658,12 +1658,18 @@ func (e *Engine) addWorkstreamRow(ctx context.Context, q *store.Queries, reposit
 // servers, and publishes the Workstreams change. The creator Lead gets a close event with reason, as
 // closeWorkstreamRow gives it. The tree stays until removeClosedWorkstreamTree.
 func (e *Engine) closeCopiedWorkstream(ctx context.Context, repository github.Repository, number int64, reason string) error {
+	var recurring []int64
 	closed, err := e.closeWorkstreamRow(ctx, repository.FullName, number, reason, func(q *store.Queries) error {
-		if err := deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number); err != nil {
+		var err error
+		recurring, err = deleteWorkstreamRecurringTasks(ctx, q, repository.FullName, number)
+		if err != nil {
 			return err
 		}
 		return q.DeleteWorkstreamMcpServers(ctx, store.DeleteWorkstreamMcpServersParams{Repository: repository.FullName, Workstream: number})
 	})
+	if closed {
+		e.removeRecurringDirs(recurring...)
+	}
 	if err != nil || !closed {
 		return err
 	}

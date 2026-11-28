@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -254,7 +257,7 @@ func (e *Engine) UpdateRecurringTask(ctx context.Context, repository string, wor
 	return e.recurringTask(ctx, row)
 }
 
-// DeleteRecurringTask deletes a recurring task and its history.
+// DeleteRecurringTask deletes a recurring task, its history and its directory.
 func (e *Engine) DeleteRecurringTask(ctx context.Context, repository string, workstream, id int64) error {
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		deleted, err := q.DeleteRecurringTask(ctx, store.DeleteRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
@@ -267,6 +270,7 @@ func (e *Engine) DeleteRecurringTask(ctx context.Context, repository string, wor
 		return q.DeleteRecurringTaskRuns(ctx, id)
 	})
 	if err == nil {
+		e.removeRecurringDirs(id)
 		e.publishRecurring(repository, workstream)
 	}
 	return err
@@ -356,7 +360,11 @@ func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, w
 	if err != nil {
 		return RecurringTask{}, err
 	}
-	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s`%s by hand:\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, in, quote(row.Text))
+	directory, err := e.recurringDirText(row.ID)
+	if err != nil {
+		return RecurringTask{}, err
+	}
+	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s`%s by hand:\n\n%s\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, in, quote(row.Text), directory)
 	eventID, err := e.addLeadEventAt(ctx, repository, workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 	if eventID == 0 {
 		return RecurringTask{}, err
@@ -394,16 +402,63 @@ func (e *Engine) addRecurringChange(ctx context.Context, task store.RecurringTas
 	return e.addLeadEvent(ctx, task.Repository, task.Workstream, "", sql.NullInt64{}, recurringChangeKind, text)
 }
 
-// deleteRecurringTasks deletes the recurring tasks of the Workstream and their history.
+// deleteRecurringTasks deletes the recurring tasks of the Workstream, their history and their directories.
 func (e *Engine) deleteRecurringTasks(ctx context.Context, repository string, workstream int64) error {
-	return e.inTx(ctx, func(q *store.Queries) error { return deleteWorkstreamRecurringTasks(ctx, q, repository, workstream) })
+	var ids []int64
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		var err error
+		ids, err = deleteWorkstreamRecurringTasks(ctx, q, repository, workstream)
+		return err
+	})
+	if err == nil {
+		e.removeRecurringDirs(ids...)
+	}
+	return err
 }
 
-func deleteWorkstreamRecurringTasks(ctx context.Context, q *store.Queries, repository string, workstream int64) error {
-	if err := q.DeleteWorkstreamRecurringTaskRuns(ctx, store.DeleteWorkstreamRecurringTaskRunsParams{Repository: repository, Workstream: workstream}); err != nil {
-		return err
+// deleteWorkstreamRecurringTasks deletes the recurring tasks of the Workstream and their history. It gives their ids.
+// The caller removes the directories of the ids after the transaction commits.
+func deleteWorkstreamRecurringTasks(ctx context.Context, q *store.Queries, repository string, workstream int64) ([]int64, error) {
+	tasks, err := q.ListRecurringTasks(ctx, store.ListRecurringTasksParams{Repository: repository, Workstream: workstream})
+	if err != nil {
+		return nil, err
 	}
-	return q.DeleteWorkstreamRecurringTasks(ctx, store.DeleteWorkstreamRecurringTasksParams{Repository: repository, Workstream: workstream})
+	ids := make([]int64, len(tasks))
+	for i, task := range tasks {
+		ids[i] = task.ID
+	}
+	if err := q.DeleteWorkstreamRecurringTaskRuns(ctx, store.DeleteWorkstreamRecurringTaskRunsParams{Repository: repository, Workstream: workstream}); err != nil {
+		return nil, err
+	}
+	return ids, q.DeleteWorkstreamRecurringTasks(ctx, store.DeleteWorkstreamRecurringTasksParams{Repository: repository, Workstream: workstream})
+}
+
+func (e *Engine) removeRecurringDirs(ids ...int64) {
+	for _, id := range ids {
+		if err := os.RemoveAll(recurringDir(e.config.DataDir, id)); err != nil {
+			log.Printf("remove the directory of recurring task %d: %v", id, err)
+		}
+	}
+}
+
+func recurringDir(dataDir string, id int64) string {
+	return filepath.Join(dataDir, "recurring", strconv.FormatInt(id, 10))
+}
+
+// recurringRules are the rules for each agent of a run of a recurring task. They follow the line with the directory.
+const recurringRules = `Rules for each agent of the run:
+1. Read NOTES.md in the directory, and use the scripts that exist.
+2. When a step repeats from run to run, write a script for it in the directory.
+3. Fix a script that failed, and keep NOTES.md true: what each script does, how to run it, and what the last run found.
+4. Put no secret into the directory.`
+
+// recurringDirText makes the directory of the recurring task and gives the text with its path and the rules.
+func (e *Engine) recurringDirText(id int64) (string, error) {
+	dir := recurringDir(e.config.DataDir, id)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Directory of the recurring task: %s\n\n%s", dir, recurringRules), nil
 }
 
 // runRecurringTasks gives each recurring task that is not paused and has a cron time since its last check one Lead
@@ -456,7 +511,11 @@ func (e *Engine) runRecurringTask(ctx context.Context, task store.RecurringTask)
 		if err != nil {
 			return err
 		}
-		text := fmt.Sprintf("%s recurring task %d `%s`%s:\n\n%s", t.UTC().Format(timeFormat), task.ID, task.Cron, in, quote(task.Text))
+		directory, err := e.recurringDirText(task.ID)
+		if err != nil {
+			return err
+		}
+		text := fmt.Sprintf("%s recurring task %d `%s`%s:\n\n%s\n\n%s", t.UTC().Format(timeFormat), task.ID, task.Cron, in, quote(task.Text), directory)
 		id, err := e.addLeadEventAt(ctx, task.Repository, task.Workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 		if id == 0 {
 			return err
