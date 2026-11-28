@@ -239,6 +239,20 @@ func TestTheSelectionOfAWorkstreamIsInTheDetailsAndADeleteOfAServerRemovesIt(t *
 	if got, want := selectedMcpIDs(t, server), []int64{files.ID}; !slices.Equal(got, want) {
 		t.Errorf("mcpServers after a new selection = %v, want %v", got, want)
 	}
+	wantRecords := []string{"You set the MCP servers of the Workstream to makeadir, files.", "You set the MCP servers of the Workstream to files."}
+	if got := records(t, server); !slices.Equal(got, wantRecords) {
+		t.Errorf("records = %q, want %q: the refused and the unknown requests add no Record", got, wantRecords)
+	}
+	if status, text := mcpRequest(t, server, http.MethodPut, selectionPath, `{"ids":[]}`); status != http.StatusNoContent {
+		t.Fatalf("PUT empty selection: status %d: %s", status, text)
+	}
+	wantRecords = append(wantRecords, "You cleared the MCP servers of the Workstream.")
+	if got := records(t, server); !slices.Equal(got, wantRecords) {
+		t.Errorf("records = %q, want %q", got, wantRecords)
+	}
+	if status, text := mcpRequest(t, server, http.MethodPut, selectionPath, `{"ids":[`+itoa(files.ID)+`]}`); status != http.StatusNoContent {
+		t.Fatalf("PUT selection: status %d: %s", status, text)
+	}
 
 	if status, text := mcpRequest(t, server, http.MethodDelete, mcpServersPath+"/"+itoa(files.ID), ""); status != http.StatusNoContent {
 		t.Fatalf("DELETE: status %d: %s", status, text)

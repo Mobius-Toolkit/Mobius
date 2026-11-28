@@ -90,7 +90,7 @@ func TestAReadyLabelOfATrustedUserDispatchesTheIssueToTheLead(t *testing.T) {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
 	for _, line := range chatLines(t, server, leadChat) {
-		if line.Author != "Event" {
+		if line.Author != "Event" && line.Author != "Record" {
 			t.Errorf("chat = %+v", chatLines(t, server, leadChat))
 		}
 	}
@@ -478,7 +478,7 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 		t.Errorf("live = %v, undelivered = %+v", hasLiveTask(t, server, 41), undelivered(t, server))
 	}
 	for _, line := range chatLines(t, server, leadChat) {
-		if line.Author != "Event" {
+		if line.Author != "Event" && line.Author != "Record" {
 			t.Errorf("chat = %+v", chatLines(t, server, leadChat))
 		}
 	}

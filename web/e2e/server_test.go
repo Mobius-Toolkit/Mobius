@@ -309,6 +309,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
 // DELETE /e2e/ready/plants/garden/{issue} clears the waiting Start (and any mobius:ready label) of an issue of the Workstream plants/garden#19 and waits
 // until the task list shows the issue as open.
+// DELETE /e2e/records removes the Record messages of the chat of the query repository and workstream that have the query
+// text.
 // PUT and DELETE /e2e/workstreams/owner/shop/12/implementer set the Implementer setting of that Workstream to
 // claude-code, sonnet and low, and clear it, with no record in the chat.
 func TestServer(t *testing.T) {
@@ -570,6 +572,12 @@ func TestServer(t *testing.T) {
 			github.RemoveLabel(repository, issue, "mobius:question", "owner")
 		}
 	})
+	server.Mux.HandleFunc("DELETE /e2e/records", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND repository = ? AND workstream = ? AND text = ?", query.Get("repository"), query.Get("workstream"), query.Get("text")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 	server.Mux.HandleFunc("PUT /e2e/workstreams/owner/shop/12/implementer", func(w http.ResponseWriter, r *http.Request) {
 		if err := server.Engine.SetIssueBinding(r.Context(), "implementer", "owner/shop", 12, config.ClaudeCode, "sonnet", "low"); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -768,6 +776,17 @@ func TestServer(t *testing.T) {
 		}
 		return waiting == 1
 	})
+	// The fixture chats show no Record of these two Starts. A Record of a later Start stays.
+	testkit.WaitFor(t, func() bool {
+		var records int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE author = 'Record' AND text LIKE '@owner started %'").Scan(&records); err != nil {
+			t.Fatal(err)
+		}
+		return records == 2
+	})
+	if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND text LIKE '@owner started %'"); err != nil {
+		t.Fatal(err)
+	}
 	waitForChat(t, server, shop, "tell_owner")
 	testkit.WaitFor(t, func() bool {
 		var open int
@@ -1258,7 +1277,7 @@ func addWaitingWorkstream(ctx context.Context, t *testing.T, server *testserver.
 		}
 		return err == nil
 	})
-	if _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
+	if _, _, err := server.Engine.ApproveAction(ctx, action, "", engine.Attachments{}); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
@@ -1754,8 +1773,8 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 
 // keepImplementer starts the task of the issue with mobius:ready, and waits until the Implementer round of the task
 // ends, the engine keeps its Harness session, the task waits for the Lead, and the event ready_for_approval exists. StartCheckNow ends the wait of its check for a low load. The engine
-// clock fixes the time of the close of the kept session. The events of the dispatch leave the chat of the Workstream,
-// so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
+// clock fixes the time of the close of the kept session. The events of the dispatch and the Record of the Start leave
+// the chat of the Workstream, so the chat shows no message. The programs of the agents find the fake git first, so the script of the fake
 // Implementer runs /usr/bin/git.
 func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, repository string, workstream, issue int64) {
 	t.Helper()
@@ -1799,6 +1818,9 @@ func keepImplementer(t *testing.T, server *testserver.Server, github *testkit.Fa
 		if _, err := server.DB.Exec(query, repository, issue); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := server.DB.Exec("DELETE FROM chat_messages WHERE author = 'Record' AND repository = ?1 AND workstream = ?2 AND text = ?3", repository, workstream, fmt.Sprintf("@owner started #%d.", issue)); err != nil {
+		t.Fatal(err)
 	}
 }
 

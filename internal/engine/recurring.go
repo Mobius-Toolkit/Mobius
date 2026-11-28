@@ -296,78 +296,90 @@ func (e *Engine) SetRecurringTaskPaused(ctx context.Context, repository string, 
 }
 
 // OwnerSetRecurringTaskPaused is SetRecurringTaskPaused for the Owner. A task that already has the state changes
-// nothing and gives no Lead event. Else the Lead gets the quiet event recurring_change.
-func (e *Engine) OwnerSetRecurringTaskPaused(ctx context.Context, repository string, workstream, id int64, paused bool) (RecurringTask, error) {
+// nothing and gives no Lead event and no Record chat. Else the Lead gets the quiet event recurring_change.
+func (e *Engine) OwnerSetRecurringTaskPaused(ctx context.Context, repository string, workstream, id int64, paused bool) (RecurringTask, Record, error) {
 	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
 	if errors.Is(err, sql.ErrNoRows) {
-		return RecurringTask{}, ErrNoRecurringTask
+		return RecurringTask{}, Record{}, ErrNoRecurringTask
 	}
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	if (row.Paused != 0) == paused {
-		return e.recurringTask(ctx, row)
+		task, err := e.recurringTask(ctx, row)
+		return task, Record{}, err
 	}
 	task, err := e.SetRecurringTaskPaused(ctx, repository, workstream, id, paused)
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	verb := "resumed"
 	if paused {
 		verb = "paused"
 	}
-	return task, e.addRecurringChange(ctx, row, verb)
+	if err := e.addRecurringChange(ctx, row, verb); err != nil {
+		return RecurringTask{}, Record{}, err
+	}
+	return task, recurringRecord(row, verb), nil
 }
 
 // OwnerDeleteRecurringTask is DeleteRecurringTask for the Owner. The Lead gets the quiet event recurring_change.
-func (e *Engine) OwnerDeleteRecurringTask(ctx context.Context, repository string, workstream, id int64) error {
+func (e *Engine) OwnerDeleteRecurringTask(ctx context.Context, repository string, workstream, id int64) (Record, error) {
 	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNoRecurringTask
+		return Record{}, ErrNoRecurringTask
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if err := e.DeleteRecurringTask(ctx, repository, workstream, id); err != nil {
-		return err
+		return Record{}, err
 	}
-	return e.addRecurringChange(ctx, row, "deleted")
+	if err := e.addRecurringChange(ctx, row, "deleted"); err != nil {
+		return Record{}, err
+	}
+	return recurringRecord(row, "deleted"), nil
+}
+
+// recurringRecord gives the Record "You <verb> the recurring task <id>." for the Lead chat of the Workstream of task.
+func recurringRecord(task store.RecurringTask, verb string) Record {
+	return recordIn(fmt.Sprintf("You %s the recurring task %d.", verb, task.ID), leadChat(task.Repository, task.Workstream))
 }
 
 // OwnerRunRecurringTask gives the Lead the event of a recurring task now, also for a paused task. The next scheduled
 // time and the pause do not change. It returns ErrRecurringEventPending, and adds no event and no history row, when
 // the earlier event of the task is not delivered yet.
-func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, workstream, id int64) (RecurringTask, error) {
+func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, workstream, id int64) (RecurringTask, Record, error) {
 	row, err := e.queries.GetRecurringTask(ctx, store.GetRecurringTaskParams{ID: id, Repository: repository, Workstream: workstream})
 	if errors.Is(err, sql.ErrNoRows) {
-		return RecurringTask{}, ErrNoRecurringTask
+		return RecurringTask{}, Record{}, ErrNoRecurringTask
 	}
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	if row.Event.Valid {
 		pending, err := e.queries.HasUndeliveredLeadEvent(ctx, row.Event.Int64)
 		if err != nil {
-			return RecurringTask{}, err
+			return RecurringTask{}, Record{}, err
 		}
 		if pending {
-			return RecurringTask{}, ErrRecurringEventPending
+			return RecurringTask{}, Record{}, ErrRecurringEventPending
 		}
 	}
 	t := e.timeNow()
 	at := t.UTC().Format(time.RFC3339Nano)
 	in, err := e.inProject(ctx, row)
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	directory, err := e.recurringDirText(row.ID)
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	text := fmt.Sprintf("%s the Owner started the recurring task %d `%s`%s by hand:\n\n%s\n\n%s", t.UTC().Format(timeFormat), row.ID, row.Cron, in, quote(row.Text), directory)
 	eventID, err := e.addLeadEventAt(ctx, repository, workstream, "", sql.NullInt64{}, recurringKind, text, at, commentRef{})
 	if eventID == 0 {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	if err != nil {
 		log.Printf("give the manual event of recurring task %d to the Lead: %v", row.ID, err)
@@ -391,10 +403,14 @@ func (e *Engine) OwnerRunRecurringTask(ctx context.Context, repository string, w
 		return q.TrimRecurringTaskRuns(ctx, id)
 	})
 	if err != nil {
-		return RecurringTask{}, err
+		return RecurringTask{}, Record{}, err
 	}
 	e.publishRecurring(repository, workstream)
-	return e.recurringTask(ctx, row)
+	task, err := e.recurringTask(ctx, row)
+	if err != nil {
+		return RecurringTask{}, Record{}, err
+	}
+	return task, recurringRecord(row, "started"), nil
 }
 
 func (e *Engine) addRecurringChange(ctx context.Context, task store.RecurringTask, verb string) error {

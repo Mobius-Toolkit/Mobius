@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -22,7 +23,7 @@ func BindingText(harness, model, effort string) string {
 
 // settingRecord gives the Record for the Lead chat of the Workstream of the issue, in the form "The Owner <action> the
 // <session>". The session is the Lead, the Operator, the Implementer of the Workstream or the Implementer of a task. A task that is
-// in no Workstream has no Lead chat, so its Record has no chat.
+// in no Workstream has no Lead chat, so its Record is for the Coordinator chat of the organization.
 func (e *Engine) settingRecord(ctx context.Context, role, repository string, issue int64, action func(subject string) string) (Record, error) {
 	workstream, err := e.queries.HasCopiedWorkstreamAnyCase(ctx, store.HasCopiedWorkstreamAnyCaseParams{Repository: repository, Number: issue})
 	if err != nil {
@@ -40,7 +41,8 @@ func (e *Engine) settingRecord(ctx context.Context, role, repository string, iss
 	}
 	tree, err := e.queries.GetCopiedIssueTree(ctx, store.GetCopiedIssueTreeParams{Number: issue, Repository: repository})
 	if errors.Is(err, sql.ErrNoRows) {
-		return Record{}, nil
+		organization, _, _ := strings.Cut(repository, "/")
+		return recordIn(action("Implementer of "+eventRef("", repository, issue)), ChatKey{Organization: organization}), nil
 	}
 	if err != nil {
 		return Record{}, err

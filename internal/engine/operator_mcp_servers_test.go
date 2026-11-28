@@ -75,7 +75,7 @@ func selectServers(t *testing.T, server *testserver.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SetWorkstreamMcpServers(ctx, shop, 12, []int64{files.ID, site.ID}); err != nil {
+	if _, err := server.Engine.SetWorkstreamMcpServers(ctx, shop, 12, []int64{files.ID, site.ID}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -125,7 +125,7 @@ func TestTheNextOperatorGetsTheSelectionThatTheOwnerChanged(t *testing.T) {
 	if names := serverNames(sentServers(t, dataDir)); !slices.Equal(names, []string{"mobius", "makeadir", "files"}) {
 		t.Fatalf("servers of the first Operator = %v", names)
 	}
-	if err := server.Engine.SetWorkstreamMcpServers(t.Context(), shop, 12, nil); err != nil {
+	if _, err := server.Engine.SetWorkstreamMcpServers(t.Context(), shop, 12, nil); err != nil {
 		t.Fatal(err)
 	}
 

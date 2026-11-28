@@ -418,7 +418,7 @@ func TestSendAgainCancelsTheWaitingMessageAndPostsOneCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := server.Engine.SendAgain(t.Context(), item.ID); err != nil {
+	if _, err := server.Engine.SendAgain(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -499,7 +499,7 @@ func TestSendAgainKeepsTheWaitingMessageWhenTheCopyFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(taken, "taken"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.SendAgain(t.Context(), item.ID); err == nil {
+	if _, err := server.Engine.SendAgain(t.Context(), item.ID); err == nil {
 		t.Fatal("Send again succeeded with a directory on the images of the copy")
 	}
 
@@ -653,7 +653,7 @@ func TestSendAgainWhileARetryChatWaitsForItsStartGivesTheTextOneTime(t *testing.
 	testkit.WaitFor(t, func() bool {
 		return len(chatSessions(t, server, leadChat, engine.LeadRole)) > before
 	})
-	if err := server.Engine.SendAgain(t.Context(), item.ID); err != nil {
+	if _, err := server.Engine.SendAgain(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
 

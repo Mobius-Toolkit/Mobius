@@ -226,46 +226,46 @@ func (e *Engine) dismissItems(ctx context.Context, items []store.InboxItem) erro
 // SendAgain cancels the waiting message of the open Lead failed item id and closes the item. Then it adds a copy of
 // the message at the end of the chat, with its text, images and Inbox items, and the agent gets the copy at once. The
 // copy has a browser id, so a restart of Mobius gives it again. A message that is already delivered only closes the
-// item and gets no copy.
-func (e *Engine) SendAgain(ctx context.Context, id int64) error {
+// item and gets no copy. Its Record is for the chat of the item.
+func (e *Engine) SendAgain(ctx context.Context, id int64) (Record, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse("This item has no message to send again.")
+		return Record{}, refuse("This item has no message to send again.")
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if item.Kind != leadFailedKind || item.DismissedAt.Valid || !item.ChatMessage.Valid {
-		return refuse("This item has no message to send again.")
+		return Record{}, refuse("This item has no message to send again.")
 	}
 	if e.sealed() {
-		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
+		return Record{}, refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
 	message, err := e.queries.GetChatMessage(ctx, item.ChatMessage.Int64)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if message.DeliveredAt.Valid {
-		return e.Dismiss(ctx, id)
+		return e.dismissWithRecord(ctx, item)
 	}
 	images, err := e.messageImages(message.ID)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	inboxItems, err := inboxItemsOf(message)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	selections, err := selectionsOf(message)
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	cancelled, err := e.queries.CancelChatMessage(ctx, store.CancelChatMessageParams{CancelledAt: sql.NullString{String: now(), Valid: true}, ID: message.ID})
 	if errors.Is(err, sql.ErrNoRows) {
-		return e.Dismiss(ctx, id)
+		return e.dismissWithRecord(ctx, item)
 	}
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	if cancelled.Author != approvalAuthor {
 		e.publish(Change{Message: &cancelled})
@@ -276,10 +276,21 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		if undoErr == nil && restored.Author != approvalAuthor {
 			e.publish(Change{Message: &restored})
 		}
-		return errors.Join(err, undoErr)
+		return Record{}, errors.Join(err, undoErr)
 	}
 	e.forgetChatMessage(key, message.ID)
-	return e.Dismiss(ctx, id)
+	if err := e.Dismiss(ctx, id); err != nil {
+		return Record{}, err
+	}
+	return recordIn(sendAgainRecord(item), inboxChat(item)), nil
+}
+
+// dismissWithRecord dismisses item and gives the Record of the dismissal for its chat.
+func (e *Engine) dismissWithRecord(ctx context.Context, item store.InboxItem) (Record, error) {
+	if err := e.Dismiss(ctx, item.ID); err != nil {
+		return Record{}, err
+	}
+	return recordIn(dismissRecord(item), inboxChat(item)), nil
 }
 
 // ErrNoInboxItem is the error of an Inbox item that does not exist.
@@ -295,47 +306,50 @@ var ErrNoInboxIssue = errors.New("the Inbox item has no issue")
 // chat as a message of the Owner, dismisses the item, and gives an empty URL. It stores the id of the comment in
 // $.github.answers of the item, so the poll treats the comment as a comment of a trusted user. For a question of an
 // issue, it also acts on the comment at once (actOnAnswer). It returns a refusal when the Owner did not authorize the
-// Mobius App, and when the question item is closed.
-func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, attachments Attachments) (string, error) {
+// Mobius App, and when the question item is closed. Its Record is for the chat of the item.
+func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, attachments Attachments) (string, Record, error) {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNoInboxItem
+		return "", Record{}, ErrNoInboxItem
 	}
 	if err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	if isCoordinatorQuestion(item) {
 		if item.DismissedAt.Valid {
-			return "", refuse("The Coordinator withdrew this question, or the Owner answered it.")
+			return "", Record{}, refuse("The Coordinator withdrew this question, or the Owner answered it.")
 		}
 		key := ChatKey{Organization: item.Organization}
 		if err := e.SendChat(ctx, key, rand.Text(), text, attachments.Images, cardFirst(item, attachments.InboxItems), attachments.Selections, attachments.Voice, attachments.VoiceSeconds); err != nil {
-			return "", err
+			return "", Record{}, err
 		}
 		if err := e.queries.SetInboxItemAnswer(ctx, store.SetInboxItemAnswerParams{Answer: text, ID: id}); err != nil {
-			return "", err
+			return "", Record{}, err
 		}
-		return "", e.Dismiss(ctx, id)
+		if err := e.Dismiss(ctx, id); err != nil {
+			return "", Record{}, err
+		}
+		return "", recordIn(answerRecord(item), inboxChat(item)), nil
 	}
 	if item.Issue == 0 {
-		return "", ErrNoInboxIssue
+		return "", Record{}, ErrNoInboxIssue
 	}
 	e.ownerAnswerMu.Lock()
 	defer e.ownerAnswerMu.Unlock()
 	if item, err = e.queries.GetInboxItem(ctx, id); err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	if item.Kind == questionKind && item.DismissedAt.Valid {
-		return "", refuse("This question is already answered or closed.")
+		return "", Record{}, refuse("This question is already answered or closed.")
 	}
 	repository, err := e.repository(item.Repository)
 	if err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	asOwner, err := e.github.AsOwner(ctx, repository)
 	if err != nil {
 		// The text tells the Owner how to authorize the Mobius App.
-		return "", refusal(err.Error())
+		return "", Record{}, refusal(err.Error())
 	}
 	ctx = context.WithoutCancel(ctx)
 	body := text
@@ -354,10 +368,10 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, att
 	}
 	comment, err := asOwner.AddComment(ctx, item.Issue, body)
 	if err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	if err := e.queries.SetAnswerComment(ctx, store.SetAnswerCommentParams{Comment: comment.GetID(), ID: id}); err != nil {
-		return "", err
+		return "", Record{}, err
 	}
 	e.addInboxOwnerMessage(ctx, item, text, attachments)
 	if len(attachments.Images) > 0 {
@@ -366,10 +380,10 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string, att
 	}
 	if item.Kind == questionKind {
 		if err := e.actOnAnswer(ctx, repository, item, comment); err != nil {
-			return "", err
+			return "", Record{}, err
 		}
 	}
-	return comment.GetHTMLURL(), nil
+	return comment.GetHTMLURL(), recordIn(answerRecord(item), inboxChat(item)), nil
 }
 
 // actOnAnswer does for the answer comment of a question item what the poll does when it reads the comment: the Lead
@@ -646,8 +660,25 @@ func dismissRecord(item store.InboxItem) string {
 		}
 		return fmt.Sprintf("You dismissed the failed message \"%s\".", start)
 	}
-	if item.Title != "" {
-		return fmt.Sprintf("You dismissed \"%s\".", item.Title)
+	return fmt.Sprintf("You dismissed %s.", itemName(item))
+}
+
+func sendAgainRecord(item store.InboxItem) string {
+	start := failedMessageStart(item.Text)
+	if start == "" {
+		return "You sent a failed message again."
 	}
-	return fmt.Sprintf("You dismissed the item \"%s\".", item.Reason)
+	return fmt.Sprintf("You sent the failed message \"%s\" again.", start)
+}
+
+func answerRecord(item store.InboxItem) string {
+	return fmt.Sprintf("You answered %s.", itemName(item))
+}
+
+// itemName names item in a Record: its title in quotes, else the word "item" with its reason in quotes.
+func itemName(item store.InboxItem) string {
+	if item.Title != "" {
+		return fmt.Sprintf("\"%s\"", item.Title)
+	}
+	return fmt.Sprintf("the item \"%s\"", item.Reason)
 }

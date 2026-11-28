@@ -526,46 +526,45 @@ func (e *Engine) dismissAction(ctx context.Context, action store.PendingAction) 
 	return e.dismiss(ctx, action.InboxItem.Int64)
 }
 
-// closeAction dismisses the Inbox item of the decided action, and adds the decision with the Inbox items and the
-// selections of attachments as a display-only Owner message to its chat. The Triager has no chat.
-func (e *Engine) closeAction(ctx context.Context, action store.PendingAction, decision, message string, attachments Attachments) error {
-	item, err := e.dismissAction(ctx, action)
-	if err != nil || action.Role == actionRole(TriagerRole) {
-		return err
+// decisionRecord gives the Record of the decision on action for its chat: "approved" or "rejected" with the title of
+// its Inbox item, and the message of the Owner after a blank line. The Triager has no chat, so its Record has no chat.
+func decisionRecord(action store.PendingAction, item store.InboxItem, decision, message string) Record {
+	if action.Role == actionRole(TriagerRole) {
+		return Record{}
 	}
+	text := fmt.Sprintf("You %s \"%s\".", decision, item.Title)
 	if !empty(message) {
-		decision += "\n\n" + message
+		text += "\n\n" + message
 	}
-	e.addInboxOwnerMessage(ctx, item, decision, attachments)
-	return nil
+	return recordIn(text, actionChat(action))
 }
 
 // ApproveAction runs the pending action id with its stored arguments. When the run succeeds, the action is done, and the
 // agent gets the result. When the run fails, the action stays pending with the error, and the agent gets the error.
 // Of two requests at the same time, only one runs the action. It returns ErrNoAction for an action that does not
 // exist, and a refusal for an action that does not wait for the approval. The agent gets the attachments with the result
-// of a done action.
-func (e *Engine) ApproveAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, error) {
+// of a done action. Its Record is for the chat of the sender of a done action. A failed run gives no Record chat.
+func (e *Engine) ApproveAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, Record, error) {
 	if e.sealed() {
-		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
+		return store.PendingAction{}, Record{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
 	}
 	pending, err := e.queries.GetPendingAction(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.PendingAction{}, ErrNoAction
+		return store.PendingAction{}, Record{}, ErrNoAction
 	}
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	name, err := e.actionName(ctx, pending)
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	action, err := e.queries.ClaimPendingAction(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.PendingAction{}, refuse("This action does not wait for your approval.")
+		return store.PendingAction{}, Record{}, refuse("This action does not wait for your approval.")
 	}
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	ctx = context.WithoutCancel(ctx)
 	result, err := e.runAction(ctx, action)
@@ -575,11 +574,11 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string, at
 	if err != nil {
 		action, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: err.Error(), ID: id})
 		if failErr != nil {
-			return store.PendingAction{}, failErr
+			return store.PendingAction{}, Record{}, failErr
 		}
 		e.publish(Change{Action: &action})
 		text := fmt.Sprintf("The Owner approved %s, and it failed: %s. The action still waits for the approval of the Owner.", name, strings.TrimSuffix(action.Error, "."))
-		return action, e.postResult(ctx, action, text, Attachments{})
+		return action, Record{}, e.postResult(ctx, action, text, Attachments{})
 	}
 	e.approvedResultMu.Lock()
 	defer e.approvedResultMu.Unlock()
@@ -591,12 +590,12 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string, at
 	})
 	if err != nil {
 		_, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: unsavedActionError, ID: id})
-		return store.PendingAction{}, errors.Join(err, failErr)
+		return store.PendingAction{}, Record{}, errors.Join(err, failErr)
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved %s. The result: %s", name, action.Result)
-	closeErr := e.closeAction(ctx, action, "Approved", message, attachments)
-	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message), attachments))
+	item, dismissErr := e.dismissAction(ctx, action)
+	return action, decisionRecord(action, item, "approved", message), errors.Join(dismissErr, e.postResult(ctx, action, withMessage(text, message), attachments))
 }
 
 // ActionBrief gives the current Brief of the Workstream of the edit_brief action id, read from workstreams. It returns
@@ -649,21 +648,21 @@ func (e *Engine) ActionRecurring(ctx context.Context, id int64) (string, string,
 
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
 // ErrNoAction for an action that does not exist, and a refusal for an action that does not wait for the approval or
-// that runs now. The agent gets the attachments with the message.
-func (e *Engine) RejectAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, error) {
+// that runs now. The agent gets the attachments with the message. Its Record is for the chat of the sender.
+func (e *Engine) RejectAction(ctx context.Context, id int64, message string, attachments Attachments) (store.PendingAction, Record, error) {
 	if e.sealed() {
-		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
+		return store.PendingAction{}, Record{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
 	}
 	pending, err := e.queries.GetPendingAction(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.PendingAction{}, ErrNoAction
+		return store.PendingAction{}, Record{}, ErrNoAction
 	}
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	name, err := e.actionName(ctx, pending)
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	action, err := e.queries.RejectPendingAction(ctx, store.RejectPendingActionParams{
 		Message:   message,
@@ -671,15 +670,15 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string, att
 		ID:        id,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		return store.PendingAction{}, refuse("This action does not wait for your approval.")
+		return store.PendingAction{}, Record{}, refuse("This action does not wait for your approval.")
 	}
 	if err != nil {
-		return store.PendingAction{}, err
+		return store.PendingAction{}, Record{}, err
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner rejected %s.", name)
-	closeErr := e.closeAction(ctx, action, "Rejected", message, attachments)
-	return action, errors.Join(closeErr, e.postResult(ctx, action, withMessage(text, message), attachments))
+	item, dismissErr := e.dismissAction(ctx, action)
+	return action, decisionRecord(action, item, "rejected", message), errors.Join(dismissErr, e.postResult(ctx, action, withMessage(text, message), attachments))
 }
 
 // afterActionRun is a hook of the tests. approve calls it after the tool of the action ran, before it stores the result.
