@@ -67,6 +67,15 @@ describe("the request effect", () => {
     expect(await failure(() => listWorkstreams())).toBe("No network connection.");
   });
 
+  it.each(["TimeoutError", "AbortError"])(
+    "tells that the request did not finish for a %s",
+    async (name) => {
+      vi.stubGlobal("fetch", () => Promise.reject(new DOMException("stopped", name)));
+
+      expect(await failure(() => listWorkstreams())).toBe("The request did not finish.");
+    },
+  );
+
   it("tells that the answer is not readable when the JSON does not parse", async () => {
     vi.stubGlobal(
       "fetch",

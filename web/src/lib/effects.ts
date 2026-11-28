@@ -17,10 +17,18 @@ export class MarkdownFailed extends Schema.TaggedError<MarkdownFailed>()("Markdo
   message: Schema.String,
 }) {}
 
-const requestMessage = (cause: unknown) =>
-  cause instanceof TypeError
-    ? "No network connection."
-    : "The server sent an answer that Mobius cannot read.";
+const requestMessage = (cause: unknown) => {
+  if (cause instanceof TypeError) {
+    return "No network connection.";
+  }
+  if (
+    cause instanceof DOMException &&
+    (cause.name === "TimeoutError" || cause.name === "AbortError")
+  ) {
+    return "The request did not finish.";
+  }
+  return "The server sent an answer that Mobius cannot read.";
+};
 
 export const request = <A>(run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({
