@@ -25,11 +25,13 @@ type actionJSON struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"arguments"`
-	State    string `json:"state"`
-	Error    string `json:"error"`
-	Result   string `json:"result"`
-	Message  string `json:"message"`
-	OldBrief string `json:"oldBrief"`
+	State            string `json:"state"`
+	Error            string `json:"error"`
+	Result           string `json:"result"`
+	Message          string `json:"message"`
+	OldBrief         string `json:"oldBrief"`
+	OldRecurringText string `json:"oldRecurringText"`
+	OldRecurringCron string `json:"oldRecurringCron"`
 }
 
 type actionRow struct {

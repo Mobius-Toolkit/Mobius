@@ -160,6 +160,8 @@ const ChatModelSchema = Schema.Struct({
   requesting: Schema.Array(Schema.Number),
   showRemovedText: Schema.Boolean,
   briefActionBrief: Schema.String,
+  recurringActionText: Schema.String,
+  recurringActionCron: Schema.String,
 });
 
 export const Model = ChatModelSchema;
@@ -242,5 +244,7 @@ export function initialModel(flags: Flags): Model {
     requesting: [],
     showRemovedText: false,
     briefActionBrief: "",
+    recurringActionText: "",
+    recurringActionCron: "",
   };
 }

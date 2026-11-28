@@ -36,6 +36,16 @@ export interface ActionBrief {
 }
 
 /**
+ * ActionRecurring is the current recurring task of an update_recurring_task or delete_recurring_task action.
+ */
+export interface ActionRecurring {
+  /** Cron is the cron expression of the recurring task now */
+  cron: string;
+  /** Text is the text of the recurring task now */
+  text: string;
+}
+
+/**
  * ActionSender is the Workstream of the Lead that made an action.
  */
 export interface ActionSender {
@@ -482,6 +492,10 @@ export interface PendingAction {
   message: string;
   /** OldBrief is the Brief that the approval of edit_brief overwrote, with no Lead chat link. It is empty for the other tools, for a pending action, and for an action of an older release */
   oldBrief: string;
+  /** OldRecurringCron is the cron expression of that recurring task, with the same empty cases */
+  oldRecurringCron: string;
+  /** OldRecurringText is the text of the recurring task that the approval of update_recurring_task or delete_recurring_task changed or deleted. It is empty for the other tools and for a pending action */
+  oldRecurringText: string;
   /** Result is the result text of the tool after the run, or empty */
   result: string;
   /** Role is the Role of the agent that called the tool */
@@ -1001,6 +1015,14 @@ export interface DrainEnd {
 export interface EnvelopeActionBrief {
   /** Data is the payload of the response */
   data: ActionBrief;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeActionRecurring {
+  /** Data is the payload of the response */
+  data: ActionRecurring;
 }
 
 /**
@@ -3284,6 +3306,74 @@ export const getGetActionBriefUrl = (id: number,) => {
 export const getActionBrief = async (id: number, ): Promise<getActionBriefResponse> => {
 
   return customFetch<getActionBriefResponse>(getGetActionBriefUrl(id),
+  {
+
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export type getActionRecurringResponse200 = {
+  data: EnvelopeActionRecurring
+  status: 200
+}
+
+export type getActionRecurringResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getActionRecurringResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getActionRecurringResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type getActionRecurringResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type getActionRecurringResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getActionRecurringResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getActionRecurringResponseSuccess = (getActionRecurringResponse200) & {
+  headers: Headers;
+};
+export type getActionRecurringResponseError = (getActionRecurringResponse400 | getActionRecurringResponse401 | getActionRecurringResponse404 | getActionRecurringResponse409 | getActionRecurringResponse422 | getActionRecurringResponse500) & {
+  headers: Headers;
+};
+
+export type getActionRecurringResponse = (getActionRecurringResponseSuccess | getActionRecurringResponseError)
+
+export const getGetActionRecurringUrl = (id: number,) => {
+
+
+
+
+  return `/api/actions/${id}/recurring`
+}
+
+/**
+ * GetActionRecurring reads the recurring task of the id argument of an update_recurring_task or delete_recurring_task action. It returns 404 for an unknown action or a recurring task that does not exist, and 409 for an action of another tool.
+ */
+export const getActionRecurring = async (id: number, ): Promise<getActionRecurringResponse> => {
+
+  return customFetch<getActionRecurringResponse>(getGetActionRecurringUrl(id),
   {
 
     method: 'GET'

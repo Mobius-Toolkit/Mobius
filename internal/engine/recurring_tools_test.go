@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -114,6 +115,57 @@ func TestTheLeadChangesAndDeletesARecurringTaskAfterTheOwnerApproves(t *testing.
 	}
 	if tasks := recurringTasks(t, server); len(tasks) != 0 {
 		t.Errorf("tasks after the delete = %+v", tasks)
+	}
+}
+
+func TestTheRecurringTaskOfAnUpdateOrDeleteActionIsTheTaskNowAndTheDoneActionKeepsTheOldTextAndCron(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callUpdateRecurring("Change it.", 1, weekdays, "Check the invoices.")+callDeleteRecurring("Delete it.", 1)+seenScript)
+	setNow(server, friday)
+	addRecurringTask(t, server, hourly, planCheck)
+	run(t, server, leadSpec(t), "Change it.", "Delete it.")
+	rows := waitForActions(t, server, 2)
+	requireRecurring := func(action actionRow, text, cron string) {
+		t.Helper()
+		if gotText, gotCron, err := server.Engine.ActionRecurring(t.Context(), action.ID); err != nil || gotText != text || gotCron != cron {
+			t.Errorf("recurring of action %d = %q, %q, %v, want %q, %q", action.ID, gotText, gotCron, err, text, cron)
+		}
+	}
+	requireRecurring(rows[0], planCheck, hourly)
+	requireRecurring(rows[1], planCheck, hourly)
+
+	changed := decided(t, server, rows[0].ID, "approve", "")
+
+	if changed.State != "done" || changed.OldRecurringText != planCheck || changed.OldRecurringCron != hourly {
+		t.Errorf("changed = %+v", changed)
+	}
+	requireRecurring(rows[1], "Check the invoices.", weekdays)
+
+	deleted := decided(t, server, rows[1].ID, "approve", "")
+
+	if deleted.State != "done" || deleted.OldRecurringText != "Check the invoices." || deleted.OldRecurringCron != weekdays {
+		t.Errorf("deleted = %+v", deleted)
+	}
+	if _, _, err := server.Engine.ActionRecurring(t.Context(), rows[1].ID); !errors.Is(err, engine.ErrNoRecurringTask) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestTheRecurringTaskOfAnActionOfAnotherToolOrAnUnknownActionGivesAnError(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
+	run(t, server, coordinatorSpec(t), "Send.")
+	action := waitForActions(t, server, 1)[0]
+
+	_, _, err := server.Engine.ActionRecurring(t.Context(), action.ID)
+
+	if !engine.Refused(err) {
+		t.Errorf("err = %v", err)
+	}
+	if _, _, err := server.Engine.ActionRecurring(t.Context(), action.ID+1); !errors.Is(err, engine.ErrNoAction) {
+		t.Errorf("err = %v", err)
 	}
 }
 

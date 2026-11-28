@@ -346,6 +346,8 @@ type PendingAction struct {
 	OldBrief          string
 	CreatedWorkstream sql.NullInt64
 	AwaitsNumber      int64
+	OldRecurringText  string
+	OldRecurringCron  string
 }
 
 type RecurringTask struct {

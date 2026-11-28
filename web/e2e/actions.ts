@@ -186,6 +186,8 @@ const triagerAction = {
   result: "",
   message: "",
   oldBrief: "",
+  oldRecurringText: "",
+  oldRecurringCron: "",
   sender: null,
   time: "2026-10-15T11:55:00Z",
   decidedAt: null,
