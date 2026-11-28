@@ -153,12 +153,13 @@ func (e *Engine) roleTools(c caller) []mcp.Tool {
 					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
 				},
 				e.stopResearcher),
-			tool(e, c, "start_operator",
-				"Start an Operator that does work outside code for this Workstream, with the MCP servers and the web tools of its session. The Operator sees only the Brief, its memory file, and your text. It changes no code and no repository. The tool returns the id of the Operator at once, and the report arrives later as an Operator message.",
+			withOptional(tool(e, c, "start_operator",
+				"Start an Operator that does work outside code for this Workstream, with the MCP servers and the web tools of its session. The Operator sees only the Brief, its memory file, your text, and the directory of the recurring task when you give recurring_task. It changes no code and no repository. The tool returns the id of the Operator at once, and the report arrives later as an Operator message.",
 				map[string]any{
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The work for the Operator, with the context that it needs."},
+					"text":           map[string]any{"type": "string", "minLength": 1, "description": "The work for the Operator, with the context that it needs."},
+					"recurring_task": map[string]any{"type": "integer", "minimum": 1, "description": "Optional. The id of a recurring task of this Workstream. Give it for work of a run of that recurring task. The Operator then gets the directory of the recurring task and the rules for scripts."},
 				},
-				e.startOperator),
+				e.startOperator), "recurring_task"),
 			withOptional(taskTool(e, c, "ask",
 				"Ask the people on a task issue, or on the Workstream issue, a question. For a task issue with no live task, ask on the Workstream issue, and name the task issue in the text. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. A new question on an issue replaces the open question of that issue in the Inbox. Thus put all open questions of one issue into one call. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{

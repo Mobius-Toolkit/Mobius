@@ -481,7 +481,7 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(page, "workstreams-unavailable", "/workstreams", (device) => [
     chatCount,
-    ...(device === "desktop" ? [drain] : []),
+    ...(device === "desktop" ? [drain] : [page.getByLabel("Upgrade available")]),
     page.getByLabel("Work in another organization").filter({ visible: true }),
     page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
     main.getByText("The server is not available (502)."),

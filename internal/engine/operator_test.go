@@ -291,6 +291,95 @@ hang = true
 	}
 }
 
+// recurringOperatorLead is a Lead that starts an Operator for the recurring task 1 or for the recurring task 99.
+const recurringOperatorLead = `
+[[prompts]]
+when = "Start with the missing task"
+call = { tool = "start_operator", arguments = { text = "Update the listings.", recurring_task = 99 } }
+
+[[prompts]]
+when = "Start with the recurring task"
+call = { tool = "start_operator", arguments = { text = "Update the listings.", recurring_task = 1 } }
+`
+
+func TestAnOperatorWithARecurringTaskGetsItsDirectoryAndTheRulesBeforeTheTextAndStaysInItsOwnFolder(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectOperator(t, fake, operatorLead+recurringOperatorLead+operatorWork)
+	task := addRecurringTask(t, server, hourly, planCheck)
+	if task.ID != 1 {
+		t.Fatalf("task id = %d", task.ID)
+	}
+
+	sendChat(t, server, leadChat, "Start with the recurring task.")
+
+	session := endedOperators(t, server, 1)[0]
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	want := "# Directory of the recurring task" + directoryText(dataDir, task.ID) + "\n\n# Text\n\nUpdate the listings."
+	if !strings.Contains(prompts[0], want) {
+		t.Errorf("%q is not in %s", want, prompts[0])
+	}
+	if info, err := os.Stat(filepath.Join(dataDir, "recurring", itoa(task.ID))); err != nil || !info.IsDir() {
+		t.Errorf("directory of the recurring task: %v, %v", info, err)
+	}
+	if report := reply(t, server, session.ID); !strings.Contains(report, "/operators/owner/shop/12\nexit 0") {
+		t.Errorf("report = %q", report)
+	}
+}
+
+func TestAnOperatorWithNoRecurringTaskGetsNoDirectorySection(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectOperator(t, fake, operatorLead+operatorWork)
+	addRecurringTask(t, server, hourly, planCheck)
+
+	sendChat(t, server, leadChat, "Start the operator.")
+
+	session := endedOperators(t, server, 1)[0]
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 || strings.Contains(prompts[0], "# Directory of the recurring task") || !strings.Contains(prompts[0], "\n\n# Text\n\nUpdate the listings.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "recurring")); !os.IsNotExist(err) {
+		t.Errorf("recurring directory: %v", err)
+	}
+}
+
+func TestStartOperatorRefusesTheIdOfARecurringTaskOfAnotherWorkstreamAndAnUnknownId(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 13, "Improve the checkout")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	server, dataDir := connectOperator(t, fake, operatorLead+recurringOperatorLead+operatorWork)
+	waitForCopy(t, server, shop, 13)
+	other, err := server.Engine.AddRecurringTask(t.Context(), shop, 13, hourly, planCheck, 0)
+	if err != nil || other.ID != 1 {
+		t.Fatalf("task = %+v, %v", other, err)
+	}
+
+	sendChat(t, server, leadChat, "Start with the recurring task.")
+	sendChat(t, server, leadChat, "Start with the missing task.")
+
+	calls := testkit.WaitForValue(t, func() ([]map[string]any, bool) {
+		calls := leadCalls(t, server)
+		return calls, len(calls) == 2
+	})
+	for i, want := range []string{"The Workstream has no recurring task 1.", "The Workstream has no recurring task 99."} {
+		if calls[i]["tool"] != "start_operator" || calls[i]["error"] != want {
+			t.Errorf("call %d = %+v, want the error %q", i, calls[i], want)
+		}
+	}
+	if sessions := roleSessions(t, server, engine.OperatorRole); len(sessions) != 0 {
+		t.Errorf("Operators = %+v", sessions)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "recurring")); !os.IsNotExist(err) {
+		t.Errorf("recurring directory: %v", err)
+	}
+}
+
 func TestTheDrainRefusesANewOperator(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
