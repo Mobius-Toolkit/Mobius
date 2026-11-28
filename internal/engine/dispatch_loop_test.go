@@ -36,7 +36,7 @@ func TestAStartFromTheUIDispatchesTheTaskBeforeTheNextPoll(t *testing.T) {
 	addWorkstream(fake)
 	server := startWithHourlyPoll(t, fake)
 
-	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,7 +56,7 @@ func TestAReadyIssueWithAStoredStartDispatchesAfterARestartWhileTheFirstPollWait
 	first.WaitForFirstPoll(t, shop)
 	// The failed reads of #41 stop the dispatch of the first server, so the Start stays in the database.
 	fake.FailIssueReads(shop, 41, 1000)
-	if err := first.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := first.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool {
@@ -85,10 +85,10 @@ func TestAFailedReadOfOneIssueDoesNotStopTheDispatchOfALaterIssueAndTheFailedIss
 	server := startWithHourlyPoll(t, fake)
 	fake.FailIssueReads(shop, 41, 100)
 
-	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
-	if err := server.Engine.StartIssue(t.Context(), shop, 42); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 42); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,7 +134,7 @@ func TestTheDispatchLoopWaitsForTheBlockerCopyOfThePollAfterAReadyLabelOfThePoll
 	reached, releaseIssue := fake.HoldIssue(shop, 41)
 	t.Cleanup(releaseIssue)
 
-	if err := server.Engine.StartIssue(t.Context(), shop, 43); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 43); err != nil {
 		t.Fatal(err)
 	}
 	release()
@@ -167,7 +167,7 @@ func TestTheDispatchLoopAndAutopilotDispatchOneIssueOneTime(t *testing.T) {
 	t.Cleanup(release)
 	turnStartOn(t, server)
 	<-reached
-	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 	// Without the lock, the loop dispatches the issue while Autopilot waits for its read.
@@ -197,7 +197,7 @@ func startWithBrokenPullRequest(t *testing.T, taskState string, breakReads func(
 	})
 	breakReads(fake)
 	for _, number := range []int64{41, 43} {
-		if err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
+		if _, err := server.Engine.StartIssue(t.Context(), shop, number); err != nil {
 			t.Fatal(err)
 		}
 	}

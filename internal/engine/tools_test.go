@@ -1022,7 +1022,7 @@ func TestStopTaskClearsAWaitingStartAndTheNextPollsDoNotDispatchTheIssueAgain(t 
 	testkit.WaitFor(t, func() bool {
 		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ci_break != 0 AND ended_at = ''") == 1
 	})
-	if err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
+	if _, err := server.Engine.StartIssue(t.Context(), shop, 41); err != nil {
 		t.Fatal(err)
 	}
 	if !hasStart(t, server, 41) {

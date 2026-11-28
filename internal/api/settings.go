@@ -60,12 +60,12 @@ type ClearTaskImplementerRequest struct {
 
 // SetTaskImplementer sets the Harness, the model and the effort of the Implementer of a task. The next Implementer
 // round of the task uses them. It returns 422 with the reason when the values fail a check.
-func (h *handlers) SetTaskImplementer(ctx context.Context, req SetTaskImplementerRequest) error {
+func (h *handlers) SetTaskImplementer(ctx context.Context, req SetTaskImplementerRequest) (engine.Record, error) {
 	return h.set(ctx, "implementer", req.Path, req.Body)
 }
 
 // ClearTaskImplementer removes the Implementer setting of a task. It returns 204 also when the task has no setting.
-func (h *handlers) ClearTaskImplementer(ctx context.Context, req ClearTaskImplementerRequest) error {
+func (h *handlers) ClearTaskImplementer(ctx context.Context, req ClearTaskImplementerRequest) (engine.Record, error) {
 	return h.clear(ctx, "implementer", req.Path)
 }
 
@@ -83,13 +83,13 @@ type ClearWorkstreamImplementerRequest struct {
 // SetWorkstreamImplementer sets the Harness, the model and the effort of the Implementer of each task of a Workstream
 // that has no setting of its own. It returns 409 when the issue is not an open Workstream, and 422 with the reason
 // when the values fail a check.
-func (h *handlers) SetWorkstreamImplementer(ctx context.Context, req SetWorkstreamImplementerRequest) error {
+func (h *handlers) SetWorkstreamImplementer(ctx context.Context, req SetWorkstreamImplementerRequest) (engine.Record, error) {
 	return h.setWorkstream(ctx, "implementer", req.Path, req.Body)
 }
 
 // ClearWorkstreamImplementer removes the Implementer setting of a Workstream. It returns 409 when the issue is not an
 // open Workstream.
-func (h *handlers) ClearWorkstreamImplementer(ctx context.Context, req ClearWorkstreamImplementerRequest) error {
+func (h *handlers) ClearWorkstreamImplementer(ctx context.Context, req ClearWorkstreamImplementerRequest) (engine.Record, error) {
 	return h.clearWorkstream(ctx, "implementer", req.Path)
 }
 
@@ -106,12 +106,12 @@ type ClearWorkstreamLeadRequest struct {
 
 // SetWorkstreamLead sets the Harness, the model and the effort of the Lead of a Workstream. The next Lead session uses
 // them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values fail a check.
-func (h *handlers) SetWorkstreamLead(ctx context.Context, req SetWorkstreamLeadRequest) error {
+func (h *handlers) SetWorkstreamLead(ctx context.Context, req SetWorkstreamLeadRequest) (engine.Record, error) {
 	return h.setWorkstream(ctx, "lead", req.Path, req.Body)
 }
 
 // ClearWorkstreamLead removes the Lead setting of a Workstream. It returns 409 when the issue is not an open Workstream.
-func (h *handlers) ClearWorkstreamLead(ctx context.Context, req ClearWorkstreamLeadRequest) error {
+func (h *handlers) ClearWorkstreamLead(ctx context.Context, req ClearWorkstreamLeadRequest) (engine.Record, error) {
 	return h.clearWorkstream(ctx, "lead", req.Path)
 }
 
@@ -129,35 +129,36 @@ type ClearWorkstreamOperatorRequest struct {
 // SetWorkstreamOperator sets the Harness, the model and the effort of the Operator of a Workstream. The next Operator
 // session uses them. It returns 409 when the issue is not an open Workstream, and 422 with the reason when the values
 // fail a check.
-func (h *handlers) SetWorkstreamOperator(ctx context.Context, req SetWorkstreamOperatorRequest) error {
+func (h *handlers) SetWorkstreamOperator(ctx context.Context, req SetWorkstreamOperatorRequest) (engine.Record, error) {
 	return h.setWorkstream(ctx, "operator", req.Path, req.Body)
 }
 
 // ClearWorkstreamOperator removes the Operator setting of a Workstream. It returns 409 when the issue is not an open
 // Workstream.
-func (h *handlers) ClearWorkstreamOperator(ctx context.Context, req ClearWorkstreamOperatorRequest) error {
+func (h *handlers) ClearWorkstreamOperator(ctx context.Context, req ClearWorkstreamOperatorRequest) (engine.Record, error) {
 	return h.clearWorkstream(ctx, "operator", req.Path)
 }
 
-func (h *handlers) set(ctx context.Context, role string, path IssuePath, setting IssueSetting) error {
-	err := h.engine.SetSetting(ctx, role, path.Owner+"/"+path.Name, path.Number, config.Harness(setting.Harness), setting.Model, setting.Effort)
-	return roleError(err)
+func (h *handlers) set(ctx context.Context, role string, path IssuePath, setting IssueSetting) (engine.Record, error) {
+	record, err := h.engine.SetSetting(ctx, role, path.Owner+"/"+path.Name, path.Number, config.Harness(setting.Harness), setting.Model, setting.Effort)
+	return record, roleError(err)
 }
 
-func (h *handlers) clear(ctx context.Context, role string, path IssuePath) error {
-	return roleError(h.engine.ClearSetting(ctx, role, path.Owner+"/"+path.Name, path.Number))
+func (h *handlers) clear(ctx context.Context, role string, path IssuePath) (engine.Record, error) {
+	record, err := h.engine.ClearSetting(ctx, role, path.Owner+"/"+path.Name, path.Number)
+	return record, roleError(err)
 }
 
-func (h *handlers) setWorkstream(ctx context.Context, role string, path IssuePath, setting IssueSetting) error {
+func (h *handlers) setWorkstream(ctx context.Context, role string, path IssuePath, setting IssueSetting) (engine.Record, error) {
 	if err := h.openWorkstream(ctx, path); err != nil {
-		return err
+		return engine.Record{}, err
 	}
 	return h.set(ctx, role, path, setting)
 }
 
-func (h *handlers) clearWorkstream(ctx context.Context, role string, path IssuePath) error {
+func (h *handlers) clearWorkstream(ctx context.Context, role string, path IssuePath) (engine.Record, error) {
 	if err := h.openWorkstream(ctx, path); err != nil {
-		return err
+		return engine.Record{}, err
 	}
 	return h.clear(ctx, role, path)
 }

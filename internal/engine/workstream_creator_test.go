@@ -97,7 +97,7 @@ func TestAWontDoCloseOfACreatedWorkstreamGivesTheCreatorLeadOneEventWithTheReaso
 	fake := testkit.NewFakeGitHub(t)
 	server := startCreated(t, fake, leadSpec(t))
 
-	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 13); err != nil {
+	if _, err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 13); err != nil {
 		t.Fatal(err)
 	}
 

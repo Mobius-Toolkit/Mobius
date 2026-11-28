@@ -123,12 +123,12 @@ type SetAutopilotRequest struct {
 // SetAutopilot sets the Autopilot level of the Workstream. Mobius changes the level and acts at once, and writes
 // mobius:autopilot and mobius:auto-merge to the issue with the App token. It returns 409 when the issue is not an open
 // Workstream.
-func (h *handlers) SetAutopilot(ctx context.Context, req SetAutopilotRequest) error {
-	err := h.engine.SetAutopilot(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.Level)
+func (h *handlers) SetAutopilot(ctx context.Context, req SetAutopilotRequest) (engine.Record, error) {
+	record, err := h.engine.SetAutopilot(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.Level)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // SetEvergreenRequest is the request of SetEvergreen.
@@ -149,12 +149,12 @@ type SetEvergreenRequest struct {
 
 // SetEvergreen makes the Workstream evergreen or not evergreen. It returns 409 when the issue is not an open Workstream,
 // and for the Maintenance Workstream and the Skills Workstream.
-func (h *handlers) SetEvergreen(ctx context.Context, req SetEvergreenRequest) error {
-	err := h.engine.SetEvergreen(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.On)
+func (h *handlers) SetEvergreen(ctx context.Context, req SetEvergreenRequest) (engine.Record, error) {
+	record, err := h.engine.SetEvergreen(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number, req.Body.On)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // CompleteWorkstreamRequest is the request of CompleteWorkstream.
@@ -173,12 +173,12 @@ type CompleteWorkstreamRequest struct {
 // open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open
 // Workstream, when the Workstream has an open task, when it has no task and its Lead did not report it as finished,
 // or when it has an open deployment todo.
-func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstreamRequest) error {
-	err := h.engine.CompleteWorkstream(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstreamRequest) (engine.Record, error) {
+	record, err := h.engine.CompleteWorkstream(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
@@ -249,12 +249,12 @@ type CloseWorkstreamRequest struct {
 // CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of
 // WorkstreamClosure, Mobius adds a comment and closes the item. It closes the Workstream issue last. It returns
 // 409 when the issue is not an open Workstream.
-func (h *handlers) CloseWorkstream(ctx context.Context, req CloseWorkstreamRequest) error {
-	err := h.engine.CloseWorkstreamWontDo(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+func (h *handlers) CloseWorkstream(ctx context.Context, req CloseWorkstreamRequest) (engine.Record, error) {
+	record, err := h.engine.CloseWorkstreamWontDo(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // WorkstreamDetailsRequest is the request of GetWorkstreamDetails.

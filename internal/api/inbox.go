@@ -154,12 +154,12 @@ type DismissRequest struct {
 // Dismiss removes an item from the Inbox. For a todo item, it also marks the todo as dismissed. When that closes the last
 // blocking todo of a task, Mobius makes the pull request ready for review. It returns 409 for a todo item that is not
 // open and for a mandatory todo.
-func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
-	err := h.engine.DismissByOwner(ctx, req.Path.ID)
+func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) (engine.Record, error) {
+	record, err := h.engine.DismissByOwner(ctx, req.Path.ID)
 	if engine.Refused(err) {
-		return api.NewHTTPError(http.StatusConflict, err.Error())
+		return engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
-	return err
+	return record, err
 }
 
 // SendAgainRequest is the request of SendAgain.
@@ -271,22 +271,22 @@ type MergeInboxItemResponse struct {
 // GitHub. It returns the item in the merging state. It returns 404 for an unknown item, and 409 with the reason for an
 // item that is not open, for a task that is not ready for review, for a pull request that is not open, and when the
 // Owner did not authorize the App.
-func (h *handlers) MergeInboxItem(ctx context.Context, req MergeInboxItemRequest) (*MergeInboxItemResponse, error) {
-	item, err := h.engine.MergeInboxItem(ctx, req.Path.ID)
+func (h *handlers) MergeInboxItem(ctx context.Context, req MergeInboxItemRequest) (*MergeInboxItemResponse, engine.Record, error) {
+	item, record, err := h.engine.MergeInboxItem(ctx, req.Path.ID)
 	if errors.Is(err, engine.ErrNoInboxItem) {
-		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}
 	if engine.Refused(err) {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
 	found, err := h.inboxItemOf(ctx, item)
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &MergeInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
+	return &MergeInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, record, nil
 }
 
 // DoneInboxItemRequest is the request of DoneInboxItem.
@@ -331,23 +331,23 @@ type DoneInboxItemResponse struct {
 // owner action item whose task does not wait for the action, and 400 for a request that has more than 4 images or an
 // image that is not PNG, JPEG, GIF or WebP. A note with an image, an Inbox item or a selection goes to the chat of the
 // item in a message of the Owner that the agent gets.
-func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, error) {
+func (h *handlers) DoneInboxItem(ctx context.Context, req DoneInboxItemRequest) (*DoneInboxItemResponse, engine.Record, error) {
 	body := req.Body
-	item, err := h.engine.DoneInboxItem(ctx, req.Path.ID, unixLines(body.Note), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
+	item, record, err := h.engine.DoneInboxItem(ctx, req.Path.ID, unixLines(body.Note), attachmentsOf(body.Images, body.InboxItems, body.Selections, body.Voice, body.VoiceSeconds))
 	if errors.Is(err, engine.ErrNoInboxItem) {
-		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
 	}
 	if engine.Refused(err) {
-		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+		return nil, engine.Record{}, api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
 	found, err := h.inboxItemOf(ctx, item)
 	if err != nil {
-		return nil, err
+		return nil, engine.Record{}, err
 	}
-	return &DoneInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
+	return &DoneInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, record, nil
 }
 
 func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (InboxItem, error) {

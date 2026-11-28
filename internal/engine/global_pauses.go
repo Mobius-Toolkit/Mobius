@@ -147,7 +147,7 @@ var switchNames = map[string]string{"start": "Start", "merge": "Merge", "repairs
 
 // SetSwitch turns the switch kind on or off. Turning it on also forgets the work that it held. Turning it off again
 // keeps the first time.
-func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
+func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) (Record, error) {
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		if !on {
 			return q.AddGlobalPause(ctx, store.AddGlobalPauseParams{Kind: kind, PausedAt: now()})
@@ -158,7 +158,7 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 		return q.DeleteGlobalPause(ctx, kind)
 	})
 	if err != nil {
-		return err
+		return Record{}, err
 	}
 	e.publish(Change{Switches: true})
 	e.workers.changed.notify()
@@ -172,10 +172,7 @@ func (e *Engine) SetSwitch(ctx context.Context, kind string, on bool) error {
 	if on {
 		state = "on"
 	}
-	for _, organization := range e.github.Organizations() {
-		e.addRecord(ctx, ChatKey{Organization: organization}, fmt.Sprintf("You turned %s %s.", switchNames[kind], state))
-	}
-	return nil
+	return e.organizationRecord(fmt.Sprintf("You turned %s %s.", switchNames[kind], state)), nil
 }
 
 // holdWork records that the switch kind holds the work of the issue of repository.
